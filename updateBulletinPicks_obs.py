@@ -39,7 +39,7 @@ def findUniqueStations(inventory):
 
 def findCode(line,uniqueSta):
     stationLine = line[:9].lstrip('.').strip() if line.startswith('.') else line[:9].split('.')[1].strip() # works both with or without Network
-    networkLine = None
+    alternateStationLine = None
     matchingIndices = uniqueSta.index[uniqueSta.Code == stationLine].tolist()
 
     if len(matchingIndices) >= 1:
@@ -56,6 +56,9 @@ def findCode(line,uniqueSta):
             dateLine = UTCDateTime(f'{year}-{month}-{day}T{hour}:{minute}:{second}Z')
         except:
             return False
+        
+        if len(matchingIndices) == 1:
+            alternateStationLine = uniqueSta.AlternateCode.loc[matchingIndices[workingIndices[0]]]
 
         # Compare to the available timeframes
         workingIndices = []
@@ -70,10 +73,9 @@ def findCode(line,uniqueSta):
         
         # Get the date only if there is exactly one
         if len(workingIndices) == 1:
-            networkLine = uniqueSta.Network.loc[matchingIndices[workingIndices[0]]]
             alternateStationLine = uniqueSta.AlternateCode.loc[matchingIndices[workingIndices[0]]]
 
-    if networkLine is None: # no match or too many matches
+    if alternateStationLine is None: # no match or too many matches
         return None
 
     return alternateStationLine.ljust(9)
