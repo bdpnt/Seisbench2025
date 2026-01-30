@@ -1,7 +1,7 @@
 '''
 updateBulletinPicks_obs searches the global Inventory for the Network associated
 with every pick in an OBS Catalog. If the Network is not found, removes the pick.
-It also updates the codes for any duplicate station in an Network.
+It also updates the codes for any duplicate station in a Network.
 '''
 
 from obspy import read_inventory, UTCDateTime
@@ -58,7 +58,7 @@ def findCode(line,uniqueSta):
             return False
         
         if len(matchingIndices) == 1:
-            alternateStationLine = uniqueSta.AlternateCode.loc[matchingIndices[workingIndices[0]]]
+            alternateStationLine = uniqueSta.AlternateCode.loc[matchingIndices[0]]
 
         # Compare to the available timeframes
         workingIndices = []
@@ -133,8 +133,8 @@ if __name__ == '__main__':
     #---- Parameters
     parameters = Parameters(
         fileInventory = 'stations/GLOBAL_inventory.xml',
-        fileBulletin = 'obs/IGN_20-25.obs',
-        saveName = 'obs/IGN_20-25_checked.obs'
+        fileBulletin = 'obs/OMP_2016.obs',
+        saveName = 'obs/OMP_2016_updated.obs'
     )
 
     #---- Write OBS file
