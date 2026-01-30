@@ -1,0 +1,61 @@
+'''
+availableMagTypes_obs searches for all available magnitude types in a .obs Catalog
+and lists them.
+'''
+
+# CLASS
+class Parameters:
+    def __init__(self, **kwargs):
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+    def __str__(self):
+        attrs = ', '.join(f"{k}={v}" for k, v in self.__dict__.items())
+        return f"Parameters({attrs})"
+
+    def update(self, **kwargs):
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+# FUNCTIONS
+def retrieveEvents_fromFile(fileName):
+    with open(fileName, 'r', encoding='utf-8', errors='ignore') as fR:
+        catLines = fR.readlines()
+
+    eventLines = []
+    for line in catLines:
+        if line.startswith('###'):
+            continue
+        elif line.startswith('#'):
+            eventLines.append(line.rstrip('\n').lstrip('# '))
+    
+    print(f"Events from Catalog @ {fileName} succesfully retrieved")
+    return eventLines
+
+def findMagnitudeTypes(parameters):
+    #--- Get events informations
+    eventLines = retrieveEvents_fromFile(parameters.fileName)
+
+    #--- Find all magnitude types available
+    magTypes = {}
+    for line in eventLines:
+        magType = line.split()[10] + ' ' + line.split()[11]
+        if magType not in list(magTypes):
+            magTypes[magType] = 1
+        else:
+            magTypes[magType] +=1
+    
+    #--- Print
+    print(f'Magnitude types available in Catalog @ {parameters.fileName}:')
+    for magType in magTypes:
+        print(f'    - {magType} ({magTypes[magType]})')
+
+# MAIN
+if __name__ == '__main__':
+    #---- Parameters
+    parameters = Parameters(
+        fileName = 'obs/ICGC_20-25.obs', # file to read (obs)
+    )
+
+    #---- Find magnitude types available
+    findMagnitudeTypes(parameters)
