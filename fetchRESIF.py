@@ -1,5 +1,5 @@
 '''
-fetchFDSN saves a FDSN-fetched Catalog to a QUAKEML file.
+fetchRESIF saves a FDSN-fetched Catalog to a QUAKEML file.
 '''
 
 from obspy.clients.fdsn import Client
@@ -22,6 +22,7 @@ class Parameters:
 # FUNCTIONS
 def generate_catalog(parameters):
     #---- Initiate catalog
+    print('\n')
     client = Client(parameters.client_name)
     catalog = None
 
@@ -102,7 +103,7 @@ def generate_catalog(parameters):
 
     # Save catalog as QUAKEML
     catalog.write(parameters.fileName, format="QUAKEML")
-    print(f"Catalog succesfully written to {parameters.fileName}")
+    print(f"Catalog succesfully written @ {parameters.fileName}\n")
 
 # MAIN
 if __name__ == '__main__':

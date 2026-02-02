@@ -45,12 +45,11 @@ def updateMagnitudes(lines,orgMag):
     return lines
 
 def saveMagnitudes(lines,file):
-    saveFile = file.rstrip('.obs') + '_toLDG.obs'
-    with open(saveFile,'w') as f:
+    with open(file,'w') as f:
         for line in lines:
             f.write(line)
     
-    print(f'\n    - Catalog succesfully saved @ {saveFile}')
+    print(f'\n    - Catalog succesfully saved @ {file}')
 
 def updateAllFiles(parameters):
     print('\n#########') # opening line
@@ -87,7 +86,7 @@ def updateAllFiles(parameters):
             
             # Try to fetch the models
             try:
-                fileModel = f'MAGMODELS/{modelNameStart}_2_ML LDG.joblib'
+                fileModel = f'MAGMODELS/{modelNameStart}.joblib' #_2_ML LDG.joblib'
                 models = joblib.load(fileModel)
 
                 model_ge_2 = [model for _,model in models.items()][0] # model for magnitudes greater or equal to 2

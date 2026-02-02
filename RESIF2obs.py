@@ -1,5 +1,5 @@
 '''
-FDSN2obs reads a FDSN QUAKEML file and saves its data as an OBS file.
+RESIF2obs reads a FDSN QUAKEML file and saves its data as an OBS file.
 '''
 
 from obspy import UTCDateTime, read_events
@@ -160,7 +160,7 @@ def write_catalog_to_obs(catalog, parameters):
             f.write("\n")
     
     # Print
-    print(f"Catalog succesfully written to {parameters.saveName}")
+    print(f"Catalog succesfully written @ {parameters.saveName}\n")
 
 # MAIN
 if __name__ == '__main__':

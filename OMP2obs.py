@@ -24,7 +24,7 @@ def open_catalog(fileName):
     with open(fileName, 'r', encoding='utf-8', errors='ignore') as fR:
         lines = fR.readlines()
 
-    print(f"Events from Catalog @ {fileName} succesfully retrieved")
+    print(f"\nEvents from Catalog @ {fileName} succesfully retrieved")
     return lines
 
 def write_catalog_to_obs(parameters):
@@ -304,14 +304,14 @@ def write_catalog_to_obs(parameters):
                 f.write("\n")
 
     # Print
-    print(f"Catalog succesfully written to {parameters.saveName}")
+    print(f"Catalog succesfully written @ {parameters.saveName}\n")
 
 # MAIN
 if __name__ == '__main__':
     #---- Parameters
     parameters = Parameters(
-        fileName = 'ORGCATALOGS/OMP_78-19.mag',
-        saveName = 'obs/OMP_78-19.obs',
+        fileName = 'ORGCATALOGS/OMP_2016.mag',
+        saveName = 'obs/OMP_2016.obs',
     )
 
     #---- Write OBS file

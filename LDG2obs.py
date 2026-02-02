@@ -25,6 +25,9 @@ def write_catalog_to_obs(parameters):
     catalog = pd.read_csv(parameters.catalogFile,sep=';',header=0)
     arrivals = pd.read_csv(parameters.arrivalFile,sep=';',header=0)
 
+    print(f'\nEvents from Catalog @ {parameters.catalogFile} succesfully retrieved')
+    print(f'Picks from Bulletin @ {parameters.arrivalFile} succesfully retrieved')
+
     #---- Write OBS file
     with open(parameters.saveName, 'w') as f:
         #--- File informations
@@ -125,7 +128,7 @@ def write_catalog_to_obs(parameters):
             f.write("\n")
     
     # Print
-    print(f"Catalog succesfully written to {parameters.saveName}")
+    print(f"Catalog succesfully written @ {parameters.saveName}\n")
 
 # MAIN
 if __name__ == '__main__':

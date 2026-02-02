@@ -133,8 +133,8 @@ if __name__ == '__main__':
     #---- Parameters
     parameters = Parameters(
         fileInventory = 'stations/GLOBAL_inventory.xml',
-        fileBulletin = 'obs/OMP_2016.obs',
-        saveName = 'obs/OMP_2016_updated.obs'
+        fileBulletin = 'obs/OMP_78-19.obs',
+        saveName = 'obs/OMP_78-19.obs'
     )
 
     #---- Write OBS file

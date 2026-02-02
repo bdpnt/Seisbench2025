@@ -316,18 +316,18 @@ def convertMagnitudes(parameters, printFigs=False):
 if __name__ == '__main__':
     #---- Parameters
     parameters = Parameters(
-        fileName1 = 'obs/IGN_20-25.obs', # magnitudes to convert
+        fileName1 = 'obs/RESIF_20-25.obs', # magnitudes to convert
         fileName2 = 'obs/LDG_20-25.obs', # magnitudes to keep
-        magType1 = 'mb_Lg', # magnitude type to convert from (in fileName1) ; e.g. 'mb_Lg' (without origin 'IGN')
-        magType2 = 'ML', # magnitude type to convert to (in fileName2) ; e.g. 'ML' (without origin 'RESIF')
-        magName1 = 'mb_Lg IGN', # magnitude name to convert from (in fileName1), for printing/model name only ; e.g. 'mb_Lg IGN' (with origin if needed)
-        magName2 = 'ML LDG', # magnitude name to convert to (in fileName2), for printing/model name only ; e.g. 'ML RESIF' (with origin if needed)
+        magType1 = 'MLv', # magnitude type to convert from (in fileName1) ; e.g. 'mb_Lg' (without origin 'IGN')
+        magType2 = 'ML', # magnitude type to convert to (in fileName2) ; e.g. 'ML' (without origin 'LDG')
+        magName1 = 'MLv RESIF', # magnitude name to convert from (in fileName1), for printing/model name only ; e.g. 'mb_Lg IGN' (with origin if needed)
+        magName2 = 'ML LDG', # magnitude name to convert to (in fileName2), for printing/model name only ; e.g. 'ML LDG' (with origin if needed)
         distThresh = 10.0, # distance threshold between events in km
         timeThresh = 2.0, # time threshold between events in s
     )
 
     parameters.update(
-        saveName = f'MAGMODELS/{parameters.magName1}_2_{parameters.magName2}.joblib', # model name
+        saveName = f'MAGMODELS/{parameters.magName1}.joblib', # model name
         saveFigs = 'MAGMODELS/FIGURES/', # figures folder
     )
 
