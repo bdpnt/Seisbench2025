@@ -53,7 +53,10 @@ def find_bestMagnitude(event,magType):
         except:
             return False, None
 
-def write_catalog_to_obs(catalog, parameters):
+def write_catalog_to_obs(parameters):
+    catalog = fetch_catalog(parameters)
+    print(f'\nEvents from Catalog @ {parameters.fileName} succesfully retrieved')
+
     with open(parameters.saveName,'w') as f:
     #--- File informations
         f.write(f"### Catalog generated on the {UTCDateTime()}\n")
@@ -172,5 +175,4 @@ if __name__ == '__main__':
     )
 
     #---- Write OBS file
-    catalog = fetch_catalog(parameters)
-    write_catalog_to_obs(catalog, parameters)
+    write_catalog_to_obs(parameters)
