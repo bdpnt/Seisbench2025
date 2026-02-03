@@ -122,19 +122,18 @@ def associatePicks(parameters):
     print(f"Picks removed: {picksRemoved}/{orgBulletinLength} ({picksRemovedPercent:.3f} %)\n")
 
     #--- Save the Bulletin
-    with open(parameters.saveName, 'w') as f:
+    with open(parameters.fileBulletin, 'w') as f:
         f.writelines(newBulletin)
     
     # Print
-    print(f"Bulletin succesfully saved @ {parameters.saveName}\n")
+    print(f"Bulletin succesfully saved @ {parameters.fileBulletin}\n")
 
 # MAIN
 if __name__ == '__main__':
     #---- Parameters
     parameters = Parameters(
         fileInventory = 'stations/GLOBAL_inventory.xml',
-        fileBulletin = 'obs/OMP_78-19.obs',
-        saveName = 'obs/OMP_78-19.obs'
+        fileBulletin = 'obs/RESIF_20-25.obs',
     )
 
     #---- Write OBS file
