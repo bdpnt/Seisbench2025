@@ -86,7 +86,7 @@ def get_catalogFrame(eventLines):
     return catalogFrame
 
 def matchEvents(catalog1, catalog2, distThresh, timeThresh):
-    '''Catalog1 is the catalog to convert, distance in km and time in seconds'''
+    """Catalog1 is the catalog to convert, distance in km and time in seconds"""
     timeThresh = pd.Timedelta(seconds=timeThresh)
 
     coords2 = catalog2[['latitude', 'longitude']].values

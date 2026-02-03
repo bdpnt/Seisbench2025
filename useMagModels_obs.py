@@ -47,6 +47,8 @@ def updateMagnitudes(lines,orgMag):
 def saveMagnitudes(lines,file):
     with open(file,'w') as f:
         for line in lines:
+            if not line.endswith('\n'):
+                line += '\n'
             f.write(line)
     
     print(f'\n    - Catalog succesfully saved @ {file}')
