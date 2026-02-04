@@ -40,8 +40,9 @@ def updateMagnitudes(lines,orgMag):
         line_idx = row['linesID']
         columns = lines[line_idx].split()
         columns[10] = str(row['ldgMag'])
-        columns[11],columns[12] = 'MLv','LDG'
-        lines[line_idx] = ' '.join(columns)
+        columns[11],columns[12] = 'ML','LDG'
+        if columns[10] != 'None':
+            lines[line_idx] = ' '.join(columns)
     return lines
 
 def saveMagnitudes(lines,file):

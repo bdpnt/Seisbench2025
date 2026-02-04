@@ -1,7 +1,7 @@
-# '''
-# magRegressionModel_obs generates a regression model from a magnitude type from
-# a .obs Bulletin to another magnitude type from another .obs Bulletin.
-# '''
+'''
+genMagModel_obs generates a regression model from a magnitude type from
+a .obs Bulletin to another magnitude type from another .obs Bulletin.
+'''
 
 import pandas as pd
 import math
