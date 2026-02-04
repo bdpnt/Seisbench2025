@@ -39,7 +39,7 @@ def updateMagnitudes(lines,orgMag):
     for _, row in orgMag.iterrows():
         line_idx = row['linesID']
         columns = lines[line_idx].split()
-        columns[10] = str(row['ldgMag'])
+        columns[10] = f"{float(row['ldgMag']):.2f}" if row['ldgMag'] is not None else 'None'
         columns[11],columns[12] = 'ML','LDG'
         if columns[10] != 'None':
             lines[line_idx] = ' '.join(columns)
