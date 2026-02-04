@@ -6,6 +6,7 @@ It also updates the codes for any duplicate station in a Network.
 
 from obspy import read_inventory, UTCDateTime
 import pandas as pd
+import glob
 
 # CLASS
 class Parameters:
@@ -81,59 +82,64 @@ def findCode(line,uniqueSta):
     return alternateStationLine.ljust(9)
 
 def associatePicks(parameters):
+    print('\n#########')
+
     #--- Load Inventory and Bulletin
     inventory = read_inventory(parameters.fileInventory,format='STATIONXML')
     print(f"\nStations from Inventory @ {parameters.fileInventory} succesfully retrieved")
 
-    with open(parameters.fileBulletin,'r',encoding='utf-8') as f:
-        linesBulletin = f.readlines()
-    print(f"Picks from Bulletin @ {parameters.fileBulletin} succesfully retrieved\n")
+    for fileBulletin in glob.glob(parameters.folderBulletin):
+        with open(fileBulletin,'r',encoding='utf-8') as f:
+            linesBulletin = f.readlines()
+        print(f"\nPicks from Bulletin @ {fileBulletin} succesfully retrieved:")
 
-    # Initiate Bulletin picks length
-    orgBulletinLength = 0
-    newBulletinLength = 0
+        # Initiate Bulletin picks length
+        orgBulletinLength = 0
+        newBulletinLength = 0
 
-    #--- Find unique stations in Inventory
-    uniqueSta = findUniqueStations(inventory)
+        #--- Find unique stations in Inventory
+        uniqueSta = findUniqueStations(inventory)
 
-    #--- Find the right network for every line
-    newBulletin = []
-    for line in linesBulletin:
-        if not line.startswith('#') and not line == '\n':
-            # Update original Bulletin picks length
-            orgBulletinLength += 1
+        #--- Find the right network for every line
+        newBulletin = []
+        for line in linesBulletin:
+            if not line.startswith('#') and not line == '\n':
+                # Update original Bulletin picks length
+                orgBulletinLength += 1
 
-            # Find associated Network
-            codeLine = findCode(line,uniqueSta)
+                # Find associated Network
+                codeLine = findCode(line,uniqueSta)
 
-            if codeLine not in (None, False):
-                newBulletin.append(codeLine + line[9:])
+                if codeLine not in (None, False):
+                    newBulletin.append(codeLine + line[9:])
 
-                # Update new Bulletin picks length
-                newBulletinLength += 1
-        else:
-            newBulletin.append(line)
+                    # Update new Bulletin picks length
+                    newBulletinLength += 1
+            else:
+                newBulletin.append(line)
 
-    # Print the stats about removed events
-    picksRemoved = orgBulletinLength - newBulletinLength
-    picksRemovedPercent = picksRemoved/orgBulletinLength * 100
+        # Print the stats about removed events
+        picksRemoved = orgBulletinLength - newBulletinLength
+        picksRemovedPercent = picksRemoved/orgBulletinLength * 100
 
+        
+        print(f"    - picks removed: {picksRemoved}/{orgBulletinLength} ({picksRemovedPercent:.3f} %)")
+
+        #--- Save the Bulletin
+        with open(fileBulletin, 'w') as f:
+            f.writelines(newBulletin)
+        
+        # Print
+        print(f"    - bulletin succesfully saved @ {fileBulletin}")
     
-    print(f"Picks removed: {picksRemoved}/{orgBulletinLength} ({picksRemovedPercent:.3f} %)\n")
-
-    #--- Save the Bulletin
-    with open(parameters.fileBulletin, 'w') as f:
-        f.writelines(newBulletin)
-    
-    # Print
-    print(f"Bulletin succesfully saved @ {parameters.fileBulletin}\n")
+    print('\n#########\n')
 
 # MAIN
 if __name__ == '__main__':
     #---- Parameters
     parameters = Parameters(
         fileInventory = 'stations/GLOBAL_inventory.xml',
-        fileBulletin = 'obs/RESIF_20-25.obs',
+        folderBulletin = 'obs/*.obs',
     )
 
     #---- Write OBS file
