@@ -72,7 +72,7 @@ def write_catalog_to_obs(parameters):
             day = origin.time.day
             hour = origin.time.hour
             minute = origin.time.minute
-            second = origin.time.second
+            second = origin.time.second + origin.time.microsecond/1e6
             latitude = origin.latitude
             longitude = origin.longitude
             depth = origin.depth / 1000.0  # in km
