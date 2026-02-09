@@ -90,7 +90,7 @@ def write_catalog_to_obs(parameters):
                 day = rowP.arrtime[0:2]
                 hour = rowP.arrtime[11:13]
                 minute = rowP.arrtime[14:16]
-                second = rowP.arrtime[17:22]
+                second = rowP.arrtime[17:22].ljust(6,'0')
                 error_type = 'GAU'
                 error_mag = '0.05' if rowP.phase.lower().startswith('p') else '0.15' # 0.05 pour P et 0.15 pour S
                 coda_duration = '-1.00e+00' # actually rowP.duration gives coda duration in seconds

@@ -124,7 +124,7 @@ def write_catalog_to_obs(parameters):
                 hour = str(pick.time.hour).zfill(2)
                 minute = str(pick.time.minute).zfill(2)
                 second = str(pick.time.second).zfill(2)
-                microsecond = str(int(pick.time.microsecond/100)).zfill(4)
+                microsecond = str(int(pick.time.microsecond/1000)).zfill(3)
                 error_type = 'GAU'
                 error_mag = '0.05' if phase.lower().startswith('p') else '0.15' # 0.05 pour P et 0.15 pour S
                 coda_duration = '-1.00e+00'
