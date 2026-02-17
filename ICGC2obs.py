@@ -135,7 +135,7 @@ def write_catalog_to_obs(parameters):
 
                     # Add informations
                     real_phase = phase.ljust(6)
-                    channel = phase_info[119:123].strip().ljust(4)
+                    channel = 'None'.ljust(4)
                     pick_origin = 'ICGC'.ljust(9)
                     PGV = 'None'.ljust(4) # in mm/s
 
