@@ -5,7 +5,7 @@ fetchRESIF saves a FDSN-fetched Catalog to a QUAKEML file.
 from obspy.clients.fdsn import Client
 from obspy import UTCDateTime
 
-# PARAMETERS
+# CLASS
 class Parameters:
     def __init__(self, **kwargs):
         for key, value in kwargs.items():
@@ -19,7 +19,7 @@ class Parameters:
         for key, value in kwargs.items():
             setattr(self, key, value)
 
-# FUNCTIONS
+# FUNCTION
 def generate_catalog(parameters):
     #---- Initiate catalog
     print('\n')
