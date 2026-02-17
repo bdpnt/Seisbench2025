@@ -143,7 +143,9 @@ def find_matchEvents(catalog1, catalog2, distThresh, looseDistThresh, timeThresh
             candidate_distance = haversine(row1.latitude,row1.longitude,candidate.latitude,candidate.longitude)
             candidate_timeDelta = abs((row1.time - candidate.time).total_seconds())
             candidate_magDelta = abs(row1.magnitude - candidate.magnitude)
-            candidate_magTypeML = True if (row1.magType == 'ML' and candidate.magType == 'ML' and row1.magAuthor == 'LDG' and candidate.magAuthor == 'LDG') else False
+            candidate_magTypeML = True if (row1.magType == 'ML' and candidate.magType == 'ML' 
+                                           and (row1.magAuthor == 'LDG' or row1.magAuthor == 'OMP') 
+                                           and (candidate.magAuthor == 'LDG' or candidate.magAuthor == 'OMP')) else False
 
             #-- First pass: strict time threshold and magnitude check
             if candidate_magTypeML:
@@ -191,7 +193,9 @@ def find_matchEvents(catalog1, catalog2, distThresh, looseDistThresh, timeThresh
                 candidate_distance = haversine(row1.latitude,row1.longitude,candidate.latitude,candidate.longitude)
                 candidate_timeDelta = abs((row1.time - candidate.time).total_seconds())
                 candidate_magDelta = abs(row1.magnitude - candidate.magnitude)
-                candidate_magTypeML = True if (row1.magType == 'ML' and candidate.magType == 'ML' and row1.magAuthor == 'LDG' and candidate.magAuthor == 'LDG') else False
+                candidate_magTypeML = True if (row1.magType == 'ML' and candidate.magType == 'ML' 
+                                               and (row1.magAuthor == 'LDG' or row1.magAuthor == 'OMP') 
+                                               and (candidate.magAuthor == 'LDG' or candidate.magAuthor == 'OMP')) else False
 
                 #- Second pass: loose time threshold and no magnitude check
                 if candidate_timeDelta <= looseTimeThresh.total_seconds():
@@ -382,6 +386,7 @@ def concatenateBulletin(
             if matchRow.mag_type_ML.item():
                 magToConcat = ":" + eventLine_secondary.split()[10]
                 newEventLine = eventLine_main.split()
+                newEventLine[-1] += '\n'
                 newEventLine[10] += magToConcat
                 eventLine_main = " ".join(newEventLine)
             
@@ -413,6 +418,7 @@ def concatenateBulletin(
                     if row.mag_type_ML:
                         magToConcat = ":" + eventLine_secondary.split()[10]
                         newEventLine = eventLine_main.split()
+                        newEventLine[-1] += '\n'
                         newEventLine[10] += magToConcat
                         eventLine_main = " ".join(newEventLine)
                     
