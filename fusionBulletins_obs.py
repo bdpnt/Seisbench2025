@@ -7,6 +7,7 @@ import pandas as pd
 import math
 from scipy.spatial import KDTree
 from obspy import UTCDateTime
+from numpy import mean
 
 # CLASS
 class Parameters:
@@ -471,6 +472,54 @@ def concatenateBulletin(
     #---- Return the updated Bulletin
     return newLines
 
+def replaceMeanMagnitudes(lines):
+    for id,line in enumerate(lines):
+        if line.startswith('# '):
+            newLine = line.split()
+            mags = newLine[10].split(':')
+            mags = [float(mag) for mag in mags]
+            newLine[10] = f"{mean(mags):.2f}"
+            newLine[-1] += '\n'
+            lines[id] = " ".join(newLine)
+    
+    print('Magnitudes succesfully replaced by mean magnitudes')
+    return lines
+
+def removeDuplicatePicks(lines):
+    picksToRemove = set()
+    for id,line in enumerate(lines):
+        if line.startswith('# '):
+            i, end = id+1, False
+            uniquePicks = set()
+            while not end and i <= len(lines):
+                pickLine = lines[i]
+                if pickLine.startswith('\n'):
+                    end = True
+                    continue
+
+                pick = (pickLine[:10],pickLine[22])
+                if pick not in uniquePicks:
+                    uniquePicks.add(pick)
+                else:
+                    picksToRemove.add(i)
+                i += 1
+    
+    newLines = [line for id,line in enumerate(lines) if id not in picksToRemove]
+    
+    print(f'Succesfully removed {len(picksToRemove)} duplicate picks from the Bulletin')
+    return newLines
+
+def saveBulletin(lines,parameters):
+    with open(parameters.globalBulletinPath, 'w') as f:
+        f.writelines(lines)
+    
+    nbEQ = 0
+    for line in lines:
+        if line.startswith('#') and not line.startswith('###'):
+            nbEQ += 1
+
+    print(f'{nbEQ} events succesfully saved in Catalog @ {parameters.globalBulletinPath}\n\n#######\n')
+
 def fusionAll(parameters):
     #---- Remove main Bulletin from all paths and start with it
     allPath = [filePath for filePath in glob.glob(parameters.folderPath) 
@@ -495,23 +544,18 @@ def fusionAll(parameters):
     print('\n#######\n')
 
     #---- Update magnitudes
+    mainLines = replaceMeanMagnitudes(mainLines)
 
     #---- Check for unwanted/duplicate phases
+    mainLines = removeDuplicatePicks(mainLines)
 
     #---- Save Global Bulletin
-    with open(parameters.globalBulletinPath, 'w') as f:
-        f.writelines(mainLines)
-    
-    nbEQ = 0
-    for line in mainLines:
-        if line.startswith('#') and not line.startswith('###'):
-            nbEQ += 1
-    print(f'{nbEQ} events succesfully saved in Catalog @ {parameters.globalBulletinPath}\n\n#######\n')
+    saveBulletin(mainLines,parameters)
 
 # MAIN
 if __name__ == '__main__':
     parameters = Parameters(
-        globalBulletinPath = 'obs/GLOBAL_20-25.obs',
+        globalBulletinPath = 'obs/GLOBAL.obs',
         mainBulletinPath = 'obs/RESIF_20-25.obs',
         folderPath = 'obs/*.obs',
         distThresh = 10, # in km
