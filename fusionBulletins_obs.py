@@ -490,7 +490,7 @@ def concatenateBulletin(
 
     #---- Remove events matched during second process from possibleMatch
     possibleMatch = possibleMatch.drop(foundPossible)
-    print(f'Found {len(foundPossible)} event matches during P-phase picks matching process')
+    print(f'Found {len(foundPossible)} ({len(possibleMatch)}) event matches during P-phase picks matching process')
 
     #---- Rearrange events by date in the updated Bulletin
     newLines = sortEventsChrono(newLines)
