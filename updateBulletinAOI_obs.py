@@ -153,7 +153,7 @@ def updateBulletins(parameters):
 if __name__ == '__main__':
     parameters = Parameters(
         fileNames = ['obs/RESIF_20-25.obs','obs/IGN_20-25.obs','obs/ICGC_20-25.obs'],
-        figSaves = ['obs/MAPS/RESIF_20-25.png','obs/MAPS/IGN_20-25.png','obs/MAPS/ICGC_20-25.png'],
+        figSaves = ['obs/MAPS/RESIF_20-25.pdf','obs/MAPS/IGN_20-25.pdf','obs/MAPS/ICGC_20-25.pdf'],
     )
     
     updateBulletins(parameters)
