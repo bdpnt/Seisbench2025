@@ -18,3 +18,7 @@ To generate the global Bulletin in the **obs/** folder, follow these steps :
 - use ```updateBulletinsAOI_obs.py``` to remove events outside of areas designated for all Catalogs ;
 - use ```fusionBulletins_obs.py``` to fusion all ```.obs``` files into a Global one, matching events in the process ;
 - use ```mapGlobalBulletin_obs.py``` to generate the map of all events in the ```GLOBAL.obs``` file
+
+## NLL workflow
+- ```GLOBAL.obs``` now contains already all the picks needed for the NLL workflow
+- use ```genGTSRCE.py``` to generate the ```GTSRCE.txt``` file containing all the stations that appear in ```GLOBAL.obs```
