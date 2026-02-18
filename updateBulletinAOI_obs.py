@@ -47,8 +47,11 @@ def is_inAOI(lat, lon, lineCoords, AOI_above=True):
         return cross > 0
 
 def frameUpdate_inAOI(frame, lineCoords, AOI_above=True):
-    # Find events outside of AOI 
-    frame['inAOI'] = frame.apply(lambda row: is_inAOI(row.Latitude, row.Longitude, lineCoords, AOI_above=AOI_above), axis=1)
+    # Find events outside of AOI
+    if lineCoords is not None:
+        frame['inAOI'] = frame.apply(lambda row: is_inAOI(row.Latitude, row.Longitude, lineCoords, AOI_above=AOI_above), axis=1)
+    else:
+        frame['inAOI'] = True
 
     # Find events too far from Pyrenees (North and South)
     frame['inAOI'] = frame.apply(lambda row: row.inAOI and is_inAOI(row.Latitude, row.Longitude, [(44, -0.25),(43.25, 3.5)], AOI_above=False), axis=1)
@@ -59,13 +62,6 @@ def frameUpdate_inAOI(frame, lineCoords, AOI_above=True):
 def remove_outsideAOI(fileName, figSave):
     #---- Retrieve AOI line coordinates
     lineCoords, AOI_above = whichLineCoords(fileName)
-
-    try:
-        if lineCoords is None:
-            raise ValueError()
-    except:
-        print('Error: OBS file must contain "RESIF", "IGN" or "ICGC"\n')
-        return
 
     #---- Set Pyrenees borders
     region = [-2.25,3.5,42,44]
@@ -89,24 +85,16 @@ def remove_outsideAOI(fileName, figSave):
     events_notInAOI = events_df[~events_df.inAOI]
 
     if events_notInAOI.empty:
-        print(f"No AOI events found in Catalog @ {fileName}\n")
-        return
-
-    #---- Map events
-    # fig.plot(
-    #     x = [lineCoords[0][1],lineCoords[1][1]],
-    #     y = [lineCoords[0][0],lineCoords[1][0]],
-    #     pen = "0.5p,red",
-    # )
-    
-    fig.plot(
-        x=events_notInAOI.Longitude,
-        y=events_notInAOI.Latitude,
-        style="cc",
-        size=0.03 * events_notInAOI.Magnitude,
-        fill="white",
-        transparency=75,
-    )
+        print(f"No outside AOI events found in Catalog @ {fileName}\n")
+    else:
+        fig.plot(
+            x=events_notInAOI.Longitude,
+            y=events_notInAOI.Latitude,
+            style="cc",
+            size=0.03 * events_notInAOI.Magnitude,
+            fill="white",
+            transparency=75,
+        )
 
     pg.makecpt(cmap="viridis", series=[0,15,1], reverse=True)
     fig.plot(
@@ -152,8 +140,9 @@ def updateBulletins(parameters):
 # MAIN
 if __name__ == '__main__':
     parameters = Parameters(
-        fileNames = ['obs/RESIF_20-25.obs','obs/IGN_20-25.obs','obs/ICGC_20-25.obs'],
-        figSaves = ['obs/MAPS/RESIF_20-25.pdf','obs/MAPS/IGN_20-25.pdf','obs/MAPS/ICGC_20-25.pdf'],
+        fileNames = ['obs/RESIF_20-25.obs','obs/IGN_20-25.obs','obs/ICGC_20-25.obs','obs/LDG_20-25.obs','obs/OMP_2016.obs','obs/OMP_78-19.obs'],
+        figSaves = ['obs/MAPS/RESIF_20-25.pdf','obs/MAPS/IGN_20-25.pdf','obs/MAPS/ICGC_20-25.pdf','obs/MAPS/LDG_20-25.pdf','obs/MAPS/OMP_2016.pdf',
+                    'obs/MAPS/OMP_78-19.pdf'],
     )
     
     updateBulletins(parameters)
