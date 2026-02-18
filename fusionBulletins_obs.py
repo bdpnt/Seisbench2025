@@ -535,6 +535,28 @@ def removeDuplicatePicks(lines):
     print(f'Succesfully removed {len(picksToRemove)} duplicate picks from the Bulletin')
     return newLines
 
+def removeMagnitudes(lines):
+    removeLines = set()
+    removedEvents = 0
+    for id,line in enumerate(lines):
+        if line.startswith('# '):
+            magnitude = float(line.split()[10])
+            if magnitude < 1:
+                removeLines.add(id)
+                removedEvents += 1
+                i, end = id+1, False
+                while not end and i <= len(lines):
+                    pickLine = lines[i]
+                    if pickLine.startswith('\n'):
+                        end = True
+                        continue
+                    removeLines.add(i)
+                    i += 1
+    newLines = [line for id,line in enumerate(lines) if id not in removeLines]
+
+    print(f'Succesfully removed {removedEvents} events with magnitudes under ML 1')
+    return newLines
+
 def saveBulletin(lines,parameters):
     with open(parameters.globalBulletinPath, 'w') as f:
         f.writelines(lines)
@@ -569,8 +591,9 @@ def fusionAll(parameters):
         )
     print('\n#######\n')
 
-    #---- Update magnitudes
+    #---- Update magnitudes and remove events under ML 1
     mainLines = replaceMeanMagnitudes(mainLines)
+    mainLines = removeMagnitudes(mainLines)
 
     #---- Check for unwanted/duplicate phases
     mainLines = removeDuplicatePicks(mainLines)
@@ -584,7 +607,7 @@ if __name__ == '__main__':
         globalBulletinPath = 'obs/GLOBAL.obs',
         mainBulletinPath = 'obs/RESIF_20-25.obs',
         folderPath = 'obs/*.obs',
-        distThresh = 10, # in km
+        distThresh = 15, # in km
         looseDistThresh = 50, # in km
         timeThresh = 2, # in seconds
         looseTimeThresh = 30, # in seconds
