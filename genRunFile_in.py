@@ -88,7 +88,7 @@ if __name__ == '__main__':
         fileTime = './time/pyrenees',
         fileBulletinIn = './obs/GLOBAL.obs',
         fileBulletinOut = './loc/GLOBAL.obs',
-        fileStations = 'stations/GTSRCE.txt',
+        fileStations = 'stations/GTSRCE_manual.txt',
     )
 
     saveRunFile(parameters)
