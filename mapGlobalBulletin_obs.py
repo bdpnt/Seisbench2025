@@ -1,3 +1,7 @@
+'''
+mapGlobalBulletin_obs generates a map of all the events in GLOBAL.obs Bulletin
+'''
+
 import pygmt as pg
 import pandas as pd
 
