@@ -6,7 +6,6 @@ import glob
 import pandas as pd
 import math
 from scipy.spatial import KDTree
-from obspy import UTCDateTime
 from numpy import mean
 
 # CLASS
@@ -182,7 +181,6 @@ def find_matchEvents(catalog1, catalog2, distThresh, looseDistThresh, timeThresh
             bestLoose_time = float('inf')
             bestLoose_mag = float('inf')
             bestLoose_magTypeML = False
-            bestLoose_simPicks = None
 
             for i in idx2:
                 #- Verify if it is already strict matched
@@ -402,8 +400,8 @@ def concatenateBulletin(
         #-- Look for a possible match
         elif not possibleRow.empty:
             solutionFound = False
-            #- Check for best solution (if any) in possible match
-            for iRow,row in possibleRow.iterrows():
+            #- Check for solution (if any) in possible match
+            for _,row in possibleRow.iterrows():
                 event_idx2 = row.catalog2_idx
                 eventLine_secondary = secondaryLines[secondaryIDs[event_idx2]]
 
@@ -414,8 +412,36 @@ def concatenateBulletin(
                 # Check for the number of similar P-phase picks
                 simPicks = check_similarPicks(mainLines,secondaryLines,mainIDs[event_idx1],secondaryIDs[event_idx2])
 
-                if simPicks >= simPickThresh:
-                    # Add magnitude from secondary Bulletin if it is an ML (LDG) magnitude
+                # If inside loose thresholds and at least 1 similar pick (time threshold is already correct since the pick has made it to here)
+                if simPicks >= 1 and row.distance_km <= parameters.looseDistThresh:
+                    # Add magnitude from secondary Bulletin if it is an ML (LDG/OMP) magnitude
+                    if row.mag_type_ML:
+                        magToConcat = ":" + eventLine_secondary.split()[10]
+                        newEventLine = eventLine_main.split()
+                        newEventLine[-1] += '\n'
+                        newEventLine[10] += magToConcat
+                        eventLine_main = " ".join(newEventLine)
+                    
+                    # Add event to the updated Bulletin
+                    newLines.append(eventLine_main)
+
+                    # Add phases from both catalogs to the updated Bulletin
+                    newLines = addPhasesToLines(newLines,mainLines,mainIDs[event_idx1])
+                    newLines = addPhasesToLines(newLines,secondaryLines,secondaryIDs[event_idx2])
+                    newLines.append('\n')
+
+                    # Remove ID from notStrictMatchID_secondary
+                    notStrictMatchID_secondary.remove(event_idx2)
+
+                    # Found solution
+                    solutionFound = True
+                    foundPossible.append(possibleRow.index[0])
+
+                    break
+                
+                # If outside some threshold but multiple similar picks
+                elif simPicks >= simPickThresh:
+                    # Add magnitude from secondary Bulletin if it is an ML (LDG/OMP) magnitude
                     if row.mag_type_ML:
                         magToConcat = ":" + eventLine_secondary.split()[10]
                         newEventLine = eventLine_main.split()
@@ -559,11 +585,11 @@ if __name__ == '__main__':
         mainBulletinPath = 'obs/RESIF_20-25.obs',
         folderPath = 'obs/*.obs',
         distThresh = 10, # in km
-        looseDistThresh = 50, # in km (only for the Tree query)
+        looseDistThresh = 50, # in km
         timeThresh = 2, # in seconds
         looseTimeThresh = 30, # in seconds
         magThresh = 1.5, # magnitude
-        simPickThresh = 2, # minimal number of picks to confirm match from possible matches
+        simPickThresh = 2, # minimal number of picks to confirm match from possible matches if no thresholds
     )
 
     fusionAll(parameters)
