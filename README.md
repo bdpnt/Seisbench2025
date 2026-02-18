@@ -20,5 +20,10 @@ To generate the global Bulletin in the **obs/** folder, follow these steps :
 - use ```mapGlobalBulletin_obs.py``` to generate the map of all events in the ```GLOBAL.obs``` file
 
 ## NLL workflow
-- ```GLOBAL.obs``` now contains already all the picks needed for the NLL workflow
-- use ```genGTSRCE.py``` to generate the ```GTSRCE.txt``` file containing all the stations that appear in ```GLOBAL.obs```
+To re-localize all events from the **obs/GLOBAL.obs** Bulletin :
+- ```GLOBAL.obs``` now contains already all the picks needed for the NLL workflow ;
+- use ```genGTSRCE.py``` to generate the ```GTSRCE.txt``` file containing all the stations that appear in ```GLOBAL.obs``` ;
+- modify and use ```genRunFile_in.py``` to generate the ```.in``` run file mandatory for the NLL localization in the **run/** folder ;
+- in console: ```Vel2Grid run/<runfile.in>``` to generate the 3D grid from the velocity model ;
+- in console: ```Grid2Time run/<runfile.in>``` to generate the time grid from the 3D grid ;
+- in console: ```NLLoc run/<runfile.in>``` to generate NLL files, including the one in ```hypo71``` format ;
