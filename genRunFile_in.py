@@ -80,10 +80,10 @@ def saveRunFile(parameters):
 if __name__ == '__main__':
     parameters = Parameters(
         fileSave = 'run/runTEST.in',
-        lat1 = 44.0,
-        lat2 = 42.0,
-        lon1 = 2.25,
-        lon2 = 3.5,
+        lat1 = 45.0,
+        lat2 = 41.0,
+        lon1 = -3,
+        lon2 = 4,
         fileModel = './model/pyrenees',
         fileTime = './time/pyrenees',
         fileBulletinIn = './obs/GLOBAL.obs',

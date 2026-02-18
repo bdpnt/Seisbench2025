@@ -26,4 +26,4 @@ To re-localize all events from the **obs/GLOBAL.obs** Bulletin :
 - modify and use ```genRunFile_in.py``` to generate the ```.in``` run file mandatory for the NLL localization in the **run/** folder ;
 - in console: ```Vel2Grid run/<runfile.in>``` to generate the 3D grid from the velocity model ;
 - in console: ```Grid2Time run/<runfile.in>``` to generate the time grid from the 3D grid ;
-- in console: ```NLLoc run/<runfile.in>``` to generate NLL files, including the one in ```hypo71``` format ;
+- in console: ```NLLoc run/<runfile.in>``` to generate NLL files, including the ```.hypo71``` file ;
