@@ -352,7 +352,7 @@ def concatenateBulletin(
     newLines.append('\n')
 
     #---- Find matches
-    strictMatch, possibleMatch, notStrictMatchID_secondary = find_matchEvents(
+    strictMatch, possibleMatch, notMatchedID_secondary = find_matchEvents(
         mainBulletin, secondaryBulletin,
         distThresh, looseDistThresh,
         timeThresh, looseTimeThresh,
@@ -406,7 +406,7 @@ def concatenateBulletin(
                 eventLine_secondary = secondaryLines[secondaryIDs[event_idx2]]
 
                 # Check if event from secondary Bulletin hasn't been matched yet
-                if event_idx2 not in notStrictMatchID_secondary:
+                if event_idx2 not in notMatchedID_secondary:
                     continue
 
                 # Check for the number of similar P-phase picks
@@ -430,8 +430,8 @@ def concatenateBulletin(
                     newLines = addPhasesToLines(newLines,secondaryLines,secondaryIDs[event_idx2])
                     newLines.append('\n')
 
-                    # Remove ID from notStrictMatchID_secondary
-                    notStrictMatchID_secondary.remove(event_idx2)
+                    # Remove ID from notMatchedID_secondary
+                    notMatchedID_secondary.remove(event_idx2)
 
                     # Found solution
                     solutionFound = True
@@ -457,8 +457,8 @@ def concatenateBulletin(
                     newLines = addPhasesToLines(newLines,secondaryLines,secondaryIDs[event_idx2])
                     newLines.append('\n')
 
-                    # Remove ID from notStrictMatchID_secondary
-                    notStrictMatchID_secondary.remove(event_idx2)
+                    # Remove ID from notMatchedID_secondary
+                    notMatchedID_secondary.remove(event_idx2)
 
                     # Found solution
                     solutionFound = True
@@ -479,7 +479,7 @@ def concatenateBulletin(
             newLines.append('\n')
 
     #---- Add unmatched events from secondary Bulletin
-    for event_idx2 in notStrictMatchID_secondary:
+    for event_idx2 in notMatchedID_secondary:
         # Add event to the updated Bulletin
         eventLine_secondary = secondaryLines[secondaryIDs[event_idx2]]
         newLines.append(eventLine_secondary)
@@ -488,6 +488,9 @@ def concatenateBulletin(
         newLines = addPhasesToLines(newLines,secondaryLines,secondaryIDs[event_idx2])
         newLines.append('\n')
 
+    #---- Add events matched during second process to strictMatch
+    strictMatch = pd.concat([strictMatch, possibleMatch.iloc[foundPossible]]).reset_index(drop=True)
+
     #---- Remove events matched during second process from possibleMatch
     possibleMatch = possibleMatch.drop(foundPossible)
     print(f'Found {len(foundPossible)} ({len(possibleMatch)}) event matches during P-phase picks matching process')
@@ -495,8 +498,22 @@ def concatenateBulletin(
     #---- Rearrange events by date in the updated Bulletin
     newLines = sortEventsChrono(newLines)
 
-    #---- Return the updated Bulletin
-    return newLines
+    #---- Return the updated Bulletin and the possible matches
+    return newLines, strictMatch, possibleMatch, mainBulletin, secondaryBulletin
+
+def statsOnFrame(matchFrame,mainBulletin,secondaryBulletin):
+    ''' For both strict and possible matches'''
+    # Retrieve the match informations
+    concatData = {col: [] for col in mainBulletin.columns}
+
+    for id1,id2 in zip(matchFrame.catalog1_idx, matchFrame.catalog2_idx):
+        for col in mainBulletin.columns:
+            concatData[col].append((mainBulletin.loc[id1, col], secondaryBulletin.loc[id2, col]))
+
+    concatData = pd.DataFrame(concatData)
+    
+    # Stats
+    return concatData
 
 def replaceMeanMagnitudes(lines):
     for id,line in enumerate(lines):
@@ -579,7 +596,7 @@ def fusionAll(parameters):
     #---- Loop on all paths
     for filePath in allPath:
         print('\n#######\n')
-        mainLines = concatenateBulletin(
+        mainLines, strictMatch, possibleMatch, mainBulletin, secondaryBulletin = concatenateBulletin(
             mainLines,
             filePath,
             parameters.distThresh,
@@ -589,6 +606,11 @@ def fusionAll(parameters):
             parameters.magThresh,
             parameters.simPickThresh,
         )
+        
+        #--- Stats on possible matches not found
+        # concatStrict = statsOnFrame(strictMatch, mainBulletin, secondaryBulletin)
+        # concatPossible = statsOnFrame(possibleMatch, mainBulletin, secondaryBulletin)
+
     print('\n#######\n')
 
     #---- Update magnitudes and remove events under ML 1
