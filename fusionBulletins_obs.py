@@ -6,7 +6,10 @@ import glob
 import pandas as pd
 import math
 from scipy.spatial import KDTree
+from scipy.stats import pearsonr, spearmanr
 from numpy import mean
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 # CLASS
 class Parameters:
@@ -70,6 +73,22 @@ def retrieveEvents_fromFile(fileName):
     print(f"{len(eventLines)} events from Catalog @ {fileName} successfully retrieved")
     return eventLines,eventLinesID,catLines
 
+def get_firstNonNanValue(value):
+    if isinstance(value, str):
+        parts = value.split(':')
+        for part in parts:
+            if part.strip().lower() != 'nan':
+                try:
+                    return float(part)
+                except ValueError:
+                    continue
+        return None 
+    else:
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return None
+
 def get_catalogFrame(eventLines):
     # Extract all fields
     infos = [line.split() for line in eventLines]
@@ -82,10 +101,10 @@ def get_catalogFrame(eventLines):
         'hour': [i[3] for i in infos],
         'minute': [i[4] for i in infos],
         'second': [i[5] for i in infos],
-        'latitude': [float(i[6]) for i in infos],
-        'longitude': [float(i[7]) for i in infos],
-        'depth': [float(i[8]) for i in infos],
-        'magnitude': [float(i[9].split(':')[0]) for i in infos],
+        'latitude': [get_firstNonNanValue(i[6]) for i in infos],
+        'longitude': [get_firstNonNanValue(i[7]) for i in infos],
+        'depth': [get_firstNonNanValue(i[8]) for i in infos],
+        'magnitude': [get_firstNonNanValue(i[9].split(':')[0]) for i in infos],
         'magType': [i[10] for i in infos],
         'magAuthor': [i[11] for i in infos],
         'phaseCount': [float(i[12]) if i[12] != 'None' else None for i in infos],
@@ -336,9 +355,28 @@ def check_similarPicks(mainLines,secondaryLines,mainID,secondaryID):
     similarPhases = sum(1 for item in allPhases.values() if item > 1)
     return similarPhases
 
+def addItemForStats(lineMain,lineSecondary,id,isNan=False):
+    '''ID is 7 for Latitude, 8 for Longitude, 9 for Depth and 10 for Magnitude'''
+    if isNan:
+        toConcat = ":Nan"
+    else:
+        toConcat = ":" + lineSecondary.split()[id]
+    newLine = lineMain.split()
+    newLine[-1] += '\n'
+    newLine[id] += toConcat
+    return " ".join(newLine)
+
+def addNansForStats(lineSecondary,id,loopNo):
+    toReplace = "Nan:" * loopNo + lineSecondary.split()[id]
+    newLine = lineSecondary.split()
+    newLine[-1] += '\n'
+    newLine[id] = toReplace
+    return " ".join(newLine)
+
 def concatenateBulletin(
         mainLines, secondaryBulletinPath, 
-        distThresh, looseDistThresh, timeThresh, looseTimeThresh, magThresh, simPickThresh
+        distThresh, looseDistThresh, timeThresh, looseTimeThresh, magThresh, simPickThresh,
+        loopNo
     ):
     #---- Fetch Bulletins
     mainEventLines,mainIDs = retrieveEvents_fromLines(mainLines)
@@ -383,11 +421,14 @@ def concatenateBulletin(
 
             #- Add magnitude from secondary Bulletin if it is an ML (LDG) magnitude
             if matchRow.mag_type_ML.item():
-                magToConcat = ":" + eventLine_secondary.split()[10]
-                newEventLine = eventLine_main.split()
-                newEventLine[-1] += '\n'
-                newEventLine[10] += magToConcat
-                eventLine_main = " ".join(newEventLine)
+                eventLine_main = addItemForStats(eventLine_main,eventLine_secondary,10)
+            else:
+                eventLine_main = addItemForStats(eventLine_main,eventLine_secondary,10,isNan=True)
+
+            #- Add Latitude, Longitude, Depth from secondary Bulletin
+            eventLine_main = addItemForStats(eventLine_main,eventLine_secondary,7) # Latitude
+            eventLine_main = addItemForStats(eventLine_main,eventLine_secondary,8) # Longitude
+            eventLine_main = addItemForStats(eventLine_main,eventLine_secondary,9) # Depth
             
             #- Add event to the updated Bulletin
             newLines.append(eventLine_main)
@@ -416,11 +457,14 @@ def concatenateBulletin(
                 if simPicks >= 1 and row.distance_km <= parameters.looseDistThresh:
                     # Add magnitude from secondary Bulletin if it is an ML (LDG/OMP) magnitude
                     if row.mag_type_ML:
-                        magToConcat = ":" + eventLine_secondary.split()[10]
-                        newEventLine = eventLine_main.split()
-                        newEventLine[-1] += '\n'
-                        newEventLine[10] += magToConcat
-                        eventLine_main = " ".join(newEventLine)
+                        eventLine_main = addItemForStats(eventLine_main,eventLine_secondary,10)
+                    else:
+                        eventLine_main = addItemForStats(eventLine_main,eventLine_secondary,10,isNan=True)
+                    
+                    # Add Latitude, Longitude, Depth from secondary Bulletin
+                    eventLine_main = addItemForStats(eventLine_main,eventLine_secondary,7) # Latitude
+                    eventLine_main = addItemForStats(eventLine_main,eventLine_secondary,8) # Longitude
+                    eventLine_main = addItemForStats(eventLine_main,eventLine_secondary,9) # Depth
                     
                     # Add event to the updated Bulletin
                     newLines.append(eventLine_main)
@@ -443,11 +487,14 @@ def concatenateBulletin(
                 elif simPicks >= simPickThresh:
                     # Add magnitude from secondary Bulletin if it is an ML (LDG/OMP) magnitude
                     if row.mag_type_ML:
-                        magToConcat = ":" + eventLine_secondary.split()[10]
-                        newEventLine = eventLine_main.split()
-                        newEventLine[-1] += '\n'
-                        newEventLine[10] += magToConcat
-                        eventLine_main = " ".join(newEventLine)
+                        eventLine_main = addItemForStats(eventLine_main,eventLine_secondary,10)
+                    else:
+                        eventLine_main = addItemForStats(eventLine_main,eventLine_secondary,10,isNan=True)
+
+                    #- Add Latitude, Longitude, Depth from secondary Bulletin
+                    eventLine_main = addItemForStats(eventLine_main,eventLine_secondary,7) # Latitude
+                    eventLine_main = addItemForStats(eventLine_main,eventLine_secondary,8) # Longitude
+                    eventLine_main = addItemForStats(eventLine_main,eventLine_secondary,9) # Depth
                     
                     # Add event to the updated Bulletin
                     newLines.append(eventLine_main)
@@ -468,12 +515,26 @@ def concatenateBulletin(
             
             #- If no solution found, add the event as in main Bulletin
             if not solutionFound:
+                # Add Latitude, Longitude, Depth, Magnitude Nan
+                eventLine_main = addItemForStats(eventLine_main,"",7,isNan=True) # Latitude
+                eventLine_main = addItemForStats(eventLine_main,"",8,isNan=True) # Longitude
+                eventLine_main = addItemForStats(eventLine_main,"",9,isNan=True) # Depth
+                eventLine_main = addItemForStats(eventLine_main,"",10,isNan=True) # Magnitude
+
+                # Append the line
                 newLines.append(eventLine_main)
                 newLines = addPhasesToLines(newLines,mainLines,mainIDs[event_idx1])
                 newLines.append('\n')
 
         #-- No match: add the event as in main Bulletin
         else:
+            #- Add Latitude, Longitude, Depth, Magnitude Nan
+            eventLine_main = addItemForStats(eventLine_main,"",7,isNan=True) # Latitude
+            eventLine_main = addItemForStats(eventLine_main,"",8,isNan=True) # Longitude
+            eventLine_main = addItemForStats(eventLine_main,"",9,isNan=True) # Depth
+            eventLine_main = addItemForStats(eventLine_main,"",10,isNan=True) # Magnitude
+
+            #- Append the line
             newLines.append(eventLine_main)
             newLines = addPhasesToLines(newLines,mainLines,mainIDs[event_idx1])
             newLines.append('\n')
@@ -482,6 +543,14 @@ def concatenateBulletin(
     for event_idx2 in notMatchedID_secondary:
         # Add event to the updated Bulletin
         eventLine_secondary = secondaryLines[secondaryIDs[event_idx2]]
+
+        # Add Latitude, Longitude, Depth, Magnitude Nan (as a new, event, needs to know the number of the loop)
+        eventLine_secondary = addNansForStats(eventLine_secondary,7,loopNo) # Latitude
+        eventLine_secondary = addNansForStats(eventLine_secondary,8,loopNo) # Longitude
+        eventLine_secondary = addNansForStats(eventLine_secondary,9,loopNo) # Depth
+        eventLine_secondary = addNansForStats(eventLine_secondary,10,loopNo) # Magnitude
+
+        # Append the line
         newLines.append(eventLine_secondary)
 
         # Add phases to the updated Bulletin
@@ -501,32 +570,153 @@ def concatenateBulletin(
     #---- Return the updated Bulletin and the possible matches
     return newLines, strictMatch, possibleMatch, mainBulletin, secondaryBulletin
 
-def statsOnFrame(matchFrame,mainBulletin,secondaryBulletin):
-    ''' For both strict and possible matches'''
-    # Retrieve the match informations
-    concatData = {col: [] for col in mainBulletin.columns}
+def statsFigs(mainName,secondaryName,frame):
+    useCols = ['latitude','longitude','depth','magnitude']
+    useFrame = frame[useCols]
 
-    for id1,id2 in zip(matchFrame.catalog1_idx, matchFrame.catalog2_idx):
-        for col in mainBulletin.columns:
-            concatData[col].append((mainBulletin.loc[id1, col], secondaryBulletin.loc[id2, col]))
+    # Create a figure with subplots (2 rows and 2 columns)
+    fig, axs = plt.subplots(nrows=2, ncols=2, figsize=(18, 12))
 
-    concatData = pd.DataFrame(concatData)
+    # Flatten the axes array for easier indexing
+    axs = axs.flatten()
+    plt.rc('axes', labelsize=13) 
+
+    plot_index = 0
+    for col in useCols:
+        ax = axs[plot_index]
+
+        # Update Data
+        col1,col2 = zip(*[(t[0], t[1]) for t in useFrame[col]])
+        data = pd.DataFrame({mainName:col1, secondaryName:col2})
+
+        # Calculate the percentiles for both columns
+        lower_bound = 0.5  # 0.5th percentile
+        upper_bound = 99.5  # 99.5th percentile
+
+        # Filter the DataFrame from the 1%
+        data_99 = data[
+            (data[mainName] >= data[mainName].quantile(lower_bound / 100)) &
+            (data[mainName] <= data[mainName].quantile(upper_bound / 100)) &
+            (data[secondaryName] >= data[secondaryName].quantile(lower_bound / 100)) &
+            (data[secondaryName] <= data[secondaryName].quantile(upper_bound / 100))
+        ]
+        
+        # Create hexbin plot
+        hb = ax.hexbin(data_99[mainName], data_99[secondaryName], gridsize=50, cmap='coolwarm', mincnt=1)
+        ax.set_xlabel(mainName)
+        ax.set_ylabel(secondaryName)
+        ax.grid(True)
+        
+        # Calculate Pearson correlation (linear) and p-value
+        correlation_pearson, p_value_pearson = pearsonr(data_99[mainName], data_99[secondaryName])
+
+        # Calculate Spearman correlation (non-linear) and p-value
+        correlation_spearman, p_value_spearman = spearmanr(data_99[mainName], data_99[secondaryName])
+        
+        # Add text to the subplot showing the Pearson correlation and p-value
+        text_str = f"Pearson: {correlation_pearson:.3f} - p-value: {p_value_pearson:.3f}\nSpearman: {correlation_spearman:.3f} - p-value: {p_value_spearman:.3f}"
+        ax.text(0.5, 1.085, text_str, transform=ax.transAxes, fontsize=12, horizontalalignment='center', verticalalignment='top')
+        label_str = f"{col}".capitalize()
+        ax.text(1.02, 0.5, label_str, transform=ax.transAxes, fontsize=12, fontweight='bold', horizontalalignment='center', verticalalignment='center', rotation=90)
+        
+        plot_index += 1
+
+    # Adjust the spacing between subplots and figure margins
+    plt.subplots_adjust(left=0.05, right=0.85, top=0.88, bottom=0.1, wspace=0.3, hspace=0.25)
+
+    # Add a color bar for the entire figure
+    cbar_ax = fig.add_axes([0.88, 0.15, 0.03, 0.7])  # Position the color bar manually
+    plt.colorbar(hb, cax=cbar_ax, label='Density')
+
+    # Title
+    plt.suptitle(f"Pairwise Correlations and Distributions ({mainName} vs {secondaryName}) - matched events", fontsize=16, fontweight='bold')
+    plt.text(0.5, 0.95, "Analysis based on the central 99% of the dataset", 
+            fontsize=14, ha='center', va='center', transform=plt.gcf().transFigure)
+    plt.text(0.5, 0.93, "Pearson (linear) and Spearman (non-linear) correlation values are statistically significant for p-values under 0.05", 
+            fontsize=14, ha='center', va='center', transform=plt.gcf().transFigure)
     
-    # Stats
-    return concatData
+    # Save
+    path = f"obs/STATS/{mainName}_{secondaryName}.pdf"
+    plt.savefig(path)
+    plt.close()
+    plt.show()
+
+    print(f'Statistics figure succesfully saved @ {path}')
+
+def getStatistics(mainLines, parameters, filePath, fileNo):
+    #--- Generate the correct lines
+    lines = [line.lstrip('# ').rstrip('\n').split() for line in mainLines if line.startswith('# ')]
+    
+    removeLines = []
+    for id,line in enumerate(lines):
+        for idC,category in enumerate(line):
+            items = category.split(':')
+            if len(items) > 1:
+                category = items[0] + ":" + items[fileNo]
+                if category.__contains__('Nan'):
+                    removeLines.append(id)
+                    continue
+                else:
+                    lines[id][idC] = category
+
+    lines = [line for id,line in enumerate(lines) if id not in removeLines]
+
+    if not lines:
+        print(f'Not enough matches for a statistical analysis for Bulletin @ {filePath}')
+        return
+
+    #--- Generate the frame
+    df = pd.DataFrame(lines)
+    df = df.iloc[:, [6,7,8,9]]
+    df.columns = ['latitude','longitude','depth','magnitude']
+    def split_to_floats(s):
+        try:
+            a, b = map(float, s.split(':'))
+            return [a, b]
+        except:
+            return [None, None]
+
+    df = df.map(split_to_floats)
+
+    #--- Get the main and secondary names
+    mainName = parameters.mainBulletinPath.split('/')[1].split('.')[0]
+    secondaryName = filePath.split('/')[1].split('.')[0]
+
+    #--- Stats on the frame
+    if len(df) >= 10:
+        statsFigs(mainName,secondaryName,df)
+    else:
+        print(f'Not enough matches for a statistical analysis for Bulletin @ {filePath}')
 
 def replaceMeanMagnitudes(lines):
     for id,line in enumerate(lines):
         if line.startswith('# '):
             newLine = line.split()
             mags = newLine[10].split(':')
-            mags = [float(mag) for mag in mags]
+            mags = [float(mag) for mag in mags if mag != "Nan"]
             newLine[10] = f"{mean(mags):.2f}"
             newLine[-1] += '\n'
             lines[id] = " ".join(newLine)
     
     print('Magnitudes succesfully replaced by mean magnitudes')
     return lines
+
+def removeStatsValues(lines):
+    for id,line in enumerate(lines):
+        if line.startswith('# '):
+            newLine = ""
+            for category in line.split():
+                items = category.split(':')
+                if len(items) > 1:
+                    category = str(get_firstNonNanValue(category))
+                newLine += category + " "
+            if newLine.endswith(' '):
+                newLine = newLine[:-1]
+            newLine += '\n'
+            lines[id] = newLine
+
+    return lines
+                
 
 def removeDuplicatePicks(lines):
     picksToRemove = set()
@@ -552,9 +742,10 @@ def removeDuplicatePicks(lines):
     print(f'Succesfully removed {len(picksToRemove)} duplicate picks from the Bulletin')
     return newLines
 
-def removeMagnitudes(lines):
+def removeMagnitudesUnder1(lines):
     removeLines = set()
     removedEvents = 0
+    
     for id,line in enumerate(lines):
         if line.startswith('# '):
             magnitude = float(line.split()[10])
@@ -594,9 +785,9 @@ def fusionAll(parameters):
     mainLines = generateGlobal(parameters)
 
     #---- Loop on all paths
-    for filePath in allPath:
+    for fileNo,filePath in enumerate(allPath):
         print('\n#######\n')
-        mainLines, strictMatch, possibleMatch, mainBulletin, secondaryBulletin = concatenateBulletin(
+        mainLines, _, _, _, _ = concatenateBulletin(
             mainLines,
             filePath,
             parameters.distThresh,
@@ -605,17 +796,21 @@ def fusionAll(parameters):
             parameters.looseTimeThresh,
             parameters.magThresh,
             parameters.simPickThresh,
+            fileNo+1,
         )
-        
-        #--- Stats on possible matches not found
-        # concatStrict = statsOnFrame(strictMatch, mainBulletin, secondaryBulletin)
-        # concatPossible = statsOnFrame(possibleMatch, mainBulletin, secondaryBulletin)
 
     print('\n#######\n')
 
-    #---- Update magnitudes and remove events under ML 1
+    #---- Statistics
+    for fileNo,filePath in enumerate(allPath):
+        getStatistics(mainLines, parameters, filePath, fileNo+1)
+    
+    print('\n#######\n')
+
+    #---- Update magnitudes, remove statistics values and remove events under ML 1
     mainLines = replaceMeanMagnitudes(mainLines)
-    mainLines = removeMagnitudes(mainLines)
+    mainLines = removeStatsValues(mainLines)
+    mainLines = removeMagnitudesUnder1(mainLines)
 
     #---- Check for unwanted/duplicate phases
     mainLines = removeDuplicatePicks(mainLines)
