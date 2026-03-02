@@ -16,7 +16,7 @@ To generate the global Bulletin in the **obs/** folder, follow these steps :
 - use ```genMagModel_obs.py``` to generate a magnitude model for a specific magnitude type to ML LDG, for a specific ```.obs``` file ;
 - use ```useMagModels_obs.py``` to update all magnitudes in all ```.obs``` files to ML LDG magnitudes ;
 - use ```updateBulletinsAOI_obs.py``` to remove events outside of areas designated for all Catalogs ;
-- use ```fusionBulletins_obs.py``` to fusion all ```.obs``` files into a Global one, matching events in the process ;
+- use ```fusionBulletins_obs.py``` to fusion all ```.obs``` files into a Global one, matching events in the process and generating statistics figures (in **obs/STATS/**) ;
 - use ```mapGlobalBulletin_obs.py``` to generate the map of all events in the ```GLOBAL.obs``` file
 
 ## NLL workflow
