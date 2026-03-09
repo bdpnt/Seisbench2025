@@ -46,7 +46,7 @@ def generate_catalog(parameters):
             minlatitude=parameters.Lat_min, maxlatitude=parameters.Lat_max,
             minlongitude=parameters.Lon_min, maxlongitude=parameters.Lon_max,
             minmagnitude=parameters.Mag_min, eventtype=parameters.Event_type,
-            includeallorigins=True, includeallmagnitudes=True,
+            includeallorigins=False, includeallmagnitudes=False,
             includearrivals=True, orderby="time-asc",
         )
 
@@ -68,7 +68,7 @@ def generate_catalog(parameters):
             minlatitude=parameters.Lat_min, maxlatitude=parameters.Lat_max,
             minlongitude=parameters.Lon_min, maxlongitude=parameters.Lon_max,
             minmagnitude=parameters.Mag_min, eventtype=parameters.Event_type,
-            includeallorigins=True, includeallmagnitudes=True,
+            includeallorigins=False, includeallmagnitudes=False,
             includearrivals=True, orderby="time-asc",
         )
 
@@ -90,7 +90,7 @@ def generate_catalog(parameters):
             minlatitude=parameters.Lat_min, maxlatitude=parameters.Lat_max,
             minlongitude=parameters.Lon_min, maxlongitude=parameters.Lon_max,
             minmagnitude=parameters.Mag_min, eventtype=parameters.Event_type,
-            includeallorigins=True, includeallmagnitudes=True,
+            includeallorigins=False, includeallmagnitudes=False,
             includearrivals=True, orderby="time-asc",
         )
 
