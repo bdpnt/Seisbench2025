@@ -575,7 +575,7 @@ def statsFigs(mainName,secondaryName,frame):
     useFrame = frame[useCols]
 
     # Create a figure with subplots (2 rows and 2 columns)
-    fig, axs = plt.subplots(nrows=2, ncols=2, figsize=(18, 12))
+    _, axs = plt.subplots(nrows=2, ncols=2, figsize=(18, 12))
 
     # Flatten the axes array for easier indexing
     axs = axs.flatten()
@@ -600,9 +600,30 @@ def statsFigs(mainName,secondaryName,frame):
             (data[secondaryName] >= data[secondaryName].quantile(lower_bound / 100)) &
             (data[secondaryName] <= data[secondaryName].quantile(upper_bound / 100))
         ]
-        
-        # Create hexbin plot
-        hb = ax.hexbin(data_99[mainName], data_99[secondaryName], gridsize=50, cmap='coolwarm', mincnt=1)
+
+        # Create scatterplot
+        sns.scatterplot(
+            x=data_99[mainName],
+            y=data_99[secondaryName],
+            ax=ax,
+            color='black',
+            s=2,
+            alpha=0.6,
+            edgecolor=None,
+        )
+
+        # Create KDE plot
+        sns.kdeplot(
+            x=data_99[mainName],
+            y=data_99[secondaryName],
+            ax=ax,
+            cmap='flare',
+            fill=True,
+            alpha=0.65,
+            # thresh=0.05,
+            # levels=20,
+        )
+
         ax.set_xlabel(mainName)
         ax.set_ylabel(secondaryName)
         ax.grid(True)
@@ -622,14 +643,10 @@ def statsFigs(mainName,secondaryName,frame):
         plot_index += 1
 
     # Adjust the spacing between subplots and figure margins
-    plt.subplots_adjust(left=0.05, right=0.85, top=0.88, bottom=0.1, wspace=0.3, hspace=0.25)
-
-    # Add a color bar for the entire figure
-    cbar_ax = fig.add_axes([0.88, 0.15, 0.03, 0.7])  # Position the color bar manually
-    plt.colorbar(hb, cax=cbar_ax, label='Density')
+    plt.subplots_adjust(top=0.88, bottom=0.1, wspace=0.3, hspace=0.25)
 
     # Title
-    plt.suptitle(f"Pairwise Correlations and Distributions ({mainName} vs {secondaryName}) - matched events", fontsize=16, fontweight='bold')
+    plt.suptitle(f"Correlations and KDE/Distributions ({mainName} vs {secondaryName}) - matched events", fontsize=16, fontweight='bold')
     plt.text(0.5, 0.95, "Analysis based on the central 99% of the dataset", 
             fontsize=14, ha='center', va='center', transform=plt.gcf().transFigure)
     plt.text(0.5, 0.93, "Pearson (linear) and Spearman (non-linear) correlation values are statistically significant for p-values under 0.05", 
@@ -639,7 +656,6 @@ def statsFigs(mainName,secondaryName,frame):
     path = f"obs/STATS/{mainName}_{secondaryName}.pdf"
     plt.savefig(path)
     plt.close()
-    plt.show()
 
     print(f'Statistics figure succesfully saved @ {path}')
 
