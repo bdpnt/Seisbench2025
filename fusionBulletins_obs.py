@@ -659,6 +659,12 @@ def statsFigs(mainName,secondaryName,frame):
 
     print(f'Statistics figure succesfully saved @ {path}')
 
+    # Save frame
+    pathFrame = f"obs/STATS/{mainName}_{secondaryName}.csv"
+    useFrame.to_csv(pathFrame, index=False)
+
+    print(f'Statistics file succesfully saved @ {pathFrame}')
+
 def getStatistics(mainLines, parameters, filePath, fileNo):
     #--- Generate the correct lines
     lines = [line.lstrip('# ').rstrip('\n').split() for line in mainLines if line.startswith('# ')]
