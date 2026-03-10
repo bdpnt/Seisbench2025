@@ -107,9 +107,9 @@ def write_catalog_to_obs(parameters):
                 H_uncertainty = None
                 V_uncertainty = None
 
-                # Don't use if mag < magMin
-                #if magnitude < parameters.magMin:
-                #    continue
+                # Don't use if mag is 9.9
+                if magnitude == 9.9:
+                    continue
 
                 # Write event line
                 f.write(
