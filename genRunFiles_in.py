@@ -1,9 +1,9 @@
 '''
 genRunFiles_in generates all files required for an NLL process, from both
-an OBS file and an Inventory file. It generates 
+an OBS file and an Inventory file. It generates the child OBS file, the
+GTSRCE file and the IN (run) file.
 '''
 
-### Separer W,C,E
 from obspy import read_inventory
 import os
 
