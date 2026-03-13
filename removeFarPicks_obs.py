@@ -45,6 +45,7 @@ def getStationsCoords(parameters):
             })
 
     staCoords = pd.DataFrame(staData)
+    staCoords = staCoords.drop_duplicates(subset='AlternateCode', keep='first')
 
     return staCoords
 

@@ -50,11 +50,26 @@ def genChildObs(parameters):
 
     print(f'Succesfully generated Bulletin @ {parameters.fileBulletinIn} [{nbEQ} EQ]')
 
-def build_alternateCodeMap(inventory):
+def build_alternateCodeMap(inventory,fileMap):
+    with open(fileMap,'r') as f:
+        lines = f.readlines()
+
     code_map = {}
-    for network in inventory:
-        for station in network:
-            code_map[station.alternate_code] = (network.code, station.code)
+    for ID,line in enumerate(lines):
+        if line.startswith('Alternate'):
+            alternate_code = line.split()[-1]
+            codeID = ID
+            endCode = False
+            while not endCode:
+                codeID += 1
+                codeLine = lines[codeID]
+                if codeLine.startswith('\n'):
+                    endCode = True
+                elif codeLine.startswith('  Station'):
+                    station_code = codeLine.split()[-1]
+            network_code = inventory.select(station=station_code).networks[0].code
+            code_map[alternate_code] = (network_code, station_code)
+
     return code_map
 
 def findStationInfo(inventory,alternateCodeMap,alternateCode):
@@ -84,7 +99,7 @@ def genGTSRCE(parameters):
     inventory = read_inventory(parameters.fileInventory, format='STATIONXML')
 
     #---- Save to the file
-    alternateCodeMap = build_alternateCodeMap(inventory)
+    alternateCodeMap = build_alternateCodeMap(inventory,parameters.fileMap)
 
     with open(parameters.fileStations,'w') as f:
         for alternateCode in uniqueStations:
@@ -171,20 +186,21 @@ if __name__ == '__main__':
     parameters = Parameters(
         fileBulletin = "obs/GLOBAL.obs", # GLOBAL OBS file to use
         fileInventory = 'stations/GLOBAL_inventory.xml', # GLOBAL inventory file to use
-        fileBulletinIn = "obs/GLOBAL_E.obs", # child OBS events file to generate
-        fileStations = 'stations/GTSRCE_E.txt', # GTSRCE stations file to generate
-        fileRunSave = 'run/run_E.in', # run file to generate
+        fileMap = 'stations/GLOBAL_code_mapping.txt', # AlternateCodes map file to use
+        fileBulletinIn = "obs/GLOBAL_C.obs", # child OBS events file to generate
+        fileStations = 'stations/GTSRCE_C.txt', # GTSRCE stations file to generate
+        fileRunSave = 'run/run_C.in', # run file to generate
         latMin_event = 42.0, # minimum latitude for the event box
-        latMax_event = 43.25, # maximum latitude for the event box
-        lonMin_event = 1.5, # minimum longitude for the event box
-        lonMax_event = 3.25, # maximum longitude for the event box
-        fileModel = 'model/Pyrenees_E/Pyrenees_E', # model file to generate
-        fileTime = 'time/Pyrenees_E/Pyrenees_E', # time file to generate
-        fileBulletinOut = 'loc/GLOBAL_E/GLOBAL_E.obs', # loc file to generate
+        latMax_event = 43.3, # maximum latitude for the event box
+        lonMin_event = 0.0, # minimum longitude for the event box
+        lonMax_event = 2.0, # maximum longitude for the event box
+        fileModel = 'model/Pyrenees_C/Pyrenees_C', # model file to generate
+        fileTime = 'time/Pyrenees_C/Pyrenees_C', # time file to generate
+        fileBulletinOut = 'loc/GLOBAL_C/GLOBAL_C.obs', # loc file to generate
         latMin_box = 41.55, # minimum latitude for the main box
-        lonMin_box = 0.3, # minimum longitude for the main box
+        lonMin_box = -1.2, # minimum longitude for the main box
         VGGRID = [9000,800], # VGGRID h/v parameters
-        LOCGRID = [6800,4500,800], # LOCGRID E/W ; N/S ; U/D parameters
+        LOCGRID = [7200,4800,800], # LOCGRID E/W ; N/S ; U/D parameters
     )
 
     verifyFoldersExistence(parameters) # Verify that all folders exist for the files to generate
