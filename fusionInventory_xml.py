@@ -76,6 +76,42 @@ def addAlternateCode(inventory):
     
     return inventory
 
+def combineCloseStations(inventory,parameters):
+    #--- List all stations with their metadata
+    all_stations = []
+    for network in inventory.networks:
+        for station in network.stations:
+            all_stations.append((network.code, station))
+
+    #--- Group stations by location
+    groups = []
+    for net_code, station in all_stations:
+        found_group = None
+        for group in groups:
+            for _, other_station in group:
+                distance = haversine(station.latitude, station.longitude,
+                                    other_station.latitude, other_station.longitude)
+                if distance <= (parameters.acceptedDistance / 1000):
+                    found_group = group
+                    break
+            if found_group is not None:
+                break
+        if found_group is not None:
+            found_group.append((net_code, station))
+        else:
+            groups.append([(net_code, station)])
+
+    #--- For each group, find the oldest station and update alternate codes
+    for group in groups:
+        if len(group) > 1:
+            #-- Find the oldest station in the group
+            oldest_station = min(group, key=lambda x: x[1].start_date or UTCDateTime(datetime.datetime.max))
+            for net_code, station in group:
+                if station != oldest_station[1]:
+                    station.alternate_code = oldest_station[1].alternate_code
+    return inventory
+
+
 def mergeInventory(parameters):
     #--- Create an inventory
     inventory = Inventory()
@@ -199,6 +235,9 @@ def mergeInventory(parameters):
     #--- Add alternate code as NET.0000
     inventory = addAlternateCode(inventory)
 
+    #--- Combine very close stations with not the same code
+    inventory = combineCloseStations(inventory,parameters)
+
     #--- Write the merged Inventory
     inventory.write(parameters.saveName,format='STATIONXML')
     print("____________________")
@@ -215,4 +254,3 @@ if __name__ == '__main__':
 
     #---- Write merged Inventory
     mergeInventory(parameters)
-
