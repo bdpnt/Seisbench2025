@@ -62,7 +62,7 @@ def checkInventory(inventory):
         remove_nets = remove_nets.split(',')
         for network in remove_nets:
             inventory = inventory.remove(network=network, station=station)
-    
+
     return inventory
 
 def addAlternateCode(inventory):
@@ -73,10 +73,10 @@ def addAlternateCode(inventory):
         for station in network:
             station.alternate_code = netCode + '.' + str(staID).rjust(4,'0')
             staID += 1
-    
+
     return inventory
 
-def combineCloseStations(inventory,parameters):
+def combineCloseStations(inventory, parameters):
     #--- List all stations with their metadata
     all_stations = []
     for network in inventory.networks:
@@ -109,8 +109,43 @@ def combineCloseStations(inventory,parameters):
             for net_code, station in group:
                 if station != oldest_station[1]:
                     station.alternate_code = oldest_station[1].alternate_code
+
     return inventory
 
+def create_alternateCodeMapping(inventory,parameters):
+    # Dictionary to store the mapping
+    alternate_code_mapping = {}
+
+    # Iterate through each network and station in the inventory
+    for network in inventory.networks:
+        for station in network.stations:
+            alternate_code = station.alternate_code
+            station_code = station.code
+            start_date = station.start_date
+            end_date = station.end_date
+
+            # If the alternate code is not already in the dictionary, add it
+            if alternate_code not in alternate_code_mapping:
+                alternate_code_mapping[alternate_code] = []
+
+            # Append the station code and its time range to the list for this alternate code
+            alternate_code_mapping[alternate_code].append({
+                'station_code': station_code,
+                'start_date': start_date,
+                'end_date': end_date
+            })
+
+    # Write the mapping to the output file
+    with open(parameters.fileSaveMapping, 'w') as f:
+        for alternate_code, stations in alternate_code_mapping.items():
+            f.write(f"Alternate Code: {alternate_code}\n")
+            for station in stations:
+                f.write(f"  Station Code: {station['station_code']}\n")
+                f.write(f"  Start Date: {station['start_date']}\n")
+                f.write(f"  End Date: {station['end_date']}\n")
+            f.write("\n")
+
+    print(f"Mapping file created: {parameters.fileSaveMapping}")
 
 def mergeInventory(parameters):
     #--- Create an inventory
@@ -134,7 +169,7 @@ def mergeInventory(parameters):
             for station in subNetwork:
                 mainNetwork.stations.append(station)
             inventory.networks.remove(subNetwork)
-    
+
     #--- Merge duplicate stations inside same network
     for network in inventory.networks:
         # Find all stations with the same code (potential duplicates)
@@ -228,7 +263,7 @@ def mergeInventory(parameters):
                 for sta in stations_to_remove:
                     if sta in network.stations:  # Safety check
                         network.stations.remove(sta)
-    
+
     #--- Verify that all stations are distinct by network/time
     inventory = checkInventory(inventory)
 
@@ -236,20 +271,24 @@ def mergeInventory(parameters):
     inventory = addAlternateCode(inventory)
 
     #--- Combine very close stations with not the same code
-    inventory = combineCloseStations(inventory,parameters)
+    inventory = combineCloseStations(inventory, parameters)
 
     #--- Write the merged Inventory
-    inventory.write(parameters.saveName,format='STATIONXML')
-    print("____________________")
-    print(f"\nInventory successfully saved @ {parameters.saveName}\n")
+    inventory.write(parameters.fileSaveInventory,format='STATIONXML')
+    print(f"\nInventory successfully saved @ {parameters.fileSaveInventory}")
+
+    #--- Save the Mapping
+    create_alternateCodeMapping(inventory,parameters)
+    print(f"Alternate codes mapping successfully saved @ {parameters.fileSaveMapping}\n")
 
 # MAIN
 if __name__ == '__main__':
     #---- Parameters
     parameters = Parameters(
         folderPath = 'stations/*/*.xml',
-        saveName = 'stations/GLOBAL_inventory.xml',
-        acceptedDistance = 10, # in m, accepted distance between two stations considered as similar
+        fileSaveInventory = 'stations/GLOBAL_inventory.xml',
+        fileSaveMapping = 'stations/GLOBAL_code_mapping.txt',
+        acceptedDistance = 20, # in m, accepted distance between two stations considered as similar
     )
 
     #---- Write merged Inventory
