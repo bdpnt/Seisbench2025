@@ -1,11 +1,12 @@
 '''
 postRunClean removes unnecessary files after an NLL run, and generates the
-final NLL result file.
+final NLL result file. It also generates a map of the events.
 '''
 
 import os
 import numpy as np
 import pandas as pd
+import pygmt as pg
 
 # CLASS
 class Parameters:
@@ -92,7 +93,7 @@ def writeEvents(parameters):
     events = preWork(parameters)
 
     #---- Write final file
-    with open(parameters.fileSave, 'w') as f:
+    with open(parameters.fileBulletin, 'w') as f:
         for _, row in events.iterrows():
             datestr1 = row['date']
             heuremin1 = f"{row['heuremin']:4.0f}"
@@ -126,7 +127,7 @@ def writeEvents(parameters):
                 f"{row['rms']} {row['no']} {row['erh']} {row['erv']} {row['gap']}\n"
             )
 
-    print(f'\nSuccesfully wrote NLL result file @ {parameters.fileSave}')
+    print(f'\nNLL result file succesfully read @ {parameters.fileBulletin}')
     
     #---- Statistics
     rms_arr = events['rms'].to_numpy()
@@ -138,13 +139,57 @@ def writeEvents(parameters):
     print(f'    - mean ERH : {np.nanmean(erh_arr)}')
     print(f'    - mean ERV : {np.nanmean(erv_arr)}\n')
 
+def removeHighErr(df):
+    df = df[df.erh <= 1.5]
+    df = df[df.erv <= 1.5]
+    df = df[df.gap <= 300]
+    df = df[df.rms <= 0.5]
+    return df
+
+def genFigure(parameters):
+    #---- Read OBS file
+    with open(parameters.fileBulletin,'r',encoding='utf-8') as f:
+        lines = f.readlines()
+    print(f"Catalog succesfully read @ {parameters.fileBulletin}")
+
+    events = [event.split() for event in lines]
+    events_df = pd.DataFrame(events).drop(columns=[0,1,2,3,4,5,11]).rename(columns={6:'Latitude',7:'Longitude',8:'Depth',9:'Magnitude',10:'rms',12:'erh',13:'erv',14:'gap'}).astype(float)
+    events_df = removeHighErr(events_df)
+
+    #---- Set Pyrenees borders
+    region = [-2.25,3.5,42,44]
+
+    fig = pg.Figure()
+    with pg.config(MAP_FRAME_TYPE="fancy+"):
+        fig.basemap(region=region, projection="M6i", frame='af')
+    fig.coast(water="skyblue", land='#777777', resolution='i', area_thresh='0/0/1', borders="1/0.75p,black")
+
+    #---- Plot events
+    pg.makecpt(cmap="viridis", series=[0,15,1], reverse=True)
+    fig.plot(
+        x=events_df.Longitude,
+        y=events_df.Latitude,
+        style="c0.02c",
+        # size=1 * events_df.Magnitude, # the Magnitude is 0 for all
+        fill=events_df.Depth,
+        cmap=True,
+        transparency=30,
+    )
+
+    fig.colorbar(frame=['a5f5+lDepth [km] (events above 15 are in black)'])
+    fig.savefig(parameters.figSave, dpi=300)
+
+    print(f"Figure succesfully saved @ {parameters.figSave}")
+
 
 # MAIN
 if __name__ == '__main__':
     parameters = Parameters(
         folderLoc = 'loc/GLOBAL_W',
         obsFile = 'GLOBAL_W.obs',
-        fileSave = 'RESULT/GLOBAL_W.txt',
+        fileBulletin = 'RESULT/GLOBAL_W.txt',
+        figSave = 'RESULT/MAPS/GLOBAL_TEST.pdf',
     )
 
     writeEvents(parameters)
+    genFigure(parameters)
