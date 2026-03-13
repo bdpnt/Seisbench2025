@@ -112,7 +112,7 @@ def genRun(parameters):
 
     # Region coordinates
     lines.append('CONTROL 1 54321\n')
-    lines.append(f'TRANS  LAMBERT  WGS-84  {parameters.latMin_box} {parameters.lonMin_box}  41 44 0.0\n')
+    lines.append(f'TRANS  LAMBERT  WGS-84  {parameters.latMin_box} {parameters.lonMin_box}  42 43 0.0\n')
     lines.append('\n')
 
     # Velocity model
