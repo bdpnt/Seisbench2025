@@ -188,7 +188,7 @@ if __name__ == '__main__':
         folderLoc = 'loc/GLOBAL_W',
         obsFile = 'GLOBAL_W.obs',
         fileBulletin = 'RESULT/GLOBAL_W.txt',
-        figSave = 'RESULT/MAPS/GLOBAL_TEST.pdf',
+        figSave = 'RESULT/MAPS/GLOBAL_W.pdf',
     )
 
     writeEvents(parameters)
