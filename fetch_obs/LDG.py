@@ -1,12 +1,7 @@
-'''
-LDG2obs reads both catalog and arrivals LDG TXT files and saves their data as an OBS file.
-'''
-
 from parameters import Parameters
 import pandas as pd
 from obspy import UTCDateTime
 
-# FUNCTIONS
 def write_catalog_to_obs(parameters):
     #---- Build Dataframes
     catalog = pd.read_csv(parameters.catalogFile,sep=';',header=0)
@@ -116,15 +111,3 @@ def write_catalog_to_obs(parameters):
     
     # Print
     print(f"Catalog succesfully written @ {parameters.saveName}\n")
-
-# MAIN
-if __name__ == '__main__':
-    #---- Parameters
-    parameters = Parameters(
-        catalogFile = 'ORGCATALOGS/LDG_20-25_catalog.txt',
-        arrivalFile = 'ORGCATALOGS/LDG_20-25_arrivals.txt',
-        saveName = 'obs/LDG_20-25.obs',
-    )
-
-    #---- Write OBS file
-    write_catalog_to_obs(parameters)

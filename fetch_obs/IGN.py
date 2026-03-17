@@ -1,17 +1,12 @@
-'''
-ICGC2obs reads an ICGC TXT file and saves its data as an OBS file.
-'''
-
 from parameters import Parameters
 from obspy import UTCDateTime
 
-# FUNCTIONS
 def safe_float(s):
     try:
         return float(s.strip())
     except Exception:
         return None
-
+    
 def open_catalog(fileName):
     with open(fileName, 'r', encoding='utf-8', errors='ignore') as fR:
         lines = fR.readlines()
@@ -34,8 +29,8 @@ def write_catalog_to_obs(parameters):
         for ind, line in enumerate(lines):
             # Check for new event
             if line.startswith("DATA_TYPE"):
-                # Informations on event : 3rd line after DATA_TYPE
-                event_info = lines[ind+3].rstrip('\n')
+                # Informations on event : 4th line after DATA_TYPE
+                event_info = lines[ind+4].rstrip('\n')
                 year = event_info[0:4].strip()
                 month = event_info[5:7].strip()
                 day = event_info[8:10].strip()
@@ -48,8 +43,8 @@ def write_catalog_to_obs(parameters):
                 az_gap = safe_float(event_info[92:97])
                 rms = safe_float(event_info[30:35])
 
-                # Informations on magnitude : 6th line after DATA_TYPE
-                mag_info = lines[ind+6].rstrip('\n')
+                # Informations on magnitude : 11th line after DATA_TYPE
+                mag_info = lines[ind+11].rstrip('\n')
                 magnitude = safe_float(mag_info[7:10])
                 magnitude_type = mag_info[0:6].strip()
                 magnitude_author = mag_info[20:29].strip()
@@ -58,19 +53,16 @@ def write_catalog_to_obs(parameters):
                 H_uncertainty = None
                 V_uncertainty = None
 
-                # Don't use if mag < magMin
-                if magnitude < parameters.magMin:
-                    continue
-
                 # Write event line
                 f.write(
                     f"# {year} {month.lstrip('0')} {day.lstrip('0')} {ev_hour.lstrip('0') if ev_hour != '00' else '0'} {minute.lstrip('0') if minute != '00' else '0'}"
                     f" {second[1:] if second.startswith('00') else second.lstrip('0')} {latitude} {longitude} {depth} {magnitude}"
                     f" {magnitude_type} {magnitude_author} {phases_count} {H_uncertainty} {V_uncertainty} {az_gap} {rms}\n"
                 )
+
     #--- Phases
-                # Phases : from 11th line after DATA_TYPE
-                phase_ind = ind+11
+                # Phases : from 15th line after DATA_TYPE
+                phase_ind = ind+15
                 while phase_ind < len(lines) and lines[phase_ind].strip():
                     # Informations on phase
                     phase_info = lines[phase_ind].rstrip('\n')
@@ -82,7 +74,7 @@ def write_catalog_to_obs(parameters):
                     elif phase_info[99:102] != 'm__':
                         phase_ind += 1
                         continue
-
+                    
                     network = phase_info[114:116].strip()
                     station = phase_info[0:7].strip()
                     instrument = '?'
@@ -95,7 +87,7 @@ def write_catalog_to_obs(parameters):
                     second = phase_info[34:36].strip()
                     microsecond = phase_info[37:41].strip()
                     error_type = 'GAU'
-                    error_mag = '0.05' if phase.lower().startswith('p') else '0.15' # 0.05 for P and 0.15 for S
+                    error_mag = '0.05' if phase.lower().startswith('p') else '0.15' # 0.05 pour P et 0.15 pour S
                     coda_duration = '-1.00e+00'
                     max_p2p_amp = '-1.00e+00'
                     period_amp = '-1.00e+00'
@@ -122,8 +114,8 @@ def write_catalog_to_obs(parameters):
 
                     # Add informations
                     real_phase = phase.ljust(6)
-                    channel = 'None'.ljust(4)
-                    pick_origin = 'ICGC'.ljust(9)
+                    channel = phase_info[119:123].strip().ljust(4)
+                    pick_origin = 'IGN'.ljust(9)
                     PGV = 'None'.ljust(4) # in mm/s
 
                     # Write phase line
@@ -140,15 +132,3 @@ def write_catalog_to_obs(parameters):
     
     # Print
     print(f"Catalog succesfully written @ {parameters.saveName}\n")
-
-# MAIN
-if __name__ == '__main__':
-    #---- Parameters
-    parameters = Parameters(
-        fileName = 'ORGCATALOGS/ICGC_20-25.txt',
-        saveName = 'obs/ICGC_20-25.obs',
-        magMin = 0,
-    )
-
-    #---- Write OBS file
-    write_catalog_to_obs(parameters)
