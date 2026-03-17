@@ -1,4 +1,3 @@
-from parameters import Parameters
 from obspy import UTCDateTime
 
 def safe_float(s):

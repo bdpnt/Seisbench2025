@@ -1,4 +1,3 @@
-from parameters import Parameters
 import requests
 import os
 import time

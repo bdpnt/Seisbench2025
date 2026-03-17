@@ -1,4 +1,3 @@
-from parameters import Parameters
 from obspy.clients.fdsn import Client
 from obspy import UTCDateTime, read_events
 

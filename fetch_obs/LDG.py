@@ -1,4 +1,3 @@
-from parameters import Parameters
 import pandas as pd
 from obspy import UTCDateTime
 

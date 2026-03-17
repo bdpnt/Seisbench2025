@@ -1,4 +1,3 @@
-from parameters import Parameters
 import datetime
 from obspy import UTCDateTime
 
