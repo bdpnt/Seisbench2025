@@ -3,10 +3,18 @@ updateBulletinAOI_obs removes events outside the area of interest for RESIF, IGN
 and ICGC Bulletins.
 '''
 
+import sys
+import os
+script_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(script_dir)
+sys.path.append(parent_dir)
+
+from parameters import Parameters
 import pygmt as pg
 from math import cos, sin, radians
 import pandas as pd
 
+# Function
 def whichLineCoords(name):
     if name.__contains__('RESIF'):
         return [(43, -2.25),(42, 2.25)], True
@@ -121,3 +129,13 @@ def updateBulletins(parameters):
     for id,fileName in enumerate(parameters.fileNames):
         remove_outsideAOI(fileName, parameters.figSaves[id])
     print('#######\n')
+
+# MAIN
+if __name__ == '__main__':
+    params_AOI = Parameters(
+        fileNames = ['obs/RESIF_20-25.obs','obs/IGN_20-25.obs','obs/ICGC_20-25.obs','obs/LDG_20-25.obs','obs/OMP_2016.obs','obs/OMP_78-19.obs'],
+        figSaves = ['obs/MAPS/RESIF_20-25.pdf','obs/MAPS/IGN_20-25.pdf','obs/MAPS/ICGC_20-25.pdf','obs/MAPS/LDG_20-25.pdf','obs/MAPS/OMP_2016.pdf',
+                    'obs/MAPS/OMP_78-19.pdf'],
+    )
+
+    updateBulletins(params_AOI)

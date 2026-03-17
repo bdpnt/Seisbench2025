@@ -2,8 +2,17 @@
 mapGlobalBulletin_obs generates a map of all the events in GLOBAL.obs Bulletin
 '''
 
+import sys
+import os
+script_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(script_dir)
+sys.path.append(parent_dir)
+
+from parameters import Parameters
 import pygmt as pg
 import pandas as pd
+
+# FUNCTION
 
 def genGlobalFigure(parameters):
     #---- Read OBS file
@@ -38,3 +47,12 @@ def genGlobalFigure(parameters):
     fig.savefig(parameters.figSave, dpi=300)
 
     print(f"Figure succesfully saved @ {parameters.figSave}")
+
+# MAIN
+if __name__ == "__main__":
+    params_figure = Parameters(
+        fileName = 'obs/GLOBAL.obs',
+        figSave = 'obs/MAPS/GLOBAL.pdf',
+    )
+
+    genGlobalFigure(params_figure)

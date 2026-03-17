@@ -1,5 +1,6 @@
 from parameters import Parameters
 import global_obs
+import subprocess
 
 # Associate picks
 params_association= Parameters(
@@ -72,13 +73,7 @@ parameters_magModels = Parameters(
 global_obs.use_mag_models.updateAllFiles(parameters_magModels)
 
 # Update bulletins AOI
-params_AOI = Parameters(
-    fileNames = ['obs/RESIF_20-25.obs','obs/IGN_20-25.obs','obs/ICGC_20-25.obs','obs/LDG_20-25.obs','obs/OMP_2016.obs','obs/OMP_78-19.obs'],
-    figSaves = ['obs/MAPS/RESIF_20-25.pdf','obs/MAPS/IGN_20-25.pdf','obs/MAPS/ICGC_20-25.pdf','obs/MAPS/LDG_20-25.pdf','obs/MAPS/OMP_2016.pdf',
-                'obs/MAPS/OMP_78-19.pdf'],
-)
-
-global_obs.update_AOI.updateBulletins(params_AOI)
+subprocess.run(["conda", "run", "-n", "pygmt_env", "python", "global_obs/update_AOI.py"], check=True)
 
 # Fusion all bulletins
 params_fusion = Parameters(
@@ -93,10 +88,5 @@ params_fusion = Parameters(
     simPickThresh = 2, # minimal number of picks to confirm match from possible matches if no thresholds
 )
 
-params_figure = Parameters(
-    fileName = 'obs/GLOBAL.obs',
-    figSave = 'obs/MAPS/GLOBAL.pdf',
-)
-
 global_obs.fusion.fusionAll(params_fusion)
-global_obs.map_global.genGlobalFigure(params_figure)
+subprocess.run(["conda", "run", "-n", "pygmt_env", "python", "global_obs/map_global.py"], check=True)

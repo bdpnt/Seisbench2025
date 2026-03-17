@@ -1,36 +1,34 @@
 from parameters import Parameters
 import NLL_run
+import subprocess
 
 # Clean the files post-run
 params_clean_W = Parameters(
     folderLoc = 'loc/GLOBAL_W',
     obsFile = 'GLOBAL_W.obs',
-    fileBulletin = 'RESULT/GLOBAL_W.txt',
-    figSave = 'RESULT/MAPS/GLOBAL_W.pdf',
+    fileBulletin = 'RESULT/GLOBAL_PR_W.txt',
 )
 
 NLL_run.clean_post_run.writeEvents(params_clean_W)
-NLL_run.clean_post_run.genFigure(params_clean_W)
 
 params_clean_C = Parameters(
     folderLoc = 'loc/GLOBAL_C',
     obsFile = 'GLOBAL_C.obs',
-    fileBulletin = 'RESULT/GLOBAL_C.txt',
-    figSave = 'RESULT/MAPS/GLOBAL_C.pdf',
+    fileBulletin = 'RESULT/GLOBAL_PR_C.txt',
 )
 
 NLL_run.clean_post_run.writeEvents(params_clean_C)
-NLL_run.clean_post_run.genFigure(params_clean_C)
 
 params_clean_E = Parameters(
     folderLoc = 'loc/GLOBAL_E',
     obsFile = 'GLOBAL_E.obs',
-    fileBulletin = 'RESULT/GLOBAL_E.txt',
-    figSave = 'RESULT/MAPS/GLOBAL_E.pdf',
+    fileBulletin = 'RESULT/GLOBAL_PR_E.txt',
 )
 
 NLL_run.clean_post_run.writeEvents(params_clean_E)
-NLL_run.clean_post_run.genFigure(params_clean_E)
+
+# Generate the maps
+subprocess.run(["conda", "run", "-n", "pygmt_env", "python", "NLL_run/map_post_run.py"], check=True)
 
 # Generate the SSST run files
 params_ssst_W = Parameters(
