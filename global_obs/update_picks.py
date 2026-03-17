@@ -4,12 +4,10 @@ with every pick in an OBS Catalog. If the Network is not found, removes the pick
 It also updates the codes for any duplicate station in a Network.
 '''
 
-from parameters import Parameters
 from obspy import read_inventory, UTCDateTime
 import pandas as pd
 import glob
 
-# FUNCTIONS
 def findUniqueStations(inventory):
     uniqueSta = pd.DataFrame(columns=['Network','Code','AlternateCode','StartDate','EndDate'])
     for net in inventory.networks:
@@ -120,14 +118,3 @@ def associatePicks(parameters):
         print(f"    - bulletin succesfully saved @ {fileBulletin}")
     
     print('\n#########\n')
-
-# MAIN
-if __name__ == '__main__':
-    #---- Parameters
-    parameters = Parameters(
-        fileInventory = 'stations/GLOBAL_inventory.xml',
-        folderBulletin = 'obs/*.obs',
-    )
-
-    #---- Write OBS file
-    associatePicks(parameters)

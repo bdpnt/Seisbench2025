@@ -3,9 +3,6 @@ availableMagTypes_obs searches for all available magnitude types in a .obs Catal
 and lists them.
 '''
 
-from parameters import Parameters
-
-# FUNCTIONS
 def retrieveEvents_fromFile(fileName):
     with open(fileName, 'r', encoding='utf-8', errors='ignore') as fR:
         catLines = fR.readlines()
@@ -37,13 +34,3 @@ def findMagnitudeTypes(parameters):
     print(f'Magnitude types available in Catalog @ {parameters.fileName}:')
     for magType in magTypes:
         print(f'    - {magType} ({magTypes[magType]})')
-
-# MAIN
-if __name__ == '__main__':
-    #---- Parameters
-    parameters = Parameters(
-        fileName = 'obs/ICGC_20-25.obs', # file to read (obs)
-    )
-
-    #---- Find magnitude types available
-    findMagnitudeTypes(parameters)

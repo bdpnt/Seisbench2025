@@ -3,7 +3,6 @@ genMagModel_obs generates a regression model from a magnitude type from
 a .obs Bulletin to another magnitude type from another .obs Bulletin.
 '''
 
-from parameters import Parameters
 import pandas as pd
 import math
 import numpy as np
@@ -15,7 +14,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import joblib
 
-# FUNCTIONS
 def haversine(lat1, lon1, lat2, lon2):
     """Distance in km between two geographical points."""
     R = 6371.0
@@ -297,26 +295,3 @@ def convertMagnitudes(parameters, printFigs=False):
     print(f"Model for {parameters.magName1} ≥ 2: y = {slope_geq_2:.3f} * x + {intercept_geq_2:.3f}")
     print(f"Model for {parameters.magName1} < 2: y = {slope_lt_2:.3f} * x + {intercept_lt_2:.3f}")
     print('\n#########\n') # closing line
-
-
-# MAIN
-if __name__ == '__main__':
-    #---- Parameters
-    parameters = Parameters(
-        fileName1 = 'obs/RESIF_20-25.obs', # magnitudes to convert
-        fileName2 = 'obs/LDG_20-25.obs', # magnitudes to keep
-        magType1 = 'MLv', # magnitude type to convert from (in fileName1) ; e.g. 'mb_Lg' (without origin 'IGN')
-        magType2 = 'ML', # magnitude type to convert to (in fileName2) ; e.g. 'ML' (without origin 'LDG')
-        magName1 = 'MLv RESIF', # magnitude name to convert from (in fileName1), for printing/model name only ; e.g. 'mb_Lg IGN' (with origin if needed)
-        magName2 = 'ML LDG', # magnitude name to convert to (in fileName2), for printing/model name only ; e.g. 'ML LDG' (with origin if needed)
-        distThresh = 10.0, # distance threshold between events in km
-        timeThresh = 2.0, # time threshold between events in s
-    )
-
-    parameters.update(
-        saveName = f'MAGMODELS/{parameters.magName1}.joblib', # model name
-        saveFigs = 'MAGMODELS/FIGURES/', # figures folder
-    )
-
-    #---- Convert magnitudes and generate model
-    convertMagnitudes(parameters, printFigs=True)

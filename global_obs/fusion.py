@@ -2,7 +2,6 @@
 fusionBulletins_obs fusions all the OBS Bulletins into a single one, by matching events.
 '''
 
-from parameters import Parameters
 import glob
 import pandas as pd
 import math
@@ -361,7 +360,7 @@ def addNansForStats(lineSecondary,id,loopNo):
     return " ".join(newLine)
 
 def concatenateBulletin(
-        mainLines, secondaryBulletinPath, 
+        parameters, mainLines, secondaryBulletinPath, 
         distThresh, looseDistThresh, timeThresh, looseTimeThresh, magThresh, simPickThresh,
         loopNo
     ):
@@ -797,6 +796,7 @@ def fusionAll(parameters):
     for fileNo,filePath in enumerate(allPath):
         print('\n#######\n')
         mainLines, _, _, _, _ = concatenateBulletin(
+            parameters,
             mainLines,
             filePath,
             parameters.distThresh,
@@ -826,19 +826,3 @@ def fusionAll(parameters):
 
     #---- Save Global Bulletin
     saveBulletin(mainLines,parameters)
-
-# MAIN
-if __name__ == '__main__':
-    parameters = Parameters(
-        globalBulletinPath = 'obs/GLOBAL.obs',
-        mainBulletinPath = 'obs/RESIF_20-25.obs',
-        folderPath = 'obs/*.obs',
-        distThresh = 15, # in km
-        looseDistThresh = 50, # in km
-        timeThresh = 2, # in seconds
-        looseTimeThresh = 30, # in seconds
-        magThresh = 1.5, # magnitude
-        simPickThresh = 2, # minimal number of picks to confirm match from possible matches if no thresholds
-    )
-
-    fusionAll(parameters)

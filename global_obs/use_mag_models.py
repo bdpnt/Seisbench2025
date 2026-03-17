@@ -8,7 +8,6 @@ import pandas as pd
 import glob
 import joblib
 
-# FUNCTION
 def fetchEvents(file):
     with open(file,'r',encoding='utf-8') as f:
         lines = f.readlines()
@@ -108,13 +107,3 @@ def updateAllFiles(parameters):
             print(f'\n    - No magnitudes converted')
     
     print('\n#########\n') # closing line
-
-# MAIN
-if __name__ == '__main__':
-    #---- Parameters
-    parameters = Parameters(
-        folderPath = 'obs/*_20-25.obs',
-    )
-
-    #---- Write merged Inventory
-    updateAllFiles(parameters)
