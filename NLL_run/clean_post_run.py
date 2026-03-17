@@ -3,13 +3,11 @@ postRunClean removes unnecessary files after an NLL run, and generates the
 final NLL result file. It also generates a map of the events.
 '''
 
-from parameters import Parameters
 import os
 import numpy as np
 import pandas as pd
 import pygmt as pg
 
-# FUNCTIONS
 def preWork(parameters):
     # Remember current folder
     currentFolder = os.getcwd()
@@ -167,16 +165,4 @@ def genFigure(parameters):
     fig.savefig(parameters.figSave, dpi=300)
 
     print(f"Figure succesfully saved @ {parameters.figSave}")
-
-
-# MAIN
-if __name__ == '__main__':
-    parameters = Parameters(
-        folderLoc = 'loc/GLOBAL_W',
-        obsFile = 'GLOBAL_W.obs',
-        fileBulletin = 'RESULT/GLOBAL_W.txt',
-        figSave = 'RESULT/MAPS/GLOBAL_W.pdf',
-    )
-
-    writeEvents(parameters)
-    genFigure(parameters)
+    

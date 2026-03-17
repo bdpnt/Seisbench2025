@@ -2,7 +2,6 @@
 removeFarPicks_obs removes the picks from stations too far to the event 
 '''
 
-from parameters import Parameters
 import math
 from obspy import read_inventory
 import pandas as pd
@@ -82,13 +81,3 @@ def removeFarPicks(parameters):
 
     print(f'\nSuccesfully saved the updated Bulletin @ {parameters.fileBulletin}')
     print(f'    - removed {pickCount - len(removeID)} / {pickCount} picks')
-                
-# MAIN
-if __name__ == '__main__':
-    parameters = Parameters(
-        fileBulletin = 'obs/GLOBAL.obs',
-        fileInventory = 'stations/GLOBAL_inventory.xml',
-        maxDistance = 80, # max distance between event and station, in kilometers
-    )
-
-    removeFarPicks(parameters)
