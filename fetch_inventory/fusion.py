@@ -1,9 +1,8 @@
 '''
-fusionInventory_xml merges several Inventory into one, by safely comparing stations
+fusion merges several Inventory into one, by safely comparing stations
 in each Network and merging them if necessary, otherwise renaming them.
 '''
 
-from parameters import Parameters
 from obspy import read_inventory, UTCDateTime
 from obspy.core.inventory import Inventory
 import glob
@@ -267,16 +266,3 @@ def mergeInventory(parameters):
     #--- Save the Mapping
     create_alternateCodeMapping(inventory,parameters)
     print(f"Alternate codes mapping successfully saved @ {parameters.fileSaveMapping}\n")
-
-# MAIN
-if __name__ == '__main__':
-    #---- Parameters
-    parameters = Parameters(
-        folderPath = 'stations/*/*.xml',
-        fileSaveInventory = 'stations/GLOBAL_inventory.xml',
-        fileSaveMapping = 'stations/GLOBAL_code_mapping.txt',
-        acceptedDistance = 20, # in m, accepted distance between two stations considered as similar
-    )
-
-    #---- Write merged Inventory
-    mergeInventory(parameters)
