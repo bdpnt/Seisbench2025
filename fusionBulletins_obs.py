@@ -2,6 +2,7 @@
 fusionBulletins_obs fusions all the OBS Bulletins into a single one, by matching events.
 '''
 
+from parameters import Parameters
 import glob
 import pandas as pd
 import math
@@ -10,20 +11,6 @@ from scipy.stats import pearsonr, spearmanr
 from numpy import mean
 import seaborn as sns
 import matplotlib.pyplot as plt
-
-# CLASS
-class Parameters:
-    def __init__(self, **kwargs):
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-
-    def __str__(self):
-        attrs = ', '.join(f"{k}={v}" for k, v in self.__dict__.items())
-        return f"Parameters({attrs})"
-
-    def update(self, **kwargs):
-        for key, value in kwargs.items():
-            setattr(self, key, value)
 
 # FUNCTION
 def haversine(lat1, lon1, lat2, lon2):

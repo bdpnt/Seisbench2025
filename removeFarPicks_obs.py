@@ -2,23 +2,10 @@
 removeFarPicks_obs removes the picks from stations too far to the event 
 '''
 
+from parameters import Parameters
 import math
 from obspy import read_inventory
 import pandas as pd
-
-# CLASS
-class Parameters:
-    def __init__(self, **kwargs):
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-
-    def __str__(self):
-        attrs = ', '.join(f"{k}={v}" for k, v in self.__dict__.items())
-        return f"Parameters({attrs})"
-
-    def update(self, **kwargs):
-        for key, value in kwargs.items():
-            setattr(self, key, value)
 
 # FUNCTION
 def haversine(lat1, lon1, lat2, lon2):

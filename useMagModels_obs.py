@@ -3,23 +3,10 @@ convertMagnitudes_obs converts magnitudes from all files in obs/ folder to ML LD
 by loading pre-computed regression models from MAGMODELS/ folder.
 '''
 
+from parameters import Parameters
 import pandas as pd
 import glob
 import joblib
-
-# CLASS
-class Parameters:
-    def __init__(self, **kwargs):
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-
-    def __str__(self):
-        attrs = ', '.join(f"{k}={v}" for k, v in self.__dict__.items())
-        return f"Parameters({attrs})"
-
-    def update(self, **kwargs):
-        for key, value in kwargs.items():
-            setattr(self, key, value)
 
 # FUNCTION
 def fetchEvents(file):

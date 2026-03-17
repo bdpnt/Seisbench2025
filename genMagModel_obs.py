@@ -3,6 +3,7 @@ genMagModel_obs generates a regression model from a magnitude type from
 a .obs Bulletin to another magnitude type from another .obs Bulletin.
 '''
 
+from parameters import Parameters
 import pandas as pd
 import math
 import numpy as np
@@ -13,20 +14,6 @@ from sklearn.metrics import r2_score
 import matplotlib.pyplot as plt
 import seaborn as sns
 import joblib
-
-# CLASS
-class Parameters:
-    def __init__(self, **kwargs):
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-
-    def __str__(self):
-        attrs = ', '.join(f"{k}={v}" for k, v in self.__dict__.items())
-        return f"Parameters({attrs})"
-
-    def update(self, **kwargs):
-        for key, value in kwargs.items():
-            setattr(self, key, value)
 
 # FUNCTIONS
 def haversine(lat1, lon1, lat2, lon2):

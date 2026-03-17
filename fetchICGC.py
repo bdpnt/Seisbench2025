@@ -2,23 +2,10 @@
 fetchICGC saves an ICGC-fetched Catalog to a TXT file.
 '''
 
+from parameters import Parameters
 import requests
 import os
 import time
-
-# CLASS
-class Parameters:
-    def __init__(self, **kwargs):
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-
-    def __str__(self):
-        attrs = ', '.join(f"{k}={v}" for k, v in self.__dict__.items())
-        return f"Parameters({attrs})"
-
-    def update(self, **kwargs):
-        for key, value in kwargs.items():
-            setattr(self, key, value)
 
 # FUNCTIONS
 def iter_months(start_year, start_month, end_year, end_month):
@@ -133,4 +120,4 @@ if __name__ == '__main__':
 
     #---- Write ICGC catalog
     get_all_codes(parameters)
-    #fetch_catalog(parameters)
+    fetch_catalog(parameters)

@@ -4,23 +4,10 @@ with every pick in an OBS Catalog. If the Network is not found, removes the pick
 It also updates the codes for any duplicate station in a Network.
 '''
 
+from parameters import Parameters
 from obspy import read_inventory, UTCDateTime
 import pandas as pd
 import glob
-
-# CLASS
-class Parameters:
-    def __init__(self, **kwargs):
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-
-    def __str__(self):
-        attrs = ', '.join(f"{k}={v}" for k, v in self.__dict__.items())
-        return f"Parameters({attrs})"
-
-    def update(self, **kwargs):
-        for key, value in kwargs.items():
-            setattr(self, key, value)
 
 # FUNCTIONS
 def findUniqueStations(inventory):

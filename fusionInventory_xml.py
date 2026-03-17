@@ -3,26 +3,13 @@ fusionInventory_xml merges several Inventory into one, by safely comparing stati
 in each Network and merging them if necessary, otherwise renaming them.
 '''
 
+from parameters import Parameters
 from obspy import read_inventory, UTCDateTime
 from obspy.core.inventory import Inventory
 import glob
 from collections import Counter, defaultdict
 import datetime
 import math
-
-# CLASS
-class Parameters:
-    def __init__(self, **kwargs):
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-
-    def __str__(self):
-        attrs = ', '.join(f"{k}={v}" for k, v in self.__dict__.items())
-        return f"Parameters({attrs})"
-
-    def update(self, **kwargs):
-        for key, value in kwargs.items():
-            setattr(self, key, value)
 
 # FUNCTION
 def haversine(lat1, lon1, lat2, lon2):

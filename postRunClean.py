@@ -3,24 +3,11 @@ postRunClean removes unnecessary files after an NLL run, and generates the
 final NLL result file. It also generates a map of the events.
 '''
 
+from parameters import Parameters
 import os
 import numpy as np
 import pandas as pd
 import pygmt as pg
-
-# CLASS
-class Parameters:
-    def __init__(self, **kwargs):
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-
-    def __str__(self):
-        attrs = ', '.join(f"{k}={v}" for k, v in self.__dict__.items())
-        return f"Parameters({attrs})"
-
-    def update(self, **kwargs):
-        for key, value in kwargs.items():
-            setattr(self, key, value)
 
 # FUNCTIONS
 def preWork(parameters):
