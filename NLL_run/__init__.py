@@ -5,7 +5,7 @@ __all__ = [
     "remove_far_picks",
     "gen_run_files",
     "clean_post_run",
-    "map_post_run",
+    # "map_post_run",
     "gen_second_run_files",
     "error_maps",
 ]

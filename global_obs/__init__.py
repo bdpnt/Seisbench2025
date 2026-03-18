@@ -6,9 +6,9 @@ __all__ = [
     "mag_types",
     "generate_mag_model",
     "use_mag_models",
-    "update_AOI",
+    # "update_AOI",
     "fusion",
-    "map_global",
+    # "map_global",
 ]
 
 from . import *
