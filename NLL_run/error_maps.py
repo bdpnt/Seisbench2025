@@ -150,6 +150,9 @@ def addSubplot(events,ax,type):
         ha='left', va='top',
     )
 
+    ax.set_xlim(lon_min, lon_max)
+    ax.set_ylim(lat_min, lat_max)
+
     ax.set_xlabel("Longitude")
     ax.set_ylabel("Latitude")
 
