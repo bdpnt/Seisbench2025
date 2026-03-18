@@ -1,5 +1,5 @@
 '''
-fusionBulletins_obs fusions all the OBS Bulletins into a single one, by matching events.
+fusion fusions all the OBS Bulletins into a single one, by matching events.
 '''
 
 import glob
@@ -585,12 +585,20 @@ def statsFigs(mainName,secondaryName,frame):
             (data[mainName] <= data[mainName].quantile(upper_bound / 100)) &
             (data[secondaryName] >= data[secondaryName].quantile(lower_bound / 100)) &
             (data[secondaryName] <= data[secondaryName].quantile(upper_bound / 100))
-        ]
+        ].copy()
+
+        # Create the differential column
+        data_99['diff'] = data_99[mainName] - data_99[secondaryName]
+
+        if col == 'latitude':
+            data_99['diff'] = data_99['diff'] * 111.32
+        elif col == 'longitude':
+            data_99['diff'] = data_99['diff'] * 111.32 * math.cos(42 * math.pi/180)
 
         # Create scatterplot
         sns.scatterplot(
             x=data_99[mainName],
-            y=data_99[secondaryName],
+            y=data_99['diff'],
             ax=ax,
             color='black',
             s=2,
@@ -601,7 +609,7 @@ def statsFigs(mainName,secondaryName,frame):
         # Create KDE plot
         sns.kdeplot(
             x=data_99[mainName],
-            y=data_99[secondaryName],
+            y=data_99['diff'],
             ax=ax,
             cmap='flare',
             fill=True,
@@ -611,7 +619,7 @@ def statsFigs(mainName,secondaryName,frame):
         )
 
         ax.set_xlabel(mainName)
-        ax.set_ylabel(secondaryName)
+        ax.set_ylabel(f'{mainName} - {secondaryName}')
         ax.grid(True)
         
         # Calculate Pearson correlation (linear) and p-value
@@ -623,7 +631,7 @@ def statsFigs(mainName,secondaryName,frame):
         # Add text to the subplot showing the Pearson correlation and p-value
         text_str = f"Pearson: {correlation_pearson:.3f} - p-value: {p_value_pearson:.3f}\nSpearman: {correlation_spearman:.3f} - p-value: {p_value_spearman:.3f}"
         ax.text(0.5, 1.085, text_str, transform=ax.transAxes, fontsize=12, horizontalalignment='center', verticalalignment='top')
-        label_str = f"{col}".capitalize()
+        label_str = f"{col} (km)".capitalize() if col != 'magnitude' else f"{col}".capitalize() + " (ML)"
         ax.text(1.02, 0.5, label_str, transform=ax.transAxes, fontsize=12, fontweight='bold', horizontalalignment='center', verticalalignment='center', rotation=90)
         
         plot_index += 1
@@ -787,7 +795,7 @@ def saveBulletin(lines,parameters):
 def fusionAll(parameters):
     #---- Remove main Bulletin from all paths and start with it
     allPath = [filePath for filePath in glob.glob(parameters.folderPath) 
-               if (filePath != parameters.mainBulletinPath and filePath != parameters.globalBulletinPath)]
+               if (filePath != parameters.mainBulletinPath and (not filePath.__contains__('GLOBAL')))]
 
     #---- Generate Global file from Main file
     mainLines = generateGlobal(parameters)
