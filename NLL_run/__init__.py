@@ -8,6 +8,7 @@ __all__ = [
     # "map_post_run",
     "gen_second_run_files",
     "error_maps",
+    "depth_maps",
 ]
 
 from . import *
