@@ -69,8 +69,8 @@ def addSubplot(events,ax,type):
     # lon_min, lon_max = events['longitude'].min(), events['longitude'].max()
     lat_min, lat_max = 42.0, 44.0
     lon_min, lon_max = -2.25, 3.5
-    bins_lat = 100
-    bins_lon = 215
+    bins_lat = 400
+    bins_lon = 860
 
     # 2D grid for coordinates
     lat_edges = np.linspace(lat_min, lat_max, bins_lat + 1)
@@ -81,7 +81,7 @@ def addSubplot(events,ax,type):
     count = np.zeros((bins_lat, bins_lon), dtype=int)
 
     # Window size for overlap (±1 bin = 9 cells)
-    window_size = 1
+    window_size = 4
 
     # Compute median for each cell using a sliding window
     for i in range(bins_lat):
