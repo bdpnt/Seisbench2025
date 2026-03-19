@@ -610,11 +610,6 @@ def statsFigs_versus(mainName,secondaryName,frame):
             # levels=20,
         )
 
-        if col != "magnitude":
-            ax.set_ylim(-20, 20)
-        else:
-            ax.set_ylim(-1, 1)
-
         ax.set_xlabel(mainName)
         ax.set_ylabel(f'{secondaryName}')
         ax.grid(True)
