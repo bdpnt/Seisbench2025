@@ -556,7 +556,101 @@ def concatenateBulletin(
     #---- Return the updated Bulletin and the possible matches
     return newLines, strictMatch, possibleMatch, mainBulletin, secondaryBulletin
 
-def statsFigs(mainName,secondaryName,frame):
+def statsFigs_versus(mainName,secondaryName,frame):
+    useCols = ['latitude','longitude','depth','magnitude']
+    useFrame = frame[useCols]
+
+    # Create a figure with subplots (2 rows and 2 columns)
+    _, axs = plt.subplots(nrows=2, ncols=2, figsize=(18, 12))
+
+    # Flatten the axes array for easier indexing
+    axs = axs.flatten()
+    plt.rc('axes', labelsize=13) 
+
+    plot_index = 0
+    for col in useCols:
+        ax = axs[plot_index]
+
+        # Update Data
+        col1,col2 = zip(*[(t[0], t[1]) for t in useFrame[col]])
+        data = pd.DataFrame({mainName:col1, secondaryName:col2})
+
+        # Calculate the percentiles for both columns
+        lower_bound = 0.5  # 0.5th percentile
+        upper_bound = 99.5  # 99.5th percentile
+
+        # Filter the DataFrame from the 1%
+        data_99 = data[
+            (data[mainName] >= data[mainName].quantile(lower_bound / 100)) &
+            (data[mainName] <= data[mainName].quantile(upper_bound / 100)) &
+            (data[secondaryName] >= data[secondaryName].quantile(lower_bound / 100)) &
+            (data[secondaryName] <= data[secondaryName].quantile(upper_bound / 100))
+        ].copy()
+
+        # Create scatterplot
+        sns.scatterplot(
+            x=data_99[mainName],
+            y=data_99[secondaryName],
+            ax=ax,
+            color='black',
+            s=2,
+            alpha=0.6,
+            edgecolor=None,
+        )
+
+        # Create KDE plot
+        sns.kdeplot(
+            x=data_99[mainName],
+            y=data_99[secondaryName],
+            ax=ax,
+            cmap='flare',
+            fill=True,
+            alpha=0.65,
+            # thresh=0.05,
+            # levels=20,
+        )
+
+        if col != "magnitude":
+            ax.set_ylim(-20, 20)
+        else:
+            ax.set_ylim(-1, 1)
+
+        ax.set_xlabel(mainName)
+        ax.set_ylabel(f'{secondaryName}')
+        ax.grid(True)
+        
+        # Calculate Pearson correlation (linear) and p-value
+        correlation_pearson, p_value_pearson = pearsonr(data_99[mainName], data_99[secondaryName])
+
+        # Calculate Spearman correlation (non-linear) and p-value
+        correlation_spearman, p_value_spearman = spearmanr(data_99[mainName], data_99[secondaryName])
+        
+        # Add text to the subplot showing the Pearson correlation and p-value
+        text_str = f"Pearson: {correlation_pearson:.3f} - p-value: {p_value_pearson:.3f}\nSpearman: {correlation_spearman:.3f} - p-value: {p_value_spearman:.3f}"
+        ax.text(0.5, 1.085, text_str, transform=ax.transAxes, fontsize=12, horizontalalignment='center', verticalalignment='top')
+        label_str = f"{col}".capitalize() if col != 'magnitude' else f"{col}".capitalize() + " (ML)"
+        ax.text(1.02, 0.5, label_str, transform=ax.transAxes, fontsize=12, fontweight='bold', horizontalalignment='center', verticalalignment='center', rotation=90)
+        
+        plot_index += 1
+
+    # Adjust the spacing between subplots and figure margins
+    plt.subplots_adjust(top=0.88, bottom=0.1, wspace=0.3, hspace=0.25)
+
+    # Title
+    plt.suptitle(f"Correlations and KDE/Distributions ({mainName} vs {secondaryName}) - matched events", fontsize=16, fontweight='bold')
+    plt.text(0.5, 0.95, "Analysis based on the central 99% of the dataset", 
+            fontsize=14, ha='center', va='center', transform=plt.gcf().transFigure)
+    plt.text(0.5, 0.93, "Pearson (linear) and Spearman (non-linear) correlation values are statistically significant for p-values under 0.05", 
+            fontsize=14, ha='center', va='center', transform=plt.gcf().transFigure)
+    
+    # Save
+    path = f"obs/STATS/{mainName}_{secondaryName}_versus.pdf"
+    plt.savefig(path)
+    plt.close()
+
+    print(f'Statistics "versus" figure succesfully saved @ {path}')
+
+def statsFigs_comparison(mainName,secondaryName,frame):
     useCols = ['latitude','longitude','depth','magnitude']
     useFrame = frame[useCols]
 
@@ -652,11 +746,11 @@ def statsFigs(mainName,secondaryName,frame):
             fontsize=14, ha='center', va='center', transform=plt.gcf().transFigure)
     
     # Save
-    path = f"obs/STATS/{mainName}_{secondaryName}.pdf"
+    path = f"obs/STATS/{mainName}_{secondaryName}_comparison.pdf"
     plt.savefig(path)
     plt.close()
 
-    print(f'Statistics figure succesfully saved @ {path}')
+    print(f'Statistics "comparison" figure succesfully saved @ {path}')
 
     # Save frame
     pathFrame = f"obs/STATS/{mainName}_{secondaryName}.csv"
@@ -705,7 +799,8 @@ def getStatistics(mainLines, parameters, filePath, fileNo):
 
     #--- Stats on the frame
     if len(df) >= 10:
-        statsFigs(mainName,secondaryName,df)
+        statsFigs_versus(mainName,secondaryName,df)
+        statsFigs_comparison(mainName,secondaryName,df)
     else:
         print(f'Not enough matches for a statistical analysis for Bulletin @ {filePath}')
 
