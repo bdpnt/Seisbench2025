@@ -43,13 +43,13 @@ def readFile(file):
 
     return events_df
 
-def filteredDates(events):
+def filteredDates(events,time_range):
     filtered_events = {}
 
     start_year = 1976
     end_year = 2026
 
-    for period_start in range(start_year, end_year, 5):
+    for period_start in range(start_year, end_year, time_range):
         period_end = period_start + 4
 
         start_date = pd.Timestamp(f"{period_start}-01-01")
@@ -121,7 +121,7 @@ def addSubplot(events,ax,type):
         median_masked,
         vmax=vmax,
         vmin=vmin,
-        cmap="flare",
+        cmap="rocket_r",
         shading='auto',
         alpha=0.9,
     )
@@ -172,7 +172,7 @@ def generate_plot(args, mapFolder):
 
 def genFigure(params):
     events = readFile(params.file)
-    events_filtered = filteredDates(events)
+    events_filtered = filteredDates(events, params.time_range)
 
     args_list = list(events_filtered.items())
     args_list_map = [(args, params.mapFolder) for args in args_list]
@@ -190,6 +190,7 @@ if __name__ == '__main__':
     params = Parameters(
         file = 'RESULT/GLOBAL_PR_TEST.txt',
         mapFolder = 'RESULT/MAPS/ERRORS/',
+        time_range = 5, # in years
     )
     
     genFigure(params)
