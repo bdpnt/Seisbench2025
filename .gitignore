@@ -12,9 +12,9 @@ RESULT/
 run/
 stations/
 time/
-.DS_Store
-.xlsx
-.dat
+*.DS_Store
+*.xlsx
+*.dat
 test.ipynb
-.pdf
-.dat
+*.pdf
+*.dat
