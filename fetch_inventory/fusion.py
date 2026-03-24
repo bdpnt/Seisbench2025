@@ -104,6 +104,7 @@ def create_alternateCodeMapping(inventory,parameters):
 
     # Iterate through each network and station in the inventory
     for network in inventory.networks:
+        network_code = network.code
         for station in network.stations:
             alternate_code = station.alternate_code
             station_code = station.code
@@ -116,7 +117,7 @@ def create_alternateCodeMapping(inventory,parameters):
 
             # Append the station code and its time range to the list for this alternate code
             alternate_code_mapping[alternate_code].append({
-                'station_code': station_code,
+                'station_code': network_code + '.' + station_code,
                 'start_date': start_date,
                 'end_date': end_date
             })
