@@ -8,7 +8,7 @@ import xarray as xr
 from scipy.ndimage import gaussian_filter
 
 # Parameters
-use_err = 'erv' # erv or erh
+use_err = 'erh' # erv or erh
 
 #fichier_seisme = "RESULT/catalogue_RENASS_2023_2025.txt"
 #FORMAT_fichier = 2  # 1 = sortie NLL, 2 = Bulletin RENASS
@@ -19,12 +19,12 @@ use_err = 'erv' # erv or erh
 fichier_seisme = "../RESULT/GLOBAL_PR_W.txt" # after NLL
 FORMAT_fichier = 1 # sortie NLL
 
-# fichier_seisme = "obs/GLOBAL_W.obs" # before NLL
+# fichier_seisme = "../obs/GLOBAL_W.obs" # before NLL
 # FORMAT_fichier = 4 # bulletin OBS
 
 stations_file = "../stations/GTSRCE_W.txt"
 
-save_file = "cross_section/cross_after_erV.pdf"
+save_file = "cross_section/arette_after_erV.pdf"
 
 # ---------------------------
 # Paramètres de la coupe
@@ -39,7 +39,7 @@ largeur_coupe = 8            # km
 prof_coupe = 18             # km
 prof_min, prof_max = 0, 15   # km
 UNCERT_max_H = 1.5
-UNCERT_max_V = 3
+UNCERT_max_V = 1.5
 
 # ---------------------------
 # Fonctions utilitaires
@@ -187,7 +187,7 @@ fig.grdimage(grid=-grid, cmap="gray")
 # Failles
 fig.plot("../FAILLES/FNP.dat", pen="1.25p", style="f1c/0.25c", fill="black")
 fig.plot("../FAILLES/structures_lacan.dat", pen="1.25p", style="f1c/0.25c", fill="black")
-fig.plot("../FAILLES/failles_neotectonic.xy", pen="1.25p", style="f1c/0.25c", fill="red")
+# fig.plot("../FAILLES/failles_neotectonic.xy", pen="1.25p", style="f1c/0.25c", fill="red")
 fig.plot("../FAILLES/lacan.thrust", pen="1.25p", style="f1c/0.25c", fill="blue")
 fig.plot("../FAILLES/lacan.other", pen="1.25p", style="f1c/0.25c", fill="blue")
 
@@ -310,24 +310,25 @@ else:
 
 if plot_coupe == True:
         # Sort data on err
-        if use_err == 'erv':
-            data = np.column_stack((X, Z, erv))
+        if FORMAT_fichier != 4 :
+            if use_err == 'erv':
+                data = np.column_stack((X, Z, erv))
 
-            # Sort by error (descending) so the smallest errors are plotted last
-            sorted_data = data[np.argsort(erv)]
-            sorted_data = sorted_data[::-1]
+                # Sort by error (descending) so the smallest errors are plotted last
+                sorted_data = data[np.argsort(erv)]
+                sorted_data = sorted_data[::-1]
 
-            # Unpack the sorted data
-            X_sorted, Z_sorted, err_sorted = sorted_data.T
-        else:
-            data = np.column_stack((X, Z, erh))
+                # Unpack the sorted data
+                X_sorted, Z_sorted, err_sorted = sorted_data.T
+            else:
+                data = np.column_stack((X, Z, erh))
 
-            # Sort by error (descending) so the smallest errors are plotted last
-            sorted_data = data[np.argsort(erh)]
-            sorted_data = sorted_data[::-1]
+                # Sort by error (descending) so the smallest errors are plotted last
+                sorted_data = data[np.argsort(erh)]
+                sorted_data = sorted_data[::-1]
 
-            # Unpack the sorted data
-            X_sorted, Z_sorted, err_sorted = sorted_data.T
+                # Unpack the sorted data
+                X_sorted, Z_sorted, err_sorted = sorted_data.T
         
         fig.shift_origin(yshift="-10c")
         fig.basemap(
@@ -336,28 +337,43 @@ if plot_coupe == True:
                 frame=['xafg100+lDistance (km)', 'yafg50+lDepth (km)', "WSen"],
         )
 
-        pygmt.makecpt(cmap="magma", series=[np.min(err_sorted), np.max(err_sorted)], reverse=True)
-
-        fig.plot(
-            x=X_sorted, 
-            y=Z_sorted, 
-            style="c0.15c", 
-            fill=err_sorted, 
-            cmap=True, 
-            pen="0.25p,black", 
-            # transparency=30,
-        )
-
-        if use_err == 'erv':
-            fig.colorbar(
-                frame=['af+lErV'],
-                position="JMR+w5c/0.5c+o0.5c/0c"
+        if FORMAT_fichier != 4 :
+            if use_err == 'erv':
+                pygmt.makecpt(cmap="magma", series=[0, UNCERT_max_V], reverse=True)
+            else:
+                pygmt.makecpt(cmap="magma", series=[0, UNCERT_max_H], reverse=True)
+            
+            fig.plot(
+                x=X_sorted, 
+                y=Z_sorted, 
+                style="c0.15c", 
+                fill=err_sorted, 
+                cmap=True, 
+                pen="0.25p,black", 
+                # transparency=30,
             )
+
+            if use_err == 'erv':
+                fig.colorbar(
+                    frame=['af+lErV'],
+                    position="JMR+w5c/0.5c+o0.5c/0c"
+                )
+            else:
+                fig.colorbar(
+                    frame=['af+lErH'],
+                    position="JMR+w5c/0.5c+o0.5c/0c"
+                )
+
         else:
-            fig.colorbar(
-                frame=['af+lErH'],
-                position="JMR+w5c/0.5c+o0.5c/0c"
+            fig.plot(
+                x=X, 
+                y=Z, 
+                style="c0.15c", 
+                fill="#DF2B2B",
+                pen="0.25p,black", 
+                # transparency=30,
             )
+
         
         #dx, dz = 0.05, 0.05  # km
 
