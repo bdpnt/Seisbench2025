@@ -7,6 +7,22 @@ import os
 import xarray as xr
 from scipy.ndimage import gaussian_filter
 
+# Parameters
+#fichier_seisme = "RESULT/catalogue_RENASS_2023_2025.txt"
+#FORMAT_fichier = 2  # 1 = sortie NLL, 2 = Bulletin RENASS
+
+#fichier_seisme = "RESULT/catalogue_renass_raspberry_2023_2025.txt"
+#FORMAT_fichier = 1  # 1 = sortie NLL, 2 = Bulletin RENASS
+
+fichier_seisme = "../RESULT/GLOBAL_PR_W.txt" # after NLL
+FORMAT_fichier = 1 # sortie NLL
+
+# fichier_seisme = "obs/GLOBAL_W.obs" # before NLL
+# FORMAT_fichier = 4 # bulletin OBS
+
+stations_file = "../stations/GTSRCE_W.txt"
+
+save_file = "cross_section/cross_after.pdf"
 
 # ---------------------------
 # Paramètres de la coupe
@@ -55,20 +71,6 @@ Region = [lon1a-0.2, lon2b+0.2, lat1a-0.2, lat2b+0.2]
 # ---------------------------
 # Chargement du catalogue
 # ---------------------------
-#fichier_seisme = "RESULT/catalogue_RENASS_2023_2025.txt"
-#FORMAT_fichier = 2  # 1 = sortie NLL, 2 = Bulletin RENASS
-
-#fichier_seisme = "RESULT/catalogue_renass_raspberry_2023_2025.txt"
-#FORMAT_fichier = 1  # 1 = sortie NLL, 2 = Bulletin RENASS
-
-fichier_seisme = "../RESULT/GLOBAL_PR_W.txt"
-FORMAT_fichier = 1
-
-# fichier_seisme = "obs/GLOBAL_W.obs"
-# FORMAT_fichier = 4 # bulletin OBS
-
-
-
 if FORMAT_fichier == 1:
     data = np.loadtxt(fichier_seisme)
     lon = data[:, 7]
@@ -193,8 +195,6 @@ fig.plot(x=[lon1a, lon2a], y=[lat1a, lat2a], pen="0.5p,red")
 fig.plot(x=[lon1b, lon2b], y=[lat1b, lat2b], pen="0.5p,red")
 
 #--- Ajout des stations depuis le fichier stations/GTSRCE.txt ---
-stations_file = "../stations/GTSRCE_W.txt"
-
 stations = []
 with open(stations_file, "r") as f:
     for line in f:
@@ -280,7 +280,7 @@ pygmt.project(
     output_type='file'
 )
 
-cross_file = "cross.dat"
+cross_file = "cross_section/cross.dat"
 
 # Vérification de la sortie pygmt.project
 if not os.path.exists(cross_file) or os.path.getsize(cross_file) == 0:
@@ -356,4 +356,4 @@ if plot_coupe == True:
 # ---------------------------
 # Export
 # ---------------------------
-fig.savefig("cross_section/cross_after.pdf")
+fig.savefig(save_file)
