@@ -80,4 +80,4 @@ def removeFarPicks(parameters):
         f.writelines(lines)
 
     print(f'\nSuccesfully saved the updated Bulletin @ {parameters.fileBulletin}')
-    print(f'    - removed {pickCount - len(removeID)} / {pickCount} picks')
+    print(f'    - removed {len(removeID)} / {pickCount} picks')
