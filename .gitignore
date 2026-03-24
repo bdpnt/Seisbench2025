@@ -18,3 +18,5 @@ time/
 test.ipynb
 *.pdf
 *.dat
+*.mat
+*.nd
