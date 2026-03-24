@@ -789,8 +789,8 @@ def getStatistics(mainLines, parameters, filePath, fileNo):
     df = df.map(split_to_floats)
 
     #--- Get the main and secondary names
-    mainName = parameters.mainBulletinPath.split('/')[1].split('.')[0]
-    secondaryName = filePath.split('/')[1].split('.')[0]
+    mainName = parameters.mainBulletinPath.split('/')[-1].split('.')[0]
+    secondaryName = filePath.split('/')[-1].split('.')[0]
 
     #--- Stats on the frame
     if len(df) >= 10:
