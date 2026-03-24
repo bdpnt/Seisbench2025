@@ -8,6 +8,8 @@ import xarray as xr
 from scipy.ndimage import gaussian_filter
 
 # Parameters
+use_err = 'erv' # erv or erh
+
 #fichier_seisme = "RESULT/catalogue_RENASS_2023_2025.txt"
 #FORMAT_fichier = 2  # 1 = sortie NLL, 2 = Bulletin RENASS
 
@@ -22,7 +24,7 @@ FORMAT_fichier = 1 # sortie NLL
 
 stations_file = "../stations/GTSRCE_W.txt"
 
-save_file = "cross_section/cross_after.pdf"
+save_file = "cross_section/cross_after_erV.pdf"
 
 # ---------------------------
 # Paramètres de la coupe
@@ -37,7 +39,7 @@ largeur_coupe = 8            # km
 prof_coupe = 18             # km
 prof_min, prof_max = 0, 15   # km
 UNCERT_max_H = 1.5
-UNCERT_max_V = 1.5
+UNCERT_max_V = 3
 
 # ---------------------------
 # Fonctions utilitaires
@@ -168,7 +170,8 @@ mask = (erv < UNCERT_max_V) & (erh < UNCERT_max_H) & (rms < 0.5)
 lon = lon[mask]
 lat = lat[mask]
 depth = depth[mask]
-erv= erv[mask]
+erv = erv[mask]
+erh = erh[mask]
 
 # ---------------------------
 # Figure planimétrique
@@ -267,7 +270,7 @@ fig.colorbar(frame="af+lProfondeur (km)")
 # ---------------------------
 # Coupe en profondeur
 # ---------------------------
-data_cat = np.column_stack((lon, lat, depth, erv))
+data_cat = np.column_stack((lon, lat, depth, erv, erh))
 
 pygmt.project(
     data=data_cat,
@@ -277,7 +280,7 @@ pygmt.project(
     convention="pz",
     unit=True,
     outfile="cross_section/cross.dat",
-    output_type='file'
+    output_type='file',
 )
 
 cross_file = "cross_section/cross.dat"
@@ -301,19 +304,60 @@ else:
             plot_coupe = True
             X = data[:, 0]   # distance (km)
             Z = data[:, 1]   # profondeur (km)
-            depth_c = data[:, 2]  # si tu avais une 3ᵉ colonne
+            erv = data[:, 2]
+            erh = data[:, 3]
+            err = np.sqrt(erv ** 2 + erh ** 2)
 
+if plot_coupe == True:
+        # Sort data on err
+        if use_err == 'erv':
+            data = np.column_stack((X, Z, erv))
 
-if plot_coupe == True:            
+            # Sort by error (descending) so the smallest errors are plotted last
+            sorted_data = data[np.argsort(erv)]
+            sorted_data = sorted_data[::-1]
+
+            # Unpack the sorted data
+            X_sorted, Z_sorted, err_sorted = sorted_data.T
+        else:
+            data = np.column_stack((X, Z, erh))
+
+            # Sort by error (descending) so the smallest errors are plotted last
+            sorted_data = data[np.argsort(erh)]
+            sorted_data = sorted_data[::-1]
+
+            # Unpack the sorted data
+            X_sorted, Z_sorted, err_sorted = sorted_data.T
         
         fig.shift_origin(yshift="-10c")
         fig.basemap(
                 projection="X10/-7",
                 region=[0, longueur_coupe, -1, prof_coupe],
-                frame=['xafg100+l"Distance (km)"', 'yafg50+l"Depth (km)"', "WSen"],
+                frame=['xafg100+lDistance (km)', 'yafg50+lDepth (km)', "WSen"],
         )
 
-        fig.plot(x=X, y=Z, style="c0.2c", fill='red', pen='black') #fill=depth_c, cmap=True, pen="black")
+        pygmt.makecpt(cmap="magma", series=[np.min(err_sorted), np.max(err_sorted)], reverse=True)
+
+        fig.plot(
+            x=X_sorted, 
+            y=Z_sorted, 
+            style="c0.15c", 
+            fill=err_sorted, 
+            cmap=True, 
+            pen="0.25p,black", 
+            # transparency=30,
+        )
+
+        if use_err == 'erv':
+            fig.colorbar(
+                frame=['af+lErV'],
+                position="JMR+w5c/0.5c+o0.5c/0c"
+            )
+        else:
+            fig.colorbar(
+                frame=['af+lErH'],
+                position="JMR+w5c/0.5c+o0.5c/0c"
+            )
         
         #dx, dz = 0.05, 0.05  # km
 
