@@ -11,6 +11,9 @@ def open_file(file):
     data['date'] = pd.to_datetime(data[['year', 'month', 'day', 'hour', 'minute', 'second']])
     return data
 
+def filter_dates(df, yr_start, yr_end):
+    return df[(df.year >= yr_start) & (df.year <= yr_end)].reset_index(drop=True)
+
 def match_catalogs(df1, df2, tol_seconds=2):
     cat1 = pd.Series(df1.date)
     cat2 = pd.Series(df2.date)
@@ -64,20 +67,28 @@ file_80 = 'RESULT/GLOBAL_W_80.txt'
 file_140 = 'RESULT/GLOBAL_W_140.txt'
 file_200 = 'RESULT/GLOBAL_W_200.txt'
 
+yr_start = 2016
+yr_end = 2025
+
 data_40 = open_file(file_40)
 data_80 = open_file(file_80)
 data_140 = open_file(file_140)
 data_200 = open_file(file_200)
 
-match_40_40 = match_catalogs(data_40,data_40)
-match_40_80 = match_catalogs(data_40,data_80)
-match_40_140 = match_catalogs(data_40,data_140)
-match_40_200 = match_catalogs(data_40,data_200)
+data_40 = filter_dates(data_40, yr_start, yr_end)
+data_80 = filter_dates(data_80, yr_start, yr_end)
+data_140 = filter_dates(data_140, yr_start, yr_end)
+data_200 = filter_dates(data_200, yr_start, yr_end)
 
-df_40_40 = match_df(data_40,data_40,match_40_40)
-df_40_80 = match_df(data_40,data_80,match_40_80)
-df_40_140 = match_df(data_40,data_140,match_40_140)
-df_40_200 = match_df(data_40,data_200,match_40_200)
+match_40_40 = match_catalogs(data_40, data_40)
+match_40_80 = match_catalogs(data_40, data_80)
+match_40_140 = match_catalogs(data_40, data_140)
+match_40_200 = match_catalogs(data_40, data_200)
+
+df_40_40 = match_df(data_40, data_40, match_40_40)
+df_40_80 = match_df(data_40, data_80, match_40_80)
+df_40_140 = match_df(data_40, data_140, match_40_140)
+df_40_200 = match_df(data_40, data_200, match_40_200)
 
 # FIGURE
 fig, axes = plt.subplots(2, 4, sharey='row', figsize=(12, 6))
@@ -184,19 +195,29 @@ for ax in axes[4:]:
 
 # "Gap" colorbar
 cax_gap = fig.add_axes([0.92, 0.555, 0.01, 0.3])
-norm_gap = plt.Normalize(vmin=0, vmax=150)
+norm_gap = plt.Normalize(vmin=0, vmax=75)
 sm_gap = plt.cm.ScalarMappable(cmap=cmap_gap, norm=norm_gap)
 sm_gap.set_array([])
-cb_gap = plt.colorbar(sm_gap, cax=cax_gap, ticks=[0, 50, 100, 150])
-cb_gap.set_ticklabels(['0', '50', '100', '150+'])
+cb_gap = plt.colorbar(sm_gap, cax=cax_gap, ticks=[0, 25, 50, 75])
+cb_gap.set_ticklabels(['0', '25', '50', '75+'])
 
 # "RMS" colorbar
 cax_rms = fig.add_axes([0.92, 0.135, 0.01, 0.3])
-norm_rms = plt.Normalize(vmin=0, vmax=150)
+norm_rms = plt.Normalize(vmin=0, vmax=75)
 sm_rms = plt.cm.ScalarMappable(cmap=cmap_rms, norm=norm_rms)
 sm_rms.set_array([])
-cb_rms = plt.colorbar(sm_rms, cax=cax_rms, ticks=[0, 50, 100, 150])
-cb_rms.set_ticklabels(['0', '50', '100', '150+'])
+cb_rms = plt.colorbar(sm_rms, cax=cax_rms, ticks=[0, 25, 50, 75])
+cb_rms.set_ticklabels(['0', '25', '50', '75+'])
 
-plt.savefig('RESULT/FIGURES/GAP_RMS/Gap_and_RMS.pdf')
+fig.text(
+    0.01,
+    0.99,
+    s=f'{yr_start}-{yr_end}',
+    fontsize=14,
+    fontweight='bold',
+    horizontalalignment='left',
+    verticalalignment='top',
+)
+
+plt.savefig(f'RESULT/FIGURES/GAP_RMS/G&R_{yr_start}-{yr_end}.pdf')
 plt.close()
