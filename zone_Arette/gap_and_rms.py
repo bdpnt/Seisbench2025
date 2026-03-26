@@ -104,8 +104,8 @@ for i,df_i in enumerate(all_df):
         vmax=150,
         ax=axes[i]
     )
-    axes[i].set_ylabel('Gap Diff. (°)')
-    axes[i].set_xlabel('Gap (at 40 km)')
+    axes[i].set_ylabel('Gap residuals [°]')
+    axes[i].set_xlabel('Gap (40 km)')
     axes[i].set_yticks([-360, -180, 0, 180, 360])
     axes[i].set_yticklabels(['-360', '-180', '0', '+180', '+360'])
     axes[i].set_xticks([0, 120, 240, 360])
@@ -123,8 +123,8 @@ for i,df_i in enumerate(all_df):
         vmax=150,
         ax=axes[i+4]
     )
-    axes[i+4].set_ylabel('RMS Diff. (s)')
-    axes[i+4].set_xlabel('RMS (at 40 km)')
+    axes[i+4].set_ylabel('RMS residuals [s]')
+    axes[i+4].set_xlabel('RMS (40 km)')
     axes[i+4].set_yticks([-1.0, -0.5, 0, 0.5, 1.0])
     axes[i+4].set_yticklabels(['-1.00', '-0.50', '0', '+0.50', '+1.00'])
     axes[i+4].set_xticks([0, 0.25, 0.5, 0.75])
