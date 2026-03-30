@@ -59,6 +59,10 @@ def match_df(df1, df2, match):
 
     return df_match
 
+# MAIN
+
+save_file = 'RESULT/FIGURES/GAP_RMS/Gap_and_RMS.svg'
+
 file_40 = 'RESULT/GLOBAL_W_40.txt'
 file_80 = 'RESULT/GLOBAL_W_80.txt'
 file_140 = 'RESULT/GLOBAL_W_140.txt'
@@ -198,5 +202,5 @@ sm_rms.set_array([])
 cb_rms = plt.colorbar(sm_rms, cax=cax_rms, ticks=[0, 50, 100, 150])
 cb_rms.set_ticklabels(['0', '50', '100', '150+'])
 
-plt.savefig('RESULT/FIGURES/GAP_RMS/Gap_and_RMS.pdf')
+plt.savefig(save_file, format='svg', transparent=True, metadata={"Creator": "B. Dupont"}, bbox_inches='tight')
 plt.close()
