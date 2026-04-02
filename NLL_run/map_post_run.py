@@ -79,3 +79,10 @@ if __name__ == "__main__":
     )
 
     genFigure(params_E)
+
+    params_FINAL = Parameters(
+        fileBulletin = 'RESULT/FINAL.txt',
+        figSave = 'RESULT/MAPS/FINAL.pdf',
+    )
+
+    genFigure(params_FINAL)
