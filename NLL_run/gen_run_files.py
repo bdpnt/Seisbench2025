@@ -6,6 +6,7 @@ GTSRCE file and the IN (run) file.
 
 from obspy import read_inventory
 import os
+import math
 
 # FUNCTION
 def genChildObs(parameters):
@@ -52,8 +53,8 @@ def build_alternateCodeMap(inventory,fileMap):
                 if codeLine.startswith('\n'):
                     endCode = True
                 elif codeLine.startswith('  Station'):
-                    station_code = codeLine.split()[-1]
-            network_code = inventory.select(station=station_code).networks[0].code
+                    station_code = codeLine.split('.')[-1].rstrip('\n')
+                    network_code = codeLine.split(':')[-1].split('.')[0].strip()
             code_map[alternate_code] = (network_code, station_code)
 
     return code_map
@@ -108,17 +109,86 @@ def verifyFoldersExistence(parameters):
         path = '/'.join(param.split('/')[:-1])
         os.makedirs(path, exist_ok=True)
 
+def compute_new_grid_corners(lat_sw, lon_sw, lat_ne, lon_ne):
+    """
+    Compute the new southwestern corner coordinates and grid size for NonLinLoc.
+
+    Parameters:
+    - lat_sw, lon_sw: Original southwestern corner (latitude, longitude)
+    - lat_ne, lon_ne: Original northeastern corner (latitude, longitude)
+
+    Returns:
+    - lat_new_sw, lon_new_sw: New southwestern corner (latitude, longitude)
+    - lat_new_ne, lon_new_ne: New northeastern corner (latitude, longitude)
+    - dx, dy: Grid size in km (longitude, latitude)
+    - npoints_x, npoints_y, npoints_z: Number of grid points in x, y, z directions
+    """
+    R = 6371.0  # Earth radius in km
+
+    def latlon_to_km(lat, lon, lat0, lon0):
+        lat_rad = lat * (math.pi / 180.0)
+        lon_rad = lon * (math.pi / 180.0)
+        lat0_rad = lat0 * (math.pi / 180.0)
+        lon0_rad = lon0 * (math.pi / 180.0)
+        x = R * (lon_rad - lon0_rad) * math.cos((lat0_rad + lat_rad) / 2.0)
+        y = R * (lat_rad - lat0_rad)
+        return x, y
+
+    def km_to_latlon(x, y, lat0, lon0):
+        lat0_rad = lat0 * (math.pi / 180.0)
+        lon0_rad = lon0 * (math.pi / 180.0)
+        lat_rad = lat0_rad + y / R
+        lon_rad = lon0_rad + x / (R * math.cos(lat0_rad))
+        lat = lat_rad * (180.0 / math.pi)
+        lon = lon_rad * (180.0 / math.pi)
+        return lat, lon
+
+    # Convert original corners to km offsets from southwestern corner
+    x0, y0 = latlon_to_km(lat_sw, lon_sw, lat_sw, lon_sw)
+    x1, y1 = latlon_to_km(lat_ne, lon_ne, lat_sw, lon_sw)
+
+    # Apply 200 km extension (100 km in each direction)
+    x_new_sw = x0 - 100
+    x_new_ne = x1 + 100
+    y_new_sw = y0 - 100
+    y_new_ne = y1 + 100
+
+    # Convert new corners back to lat/lon
+    lat_new_sw, lon_new_sw = km_to_latlon(x_new_sw, y_new_sw, lat_sw, lon_sw)
+    lat_new_ne, lon_new_ne = km_to_latlon(x_new_ne, y_new_ne, lat_sw, lon_sw)
+
+    # Grid size in km
+    dx = x_new_ne - x_new_sw
+    dy = y_new_ne - y_new_sw
+
+    # Number of points
+    npoints_x = round(dx / 0.05)
+    npoints_y = round(dy / 0.05)
+    npoints_z = 800
+
+    print(f'Min. points for VGGRID: {math.sqrt(npoints_x**2 + npoints_y**2):.0f}')
+
+    return ((round(lat_new_sw,2), round(lon_new_sw,2)),
+            (round(lat_new_ne,2), round(lon_new_ne,2)),
+            (npoints_x, npoints_y, npoints_z))
+
 def genRun(parameters):
     verifyFoldersExistence(parameters) # Verify that all folders exist for the files to generate
     genChildObs(parameters) # Generate the OBS file
     genGTSRCE(parameters) # Generate the GTSRCE file
+
+    # Compute coordinates from original coordinates
+    (latMin_box,lonMin_box), (_,_), (dx,dy,dz) = compute_new_grid_corners(parameters.latMin_event,
+                                                                          parameters.lonMin_event,
+                                                                          parameters.latMax_event,
+                                                                          parameters.lonMax_event)
 
     # Save
     lines = []
 
     # Region coordinates
     lines.append('CONTROL 1 54321\n')
-    lines.append(f'TRANS  LAMBERT  WGS-84  {parameters.latMin_box} {parameters.lonMin_box}  42 43 0.0\n')
+    lines.append(f'TRANS  LAMBERT  WGS-84  {latMin_box} {lonMin_box}  42 44 0.0\n')
     lines.append('\n')
 
     # Velocity model
@@ -145,7 +215,7 @@ def genRun(parameters):
 
     # Localization method
     lines.append('# Localization method\n')
-    lines.append(f'LOCGRID {parameters.LOCGRID[0]} {parameters.LOCGRID[1]} {parameters.LOCGRID[2]} 0.0 0.0 -3  0.05 0.05 0.05 PROB_DENSITY SAVE\n')
+    lines.append(f'LOCGRID {dx} {dy} {dz} 0.0 0.0 -3  0.05 0.05 0.05 PROB_DENSITY SAVE\n')
     lines.append('LOCSEARCH  OCT 50 50 5 0.001 50000 500 1 0\n')
     lines.append('LOCMETH EDT_OT_WT 9999 4 -1 -1 1.72 6 -1.0 0\n')
     lines.append('\n')
