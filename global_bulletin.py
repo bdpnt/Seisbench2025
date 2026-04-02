@@ -90,3 +90,12 @@ params_fusion = Parameters(
 
 global_obs.fusion.fusionAll(params_fusion)
 subprocess.run(["conda", "run", "-n", "pygmt_env", "python", "global_obs/map_global.py"], check=True)
+
+# Check for potential doubles that came from the same Bulletin
+params_merge_doubles = Parameters(
+    globalBulletinPath = 'obs/GLOBAL.obs',
+    max_dt_seconds = 1.0,
+    max_dist_km = 50.0,
+)
+
+global_obs.fusion.find_and_merge_doubles(params_merge_doubles)

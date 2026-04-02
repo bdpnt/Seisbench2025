@@ -7,9 +7,11 @@ import pandas as pd
 import math
 from scipy.spatial import KDTree
 from scipy.stats import pearsonr, spearmanr
+import numpy as np
 from numpy import mean
 import seaborn as sns
 import matplotlib.pyplot as plt
+from parameters import Parameters
 
 # FUNCTION
 def haversine(lat1, lon1, lat2, lon2):
@@ -929,3 +931,288 @@ def fusionAll(parameters):
 
     #---- Save Global Bulletin
     saveBulletin(mainLines,parameters)
+
+def find_and_merge_doubles(
+    parameters: Parameters,
+) -> list:
+    """
+    Scan a bulletin for pairs of events that are suspiciously close in both
+    time and space (potential duplicates), let the user decide how to handle
+    each pair interactively, and return a cleaned bulletin with duplicates
+    removed and unique phases merged.
+
+    Detection
+    ---------
+    Two events are flagged as a potential double when BOTH conditions hold:
+      - |t1 - t2| <= max_dt_seconds
+      - 3-D Euclidean distance (Cartesian km) <= max_dist_km
+
+    Only pairs of consecutive candidates are shown: events are sorted by
+    time, and each event is only compared to the next one in that order,
+    so the same pair is never shown twice.
+
+    Interactive choices
+    -------------------
+    k1  → keep Event 1, drop Event 2; unique phases from Event 2 are
+          appended to Event 1's phase block
+    k2  → keep Event 2, drop Event 1; unique phases from Event 1 are
+          appended to Event 2's phase block
+    s   → keep both events as-is (not a double)
+    p   → print all phase lines for both events, then re-display the prompt
+
+    Parameters
+    ----------
+    globalBulletinPath : str
+        Path to Bulletin (OBS format).
+    max_dt_seconds : float
+        Maximum time difference in seconds to flag a pair (default: 1.0).
+    max_dist_km : float
+        Maximum 3-D distance in km to flag a pair (default: 50.0).
+
+    Returns
+    -------
+    list of str
+        Updated bulletin lines with resolved duplicates removed and phases
+        merged where requested.  Header lines (first 4 lines) are preserved
+        unchanged.
+    """
+    with open(parameters.globalBulletinPath, 'r') as f:
+        bulletin_lines = f.readlines()
+
+    # ------------------------------------------------------------------ #
+    # 0. Parse bulletin into event records                                 #
+    # ------------------------------------------------------------------ #
+    # Each record: {
+    #   'bid'    : int   — line index of the "# " header (= BulletinID)
+    #   'header' : str   — the full header line (with newline)
+    #   'phases' : list  — phase lines stripped of trailing newline
+    #   'blank'  : list  — trailing blank lines of the block
+    #   'time'   : pd.Timestamp
+    #   'lat','lon','dep' : float
+    # }
+
+    def _parse_header(line: str) -> dict | None:
+        """Extract time/location from a "# ..." header line.  Returns None on failure."""
+        tokens = line.split()
+        # Expected: # Year Month Day Hour Min Sec Lat Lon Dep ...
+        if len(tokens) < 10:
+            return None
+        try:
+            year, month, day   = int(tokens[1]), int(tokens[2]),  int(tokens[3])
+            hour, minute       = int(tokens[4]), int(tokens[5])
+            sec_f              = float(tokens[6])
+            sec_int            = int(sec_f)
+            microsec           = int(round((sec_f - sec_int) * 1e6))
+            lat, lon, dep      = float(tokens[7]), float(tokens[8]), float(tokens[9])
+            ts = pd.Timestamp(year=year, month=month, day=day,
+                              hour=hour, minute=minute, second=sec_int,
+                              microsecond=microsec)
+            return {'time': ts, 'lat': lat, 'lon': lon, 'dep': dep}
+        except (ValueError, IndexError):
+            return None
+
+    header_lines = bulletin_lines[:4]   # preserve as-is
+    body_lines   = bulletin_lines[4:]
+
+    events    = []   # list of event records (see above)
+    current   = None
+
+    for abs_idx, line in enumerate(bulletin_lines):
+        if line.startswith("# "):
+            if current is not None:
+                events.append(current)
+            parsed = _parse_header(line)
+            if parsed is None:
+                current = None
+                continue
+            current = {
+                'bid'   : abs_idx,
+                'header': line,
+                'phases': [],
+                'blank' : [],
+                **parsed,
+            }
+        elif line.startswith("\n") or line == "":
+            if current is not None:
+                current['blank'].append(line)
+                events.append(current)
+                current = None
+        else:
+            if current is not None:
+                current['phases'].append(line.rstrip("\n"))
+
+    if current is not None:
+        events.append(current)
+
+    if not events:
+        print("  No events found in bulletin — nothing to do.")
+        return bulletin_lines
+
+    # ------------------------------------------------------------------ #
+    # 1. Build spatial index on all events                                 #
+    # ------------------------------------------------------------------ #
+    def to_cartesian(lat_deg, lon_deg, depth_km):
+        R   = 6371.0
+        lat = np.radians(lat_deg)
+        lon = np.radians(lon_deg)
+        r   = R - depth_km
+        x   = r * np.cos(lat) * np.cos(lon)
+        y   = r * np.cos(lat) * np.sin(lon)
+        z   = r * np.sin(lat)
+        return np.array([x, y, z])
+
+    # Sort events by time for sequential pair comparison
+    events.sort(key=lambda e: e['time'])
+
+    # ------------------------------------------------------------------ #
+    # 2. Detect candidate pairs                                            #
+    # ------------------------------------------------------------------ #
+    max_dt = pd.Timedelta(seconds=parameters.max_dt_seconds)
+
+    pairs = []   # list of (i, j) index pairs into `events`
+    for idx in range(len(events) - 1):
+        e1 = events[idx]
+        e2 = events[idx + 1]
+        dt = abs(e2['time'] - e1['time'])
+        if dt > max_dt:
+            continue
+        xyz1 = to_cartesian(e1['lat'], e1['lon'], e1['dep'])
+        xyz2 = to_cartesian(e2['lat'], e2['lon'], e2['dep'])
+        dist_km = float(np.linalg.norm(xyz1 - xyz2))
+        if dist_km <= parameters.max_dist_km:
+            pairs.append((idx, idx + 1, dt, dist_km))
+
+    if not pairs:
+        print("  No potential doubles found.")
+        return bulletin_lines
+
+    print(f"\n  Found {len(pairs)} potential double(s) to review.\n")
+
+    # ------------------------------------------------------------------ #
+    # 3. Interactive review                                                #
+    # ------------------------------------------------------------------ #
+    drop_bids = set()    # BulletinIDs of events to remove
+    merge_map = {}       # { kept_bid: [extra_phase_lines] }
+
+    def _phase_key(phase_line: str):
+        tokens = phase_line.split()
+        if len(tokens) < 5:
+            return None
+        return (tokens[0], tokens[4])
+
+    def _unique_phases(kept_phases: list, donor_phases: list) -> list:
+        kept_keys = {_phase_key(p) for p in kept_phases if _phase_key(p) is not None}
+        return [p for p in donor_phases if _phase_key(p) not in kept_keys and _phase_key(p) is not None]
+
+    for pair_num, (i, j, dt, dist_km) in enumerate(pairs, start=1):
+        e1 = events[i]
+        e2 = events[j]
+
+        # Skip if either event was already dropped by a previous decision
+        if e1['bid'] in drop_bids or e2['bid'] in drop_bids:
+            continue
+
+        sep = "─" * 72
+
+        def _fmt_event(e, label):
+            return (
+                f"  {label:<10} │ Time: {e['time']}  "
+                f"Lat: {e['lat']:.4f}  Lon: {e['lon']:.4f}  "
+                f"Dep: {e['dep']:.1f} km"
+            )
+
+        def _print_phases_pair(e, label):
+            print(f"\n  {label} phases  (BulletinID={e['bid']})")
+            print(sep)
+            if e['phases']:
+                for ph in e['phases']:
+                    print(f"    {ph}")
+            else:
+                print("    (no phases)")
+            print(sep)
+
+        def _print_prompt():
+            print(f"\n{sep}")
+            print(f"  POTENTIAL DOUBLE  {pair_num}/{len(pairs)}  "
+                  f"(Δt={dt.total_seconds():.3f}s  Δd={dist_km:.2f} km)")
+            print(sep)
+            print(_fmt_event(e1, "Event 1"))
+            print(_fmt_event(e2, "Event 2"))
+            print(sep)
+            print("  k1 → keep Event 1, drop Event 2 (merge unique phases into Event 1)")
+            print("  k2 → keep Event 2, drop Event 1 (merge unique phases into Event 2)")
+            print("  s  → keep both (not a double)")
+            print("  p  → show phases for both events")
+
+        _print_prompt()
+
+        valid_choices = {"1", "2", "s", "p"}
+        while True:
+            choice = input("  Your choice [1 / 2 / s / p]: ").strip().lower()
+            if choice not in valid_choices:
+                print("  Invalid input — please enter 1, 2, s, or p.")
+                continue
+            if choice == "p":
+                _print_phases_pair(e1, "Event 1")
+                _print_phases_pair(e2, "Event 2")
+                _print_prompt()
+                continue
+            break
+
+        if choice == "s":
+            print("  → Kept both.\n")
+            continue
+
+        if choice == "1":
+            kept, dropped = e1, e2
+        else:
+            kept, dropped = e2, e1
+
+        extra = _unique_phases(kept['phases'], dropped['phases'])
+        drop_bids.add(dropped['bid'])
+        if extra:
+            merge_map.setdefault(kept['bid'], []).extend(extra)
+            print(
+                f"  → Kept Event {'1' if choice == '1' else '2'} (BulletinID={kept['bid']}), "
+                f"dropped BulletinID={dropped['bid']}.  "
+                f"{len(extra)} unique phase(s) will be merged.\n"
+            )
+        else:
+            print(
+                f"  → Kept Event {'1' if choice == '1' else '2'} (BulletinID={kept['bid']}), "
+                f"dropped BulletinID={dropped['bid']}.  No unique phases to merge.\n"
+            )
+
+    # ------------------------------------------------------------------ #
+    # 4. Rebuild bulletin                                                  #
+    # ------------------------------------------------------------------ #
+    updated_content = list(header_lines)   # preserve first 4 lines unchanged
+
+    for e in events:
+        if e['bid'] in drop_bids:
+            continue   # skip dropped events entirely
+
+        phase_lines = list(e['phases'])
+
+        # Append any merged phases from a dropped duplicate
+        extra = merge_map.get(e['bid'], [])
+        if extra:
+            phase_lines.extend(extra)
+
+        # Ensure every phase line ends with a newline
+        phase_lines = [p if p.endswith("\n") else p + "\n" for p in phase_lines]
+
+        updated_content.append(e['header'])
+        updated_content.extend(phase_lines)
+        updated_content.extend(e['blank'])
+
+    n_dropped = len(drop_bids)
+    n_merged  = sum(len(v) for v in merge_map.values())
+    print(
+        f"  Done.  {n_dropped} event(s) removed, "
+        f"{n_merged} phase(s) merged across {len(merge_map)} event(s)."
+    )
+    
+    saveBulletin(updated_content, parameters)
+
+
