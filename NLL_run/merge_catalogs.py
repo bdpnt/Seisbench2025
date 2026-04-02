@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """
-merge_nll_bulletins.py
 ----------------------
-Merges up to three NonLinLoc relocated bulletin files.
-Duplicate events (shared between overlapping zones) are detected using
-time and distance thresholds, and only the best-RMS solution is kept.
+Merges any number of NonLinLoc relocated bulletin files.
+Duplicate events (shared between overlapping adjacent zones) are detected
+using time and distance thresholds, and only the best-RMS solution is kept.
+
+Overlaps are assumed to be only between adjacent files:
+  file1↔file2, file2↔file3, file3↔file4, ...
 
 Bulletin format (space-separated columns):
   YY  MM  DD  HH  MM  SS.ss  lat  lon  depth  mag  rms  npha  erh  erv  gap
@@ -17,8 +19,7 @@ Year convention:
 import sys
 import math
 import argparse
-from datetime import datetime, timedelta
-from itertools import combinations
+from datetime import datetime
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -30,7 +31,7 @@ def parse_year(yy: int) -> int:
 
 
 def parse_line(line: str, source_file: str):
-    """Parse one bulletin line. Returns a dict or None if the line is blank/comment."""
+    """Parse one bulletin line. Returns a dict or None if blank/comment."""
     line = line.strip()
     if not line or line.startswith("#"):
         return None
@@ -60,7 +61,7 @@ def parse_line(line: str, source_file: str):
         print(f"  [WARN] Could not parse line in {source_file!r}: {e}", file=sys.stderr)
         return None
 
-    year = parse_year(yy)
+    year     = parse_year(yy)
     sec_int  = int(ss)
     microsec = int(round((ss - sec_int) * 1e6))
 
@@ -105,14 +106,14 @@ def haversine_km(lat1, lon1, lat2, lon2) -> float:
     """Great-circle surface distance in km."""
     R = 6371.0
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
-    dphi  = math.radians(lat2 - lat1)
-    dlam  = math.radians(lon2 - lon1)
+    dphi = math.radians(lat2 - lat1)
+    dlam = math.radians(lon2 - lon1)
     a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
     return 2 * R * math.asin(math.sqrt(a))
 
 
 def three_d_distance_km(ev1, ev2) -> float:
-    """3-D hypocentral distance in km (surface distance + depth difference)."""
+    """3-D hypocentral distance in km."""
     horiz = haversine_km(ev1["lat"], ev1["lon"], ev2["lat"], ev2["lon"])
     vert  = abs(ev1["dep"] - ev2["dep"])
     return math.sqrt(horiz ** 2 + vert ** 2)
@@ -134,22 +135,28 @@ def find_and_resolve_duplicates(list_a, list_b,
     """
     Compare every event in list_a against every event in list_b.
     For each matching pair keep the one with the lower RMS.
-    Returns (keep_from_a, keep_from_b, n_duplicates).
+    Returns (cleaned_list_a, cleaned_list_b, n_duplicates).
     """
-    drop_a = set()   # indices into list_a to discard
-    drop_b = set()   # indices into list_b to discard
+    drop_a = set()
+    drop_b = set()
     n_dup  = 0
 
     for i, ea in enumerate(list_a):
+        # Skip events from A that were already matched in a previous iteration
+        if i in drop_a:
+            continue
         for j, eb in enumerate(list_b):
+            # Skip events from B that were already matched
             if j in drop_b:
-                continue  # already matched
-            dt = time_diff_seconds(ea, eb)
-            if dt > time_thresh_s:
-                continue  # fast pre-filter on time
-            dd = three_d_distance_km(ea, eb)
-            if dd <= dist_thresh_km:
+                continue
+            # Fast pre-filter on time before computing the more expensive distance
+            if time_diff_seconds(ea, eb) > time_thresh_s:
+                continue
+            # Full 3-D distance check
+            if three_d_distance_km(ea, eb) <= dist_thresh_km:
                 n_dup += 1
+                dt = time_diff_seconds(ea, eb)
+                dd = three_d_distance_km(ea, eb)
                 # Keep the event with the lower RMS; tie → keep from list_a
                 if eb["rms"] < ea["rms"]:
                     drop_a.add(i)
@@ -162,7 +169,8 @@ def find_and_resolve_duplicates(list_a, list_b,
                     f"rms_a={ea['rms']:.4f}  rms_b={eb['rms']:.4f}  "
                     f"→ keep from {winner}, drop from {loser}"
                 )
-                break  # one-to-one matching: move on to next ea
+                # One-to-one matching: once ea is matched, move on to next ea
+                break
 
     keep_a = [ev for k, ev in enumerate(list_a) if k not in drop_a]
     keep_b = [ev for k, ev in enumerate(list_b) if k not in drop_b]
@@ -196,64 +204,52 @@ def main():
         description="Merge NonLinLoc bulletin files and remove duplicate events."
     )
     parser.add_argument("bulletins", nargs="+", metavar="FILE",
-                        help="Two or three bulletin files to merge (order matters for overlap: "
-                             "file1↔file2 and file2↔file3 are the overlapping pairs).")
+                        help="Bulletin files to merge, in adjacency order "
+                             "(file1↔file2, file2↔file3, …).")
     parser.add_argument("-t", "--time", type=float, default=2.0,
-                        help="Time threshold in seconds for duplicate detection (default: 2).")
+                        help="Time threshold in seconds (default: 2).")
     parser.add_argument("-d", "--dist", type=float, default=20.0,
-                        help="3-D distance threshold in km for duplicate detection (default: 20).")
+                        help="3-D distance threshold in km (default: 20).")
     parser.add_argument("-o", "--output", default="merged_bulletin.txt",
                         help="Output file name (default: merged_bulletin.txt).")
     args = parser.parse_args()
 
-    if not (2 <= len(args.bulletins) <= 3):
-        print("ERROR: Please supply exactly 2 or 3 bulletin files.", file=sys.stderr)
+    if len(args.bulletins) < 2:
+        print("ERROR: Please supply at least 2 bulletin files.", file=sys.stderr)
         sys.exit(1)
 
+    n = len(args.bulletins)
     print(f"\n{'='*60}")
     print(f"  NonLinLoc Bulletin Merger")
-    print(f"  Time threshold  : {args.time} s")
-    print(f"  Distance threshold: {args.dist} km")
+    print(f"  Files              : {n}")
+    print(f"  Time threshold     : {args.time} s")
+    print(f"  Distance threshold : {args.dist} km")
     print(f"{'='*60}\n")
 
-    # ── Load ──────────────────────────────────────────────────────────────────
+    # ── Load all bulletins ────────────────────────────────────────────────────
     print("[ Loading bulletins ]")
     bulletins = [load_bulletin(f) for f in args.bulletins]
-    total_raw = sum(len(b) for b in bulletins)
-    print(f"  Total raw events: {total_raw}\n")
+    print(f"  Total raw events   : {sum(len(b) for b in bulletins)}\n")
 
-    # ── Deduplicate adjacent pairs ────────────────────────────────────────────
-    # Overlaps are only between adjacent files (A↔B and B↔C).
-    # We resolve A↔B first, then B↔C on the already-cleaned lists.
-
+    # ── Deduplicate adjacent pairs in a single loop ───────────────────────────
+    # After resolving pair (i, i+1), the cleaned version of list i+1 is reused
+    # as the left-hand side when resolving pair (i+1, i+2). This ensures that
+    # an event already dropped in a previous pass cannot be re-matched.
     print("[ Detecting & resolving duplicates ]")
+    total_dup = 0
 
-    if len(bulletins) == 2:
-        print(f"  Pass 1/1: {args.bulletins[0]} ↔ {args.bulletins[1]}")
-        b0, b1, nd = find_and_resolve_duplicates(
-            bulletins[0], bulletins[1],
+    for i in range(n - 1):
+        label_a = args.bulletins[i]
+        label_b = args.bulletins[i + 1]
+        print(f"  Pass {i+1}/{n-1}: {label_a} ↔ {label_b}")
+        bulletins[i], bulletins[i + 1], nd = find_and_resolve_duplicates(
+            bulletins[i], bulletins[i + 1],
             args.time, args.dist,
-            args.bulletins[0], args.bulletins[1]
+            label_a, label_b,
         )
-        merged = b0 + b1
-        total_dup = nd
+        total_dup += nd
 
-    else:  # 3 files
-        print(f"  Pass 1/2: {args.bulletins[0]} ↔ {args.bulletins[1]}")
-        b0, b1, nd1 = find_and_resolve_duplicates(
-            bulletins[0], bulletins[1],
-            args.time, args.dist,
-            args.bulletins[0], args.bulletins[1]
-        )
-        print(f"  Pass 2/2: {args.bulletins[1]} ↔ {args.bulletins[2]}")
-        b1, b2, nd2 = find_and_resolve_duplicates(
-            b1, bulletins[2],
-            args.time, args.dist,
-            args.bulletins[1], args.bulletins[2]
-        )
-        merged = b0 + b1 + b2
-        total_dup = nd1 + nd2
-
+    merged = [ev for b in bulletins for ev in b]
     print(f"\n  Total duplicates removed : {total_dup}")
     print(f"  Events in merged catalog : {len(merged)}\n")
 
