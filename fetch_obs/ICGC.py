@@ -30,7 +30,17 @@ def iter_months(start_year, start_month, end_year, end_month):
 def get_codes(year,month):
     """Fetch the list of event codes from the ICGC website for a given year and month."""
     url = f"https://sismocat.icgc.cat/siswebclient/index.php?seccio=llistat&area=locals&any={str(year).lstrip('0')}&mes={str(month).lstrip('0')}&idioma=ca"
-    response = requests.get(url, timeout=15)
+
+    max_retries = 3
+    for _ in range(max_retries):
+        try:
+            response = requests.get(url, timeout=15)
+            break
+        except requests.exceptions.RequestException as e:
+            print(f"Request failed, retrying... ({e})")
+            time.sleep(2)
+    else:
+        return False, f"Failed after {max_retries} retries"
 
     if response.status_code == 200:
         html_content = response.text
