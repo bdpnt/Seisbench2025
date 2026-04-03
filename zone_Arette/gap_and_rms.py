@@ -5,6 +5,7 @@ import numpy as np
 from copy import deepcopy
 
 def open_file(file):
+    """Read an NLL result file into a DataFrame and add a parsed datetime column."""
     columns = ['year','month','day','hour','minute','second','latitude','longitude','depth','magnitude','rms','no','erh','erv','gap']
     data = pd.read_csv(file, sep=r'\s+', header=None, names=columns)
     data['year'] = np.where(data['year'] > 75, data['year'] + 1900, data['year'] + 2000)
@@ -12,6 +13,7 @@ def open_file(file):
     return data
 
 def match_catalogs(df1, df2, tol_seconds=2):
+    """Match events between two DataFrames by time proximity and return a DataFrame of index pairs."""
     cat1 = pd.Series(df1.date)
     cat2 = pd.Series(df2.date)
     
@@ -38,6 +40,7 @@ def match_catalogs(df1, df2, tol_seconds=2):
     )
 
 def match_df(df1, df2, match):
+    """Build a comparison DataFrame of gap, RMS, and phase count differences between two matched catalogs."""
     idx1 = match.cat1_index.to_list()
     idx2 = match.cat2_index.to_list()
 

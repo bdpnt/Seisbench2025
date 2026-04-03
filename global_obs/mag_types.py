@@ -4,6 +4,7 @@ and lists them.
 '''
 
 def retrieveEvents_fromFile(fileName):
+    """Read an .obs file and return a list of event header lines (stripped of the leading '# ')."""
     with open(fileName, 'r', encoding='utf-8', errors='ignore') as fR:
         catLines = fR.readlines()
 
@@ -18,6 +19,7 @@ def retrieveEvents_fromFile(fileName):
     return eventLines
 
 def findMagnitudeTypes(parameters):
+    """Print all magnitude types and their counts found in an .obs bulletin file."""
     #--- Get events informations
     eventLines = retrieveEvents_fromFile(parameters.fileName)
 

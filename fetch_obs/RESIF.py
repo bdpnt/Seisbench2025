@@ -18,6 +18,7 @@ class RESIFParams:
     magType: str
 
 def generate_catalog(parameters):
+    """Query the FDSN client year by year and accumulate events into a QuakeML catalog file."""
     #---- Initiate catalog
     print('\n')
     client = Client(parameters.client_name)
@@ -99,10 +100,16 @@ def generate_catalog(parameters):
         print(f"Events from {year_start} to {year_end} written in Catalog")
 
 def fetch_catalog(parameters):
+    """Load an existing QuakeML catalog file and return it as an obspy Catalog object."""
     catalog = read_events(parameters.fileName, format="QUAKEML")
     return catalog
 
 def find_bestMagnitude(event,magType):
+    """Find the best available magnitude of a given type for an event.
+
+    Returns (True, None) if a valid preferred magnitude is found, (False, index) if a
+    manual magnitude is found by searching, or (False, None) if none is available.
+    """
     try: # look for a preferred magnitude
         if event.preferred_magnitude().magnitude_type == magType:
             if not event.preferred_magnitude().creation_info.author.__contains__('auto'):
@@ -133,6 +140,7 @@ def find_bestMagnitude(event,magType):
             return False, None
 
 def write_catalog_to_obs(parameters):
+    """Convert a QuakeML catalog to the .obs bulletin format, keeping only manual P/S picks."""
     catalog = fetch_catalog(parameters)
     print(f'\nEvents from Catalog @ {parameters.fileName} succesfully retrieved')
 

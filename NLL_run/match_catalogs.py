@@ -12,6 +12,7 @@ class MatchCatalogsParams:
 
 ## FUNCTION
 def read_obs(file):
+    """Parse an .obs bulletin into a DataFrame of event headers plus the raw lines list."""
     with open(file, 'r') as f:
         lines = f.readlines()
 
@@ -55,6 +56,7 @@ def read_obs(file):
     return df, lines
 
 def read_final(file):
+    """Parse a plain-text NLL result file (hypo_71 format) into a DataFrame."""
     with open(file, 'r') as f:
         lines = f.readlines()
 
@@ -650,6 +652,7 @@ def update_bulletin(lines, matched_df):
     return updated_content
 
 def save_bulletin(parameters):
+    """Match the pre-NLL .obs bulletin to the NLL result file and write the updated bulletin to disk."""
     # Read files
     obs_df, lines = read_obs(parameters.file_obs)
     final_df = read_final(parameters.file_final)

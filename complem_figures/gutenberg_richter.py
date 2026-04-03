@@ -21,6 +21,7 @@ bull_df[['Year','Mag']] = bull_df[['Year','Mag']].apply(pd.to_numeric)
 
 # Conversion to Mw using laws from Cara et al. [2017]
 def ML_to_Mw(mag):
+    """Convert ML magnitude to Mw using the piecewise law from Cara et al. [2017]."""
     if mag < 3.117:
         return 0.6642 * mag + 0.4467
     elif mag <= 4:

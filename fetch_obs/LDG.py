@@ -9,6 +9,7 @@ class LDGParams:
     saveName: str
 
 def write_catalog_to_obs(parameters):
+    """Convert the LDG catalog and arrivals CSV files to the .obs bulletin format."""
     #---- Build Dataframes
     catalog = pd.read_csv(parameters.catalogFile,sep=';',header=0)
     arrivals = pd.read_csv(parameters.arrivalFile,sep=';',header=0)

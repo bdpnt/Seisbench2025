@@ -13,6 +13,7 @@ class UpdateMagFilesParams:
     folderPath: str
 
 def fetchEvents(file):
+    """Read an .obs file and return all lines along with the indices of event header lines."""
     with open(file,'r',encoding='utf-8') as f:
         lines = f.readlines()
 
@@ -26,6 +27,7 @@ def fetchEvents(file):
     return lines,eventIDs
 
 def updateMagnitudes(lines,orgMag):
+    """Apply pre-computed magnitude conversion models to update event header lines with converted ML values."""
     for _, row in orgMag.iterrows():
         line_idx = row['linesID']
         columns = lines[line_idx].split()
@@ -36,6 +38,7 @@ def updateMagnitudes(lines,orgMag):
     return lines
 
 def saveMagnitudes(lines,file):
+    """Write updated bulletin lines back to an .obs file."""
     with open(file,'w') as f:
         for line in lines:
             if not line.endswith('\n'):
@@ -45,6 +48,7 @@ def saveMagnitudes(lines,file):
     print(f'\n    - Catalog succesfully saved @ {file}')
 
 def updateAllFiles(parameters):
+    """Apply all saved magnitude conversion models to every .obs file matching the folder pattern."""
     print('\n#########') # opening line
 
     for folderFile in glob.glob(parameters.folderPath):

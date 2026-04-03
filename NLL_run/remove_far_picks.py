@@ -26,6 +26,7 @@ def haversine(lat1, lon1, lat2, lon2):
     return 2 * R * math.asin(math.sqrt(a))
 
 def getStationsCoords(parameters):
+    """Build a DataFrame of all station alternate codes and coordinates from the inventory."""
     inventory = read_inventory(parameters.fileInventory, format='STATIONXML')
 
     staData = []
@@ -43,6 +44,7 @@ def getStationsCoords(parameters):
     return staCoords
 
 def removeFarPicks(parameters):
+    """Remove picks from stations beyond maxDistance km from their associated event and overwrite the bulletin."""
     #---- Retrieve stations coordinates
     staCoords = getStationsCoords(parameters)
 

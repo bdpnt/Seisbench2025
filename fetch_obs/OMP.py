@@ -8,6 +8,7 @@ class OMPParams:
     saveName: str
 
 def open_catalog(fileName):
+    """Read a catalog file and return its lines as a list of strings."""
     with open(fileName, 'r', encoding='utf-8', errors='ignore') as fR:
         lines = fR.readlines()
 
@@ -15,6 +16,7 @@ def open_catalog(fileName):
     return lines
 
 def write_catalog_to_obs(parameters):
+    """Convert the OMP .mag catalog to the .obs bulletin format, extracting P and S picks."""
     #--- Retrieve catalog
     lines = open_catalog(parameters.fileName)
 

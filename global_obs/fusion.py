@@ -44,6 +44,7 @@ def haversine(lat1, lon1, lat2, lon2):
     return 2 * R * math.asin(math.sqrt(a))
 
 def generateGlobal(parameters):
+    """Load and return the lines of the main (reference) bulletin file."""
     with open(parameters.mainBulletinPath, 'r') as f:
         lines = f.readlines()
     
@@ -56,6 +57,7 @@ def generateGlobal(parameters):
     return lines
 
 def retrieveEvents_fromLines(catLines):
+    """Extract event header lines and their line indices from a list of bulletin lines."""
     eventLines = []
     eventLinesID = []
     for ID,line in enumerate(catLines):
@@ -66,6 +68,7 @@ def retrieveEvents_fromLines(catLines):
     return eventLines,eventLinesID
 
 def retrieveEvents_fromFile(fileName):
+    """Read an .obs file and return event header lines, their indices, and all bulletin lines."""
     with open(fileName, 'r', encoding='utf-8', errors='ignore') as f:
         catLines = f.readlines()
 
@@ -80,6 +83,7 @@ def retrieveEvents_fromFile(fileName):
     return eventLines,eventLinesID,catLines
 
 def get_firstNonNanValue(value):
+    """Return the first non-NaN float from a colon-separated statistics string, or the value itself if it is already a number."""
     if isinstance(value, str):
         parts = value.split(':')
         for part in parts:
@@ -96,6 +100,7 @@ def get_firstNonNanValue(value):
             return None
 
 def get_catalogFrame(eventLines):
+    """Build a DataFrame with lat, lon, depth, magnitude, and time columns from a list of event header lines."""
     # Extract all fields
     infos = [line.split() for line in eventLines]
 
@@ -132,6 +137,7 @@ def get_catalogFrame(eventLines):
     return catalogFrame
 
 def find_matchEvents(catalog1, catalog2, distThresh, looseDistThresh, timeThresh, looseTimeThresh, magThresh):
+    """Find candidate matching event pairs between two catalogs using distance, time, and magnitude thresholds."""
     #---- Convert time thrsholds to timedelta objetcs
     timeThresh = pd.Timedelta(seconds=timeThresh)
     looseTimeThresh = pd.Timedelta(seconds=looseTimeThresh)
@@ -257,6 +263,7 @@ def find_matchEvents(catalog1, catalog2, distThresh, looseDistThresh, timeThresh
 
 
 def addPhasesToLines(newLines,oldLines,ID):
+    """Copy all pick lines belonging to an event (starting at ID) from oldLines into newLines."""
     ID += 1
     line = oldLines[ID]
     while not line.startswith('\n'):
@@ -269,6 +276,7 @@ def addPhasesToLines(newLines,oldLines,ID):
     return newLines
 
 def sortEventsChrono(lines):
+    """Sort all events in a bulletin line list into chronological order, preserving header lines."""
     headers = [line for line in lines if line.startswith('###')]
     headers.append('\n')
     eventsLines = [line for line in lines if not line.startswith('###')]
@@ -316,6 +324,7 @@ def sortEventsChrono(lines):
     return sortedLines
 
 def find_pickLines(allLines,ID):
+    """Return all pick lines for the event at position ID in a bulletin line list."""
     allPicks = []
     end = False
     currID = ID
@@ -329,6 +338,7 @@ def find_pickLines(allLines,ID):
     return allPicks
 
 def check_similarPicks(mainLines,secondaryLines,mainID,secondaryID):
+    """Count the number of picks shared (same station and phase within 1 s) between two events."""
     # Find the picks lines for event in bulletin
     mainPicks = find_pickLines(mainLines,mainID)
     secondaryPicks = find_pickLines(secondaryLines,secondaryID)
@@ -362,6 +372,7 @@ def check_similarPicks(mainLines,secondaryLines,mainID,secondaryID):
     return similarPhases
 
 def addItemForStats(lineMain,lineSecondary,id,isNan=False):
+    """Append the field at position id from lineSecondary to the same field in lineMain as a colon-separated statistics entry."""
     '''ID is 7 for Latitude, 8 for Longitude, 9 for Depth and 10 for Magnitude'''
     if isNan:
         toConcat = ":Nan"
@@ -373,6 +384,7 @@ def addItemForStats(lineMain,lineSecondary,id,isNan=False):
     return " ".join(newLine)
 
 def addNansForStats(lineSecondary,id,loopNo):
+    """Prepend loopNo NaN placeholders to the statistics field at position id in lineSecondary."""
     toReplace = "Nan:" * loopNo + lineSecondary.split()[id]
     newLine = lineSecondary.split()
     newLine[-1] += '\n'
@@ -380,10 +392,11 @@ def addNansForStats(lineSecondary,id,loopNo):
     return " ".join(newLine)
 
 def concatenateBulletin(
-        parameters, mainLines, secondaryBulletinPath, 
+        parameters, mainLines, secondaryBulletinPath,
         distThresh, looseDistThresh, timeThresh, looseTimeThresh, magThresh, simPickThresh,
         loopNo
     ):
+    """Merge a secondary bulletin into the main bulletin, matching events and accumulating statistics fields."""
     #---- Fetch Bulletins
     mainEventLines,mainIDs = retrieveEvents_fromLines(mainLines)
     secondaryEventLines,secondaryIDs,secondaryLines = retrieveEvents_fromFile(secondaryBulletinPath)
@@ -577,6 +590,7 @@ def concatenateBulletin(
     return newLines, strictMatch, possibleMatch, mainBulletin, secondaryBulletin
 
 def statsFigs_versus(mainName,secondaryName,frame):
+    """Generate scatter plots comparing hypocenter parameters between the main catalog and a secondary catalog."""
     useCols = ['latitude','longitude','depth','magnitude']
     useFrame = frame[useCols]
 
@@ -666,6 +680,7 @@ def statsFigs_versus(mainName,secondaryName,frame):
     print(f'Statistics "versus" figure succesfully saved @ {path}')
 
 def statsFigs_comparison(mainName,secondaryName,frame):
+    """Generate distribution comparison plots for hypocenter parameters between two catalogs."""
     useCols = ['latitude','longitude','depth','magnitude']
     useFrame = frame[useCols]
 
@@ -774,6 +789,7 @@ def statsFigs_comparison(mainName,secondaryName,frame):
     print(f'Statistics file succesfully saved @ {pathFrame}')
 
 def getStatistics(mainLines, parameters, filePath, fileNo):
+    """Extract matched parameter pairs from bulletin statistics fields and save comparison figures to disk."""
     #--- Generate the correct lines
     lines = [line.lstrip('# ').rstrip('\n').split() for line in mainLines if line.startswith('# ')]
     
@@ -820,6 +836,7 @@ def getStatistics(mainLines, parameters, filePath, fileNo):
         print(f'Not enough matches for a statistical analysis for Bulletin @ {filePath}')
 
 def replaceMeanMagnitudes(lines):
+    """Replace the colon-separated multi-source magnitude field in each event with the mean of non-NaN values."""
     for id,line in enumerate(lines):
         if line.startswith('# '):
             newLine = line.split()
@@ -833,6 +850,7 @@ def replaceMeanMagnitudes(lines):
     return lines
 
 def removeStatsValues(lines):
+    """Strip colon-separated statistics entries from event fields, keeping only the first non-NaN value."""
     for id,line in enumerate(lines):
         if line.startswith('# '):
             newLine = ""
@@ -850,6 +868,7 @@ def removeStatsValues(lines):
                 
 
 def removeDuplicatePicks(lines):
+    """Remove duplicate pick lines (same station and phase type) within each event block."""
     picksToRemove = set()
     for id,line in enumerate(lines):
         if line.startswith('# '):
@@ -874,9 +893,10 @@ def removeDuplicatePicks(lines):
     return newLines
 
 def removeMagnitudesUnder1(lines):
+    """Remove all events with magnitude below ML 1.0 and their associated picks from the bulletin."""
     removeLines = set()
     removedEvents = 0
-    
+
     for id,line in enumerate(lines):
         if line.startswith('# '):
             magnitude = float(line.split()[10])
@@ -897,6 +917,7 @@ def removeMagnitudesUnder1(lines):
     return newLines
 
 def saveBulletin(lines,parameters):
+    """Write the bulletin line list to the global output .obs file."""
     with open(parameters.globalBulletinPath, 'w') as f:
         f.writelines(lines)
     
@@ -908,6 +929,7 @@ def saveBulletin(lines,parameters):
     print(f'{nbEQ} events succesfully saved in Catalog @ {parameters.globalBulletinPath}\n\n#######\n')
 
 def fusionAll(parameters):
+    """Merge all source .obs bulletins into a single GLOBAL.obs file, matching events and computing statistics."""
     #---- Remove main Bulletin from all paths and start with it
     allPath = [filePath for filePath in glob.glob(parameters.folderPath) 
                if (filePath != parameters.mainBulletinPath and (not filePath.__contains__('GLOBAL')))]

@@ -20,6 +20,7 @@ class MapGlobalParams:
 # FUNCTION
 
 def genGlobalFigure(parameters):
+    """Generate a PyGMT map of all events in an .obs bulletin, coloured by depth, and save it to a PDF."""
     #---- Read OBS file
     with open(parameters.fileName,'r',encoding='utf-8') as f:
         lines = f.readlines()
