@@ -32,12 +32,32 @@ def genFigure(parameters):
     events_df = removeHighErr(events_df)
 
     #---- Set Pyrenees borders
-    region = [-2.25,3.5,42,44]
+    region = [-4.0,4,41,45]
 
     fig = pg.Figure()
     with pg.config(MAP_FRAME_TYPE="fancy+"):
         fig.basemap(region=region, projection="M6i", frame='af')
     fig.coast(water="skyblue", land='#777777', resolution='i', area_thresh='0/0/1', borders="1/0.75p,black")
+
+    #---- Plot rectangles
+    if parameters.region_out:
+        fig.plot(
+            x=[parameters.region_out[0][1], parameters.region_out[1][1], parameters.region_out[1][1], parameters.region_out[0][1], parameters.region_out[0][1]],
+            y=[parameters.region_out[0][0], parameters.region_out[0][0], parameters.region_out[1][0], parameters.region_out[1][0], parameters.region_out[0][0]],
+            close=True,
+            pen="2p,red",
+            transparency=50,
+        )
+
+    if parameters.region_in:
+        fig.plot(
+            x=[parameters.region_in[0][1], parameters.region_in[1][1], parameters.region_in[1][1], parameters.region_in[0][1], parameters.region_in[0][1]],
+            y=[parameters.region_in[0][0], parameters.region_in[0][0], parameters.region_in[1][0], parameters.region_in[1][0], parameters.region_in[0][0]],
+            close=True,
+            pen="0.5p,blue",
+            fill="blue",
+            transparency=70,
+        )
 
     #---- Plot events
     pg.makecpt(cmap="viridis", series=[0,15,1], reverse=True)
@@ -60,19 +80,28 @@ def genFigure(parameters):
 # MAIN
 if __name__ == "__main__":
     all_runs = {
-        "1": ("RESULT/GLOBAL_1.txt", "complem_figures/event_maps/GLOBAL_1.pdf"),
-        "2": ("RESULT/GLOBAL_2.txt", "complem_figures/event_maps/GLOBAL_2.pdf"),
-        "3": ("RESULT/GLOBAL_3.txt", "complem_figures/event_maps/GLOBAL_3.pdf"),
-        "4": ("RESULT/GLOBAL_4.txt", "complem_figures/event_maps/GLOBAL_4.pdf"),
-        "5": ("RESULT/GLOBAL_5.txt", "complem_figures/event_maps/GLOBAL_5.pdf"),
-        "6": ("RESULT/GLOBAL_6.txt", "complem_figures/event_maps/GLOBAL_6.pdf"),
-        "Final": ("RESULT/FINAL.txt", "complem_figures/event_maps/FINAL.pdf"),
+        "1": ("RESULT/GLOBAL_1.txt", "complem_figures/event_maps/GLOBAL_1.pdf",
+              ((42.50, -2.00), (43.50, -0.75)), ((41.60, -3.22), (44.40, 0.46))),
+        "2": ("RESULT/GLOBAL_2.txt", "complem_figures/event_maps/GLOBAL_2.pdf",
+              ((42.50, -1.00), (43.25, 0.50)), ((41.60, -2.22), (44.15, 1.71))),
+        "3": ("RESULT/GLOBAL_3.txt", "complem_figures/event_maps/GLOBAL_3.pdf",
+              ((42.00, 0.25), (43.25, 1.00)), ((41.10, -0.96), (44.15, 2.20))),
+        "4": ("RESULT/GLOBAL_4.txt", "complem_figures/event_maps/GLOBAL_4.pdf",
+              ((42.00, 0.75), (43.00, 2.25)), ((41.10, -0.46), (43.90, 3.45))),
+        "5": ("RESULT/GLOBAL_5.txt", "complem_figures/event_maps/GLOBAL_5.pdf",
+              ((42.00, 2.00), (43.00, 3.50)), ((41.10, 0.79), (43.90, 4.70))),
+        "6": ("RESULT/GLOBAL_6.txt", "complem_figures/event_maps/GLOBAL_6.pdf",
+              ((42.75, 2.25), (43.75, 3.50)), ((41.85, 1.03), (44.65, 4.75))),
+        "Final": ("RESULT/FINAL.txt", "complem_figures/event_maps/FINAL.pdf",
+                  None, None),
     }
 
     for key,item in all_runs.items():
         params = Parameters(
             fileBulletin = item[0],
             figSave = item[1],
+            region_in = item[2],
+            region_out = item[3],
         )
 
         genFigure(params)
