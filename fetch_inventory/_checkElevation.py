@@ -1,7 +1,9 @@
 import requests
 import time
+import pandas as pd
 
 def get_elevation(lat, lng):
+    """Query the Open-Elevation API and return the elevation in metres for a given coordinate."""
     url = f"https://api.open-elevation.com/api/v1/lookup?locations={lat},{lng}"
     try:
         response = requests.get(url).json()
@@ -14,31 +16,20 @@ def get_elevation(lat, lng):
         print(f"Request failed for ({lat}, {lng}): {e}")
         return 0
 
-# MAIN
-file = 'stations/OMP_stations_XML/ADDITIONAL_sta.csv'
-fileSave = 'stations/OMP_stations_XML/TEST_ADD.csv'
 
-with open(file, 'r', encoding='utf-8') as f:
-    lines = f.readlines()
+def check_elevation(file, file_save):
+    """Fill in missing elevations (value 0) in a station CSV by querying the Open-Elevation API."""
+    df = pd.read_csv(file, dtype={'latitude': 'float64', 'longitude': 'float64', 'elevation': 'float32'})
 
-updated_lines = [lines[0]]  # Keep the header
-
-for line in lines[1:]:
-    if line == '\n':
-        continue
-    infos = line.strip().split(',')
-    latitude = float(infos[2])
-    longitude = float(infos[3])
-    elevation = float(infos[4])
-
-    if elevation != 0:
-        updated_lines.append(line)
-        continue
-    else:
-        new_elevation = get_elevation(latitude, longitude)
-        infos[4] = str(new_elevation)
-        updated_lines.append(','.join(infos) + '\n')
+    for idx in df.index[df['elevation'] == 0]:
+        df.at[idx, 'elevation'] = get_elevation(df.at[idx, 'latitude'], df.at[idx, 'longitude'])
         time.sleep(1)  # Avoid rate limiting
 
-with open(fileSave, 'w', encoding='utf-8') as f:
-    f.writelines(updated_lines)
+    df.to_csv(file_save, index=False)
+
+
+if __name__ == '__main__':
+    check_elevation(
+        file='stations/OMP_stations_XML/ADDITIONAL_sta.csv',
+        file_save='stations/OMP_stations_XML/TEST_ADD.csv',
+    )

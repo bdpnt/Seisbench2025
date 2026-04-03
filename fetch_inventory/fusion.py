@@ -38,19 +38,21 @@ def checkInventory(inventory):
         for sta in net.stations:
             uniqueSta[sta.code.split('_')[0]].append(net.code)
 
-    uniqueSta = {sta: nets for sta, nets in uniqueSta.items() if len(nets) >= 2} # check for really unique stations
-    uniqueSta = {sta: nets for sta, nets in uniqueSta.items() if any(item != nets[0] for item in nets)} # check for only same network
+    uniqueSta = {
+        sta: nets for sta, nets in uniqueSta.items()
+        if len(nets) >= 2 and any(net != nets[0] for net in nets)
+    }
 
     # Manually remove unwanted stations from specific network
     for station, networks in uniqueSta.items():
-        print('\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n')
+        print('\n' * 40)
         print(f"\nStation: {station}")
         for network in networks:
             current_inv = inventory.select(network=network, station=station)
             print(f"  In Network: {network}")
             for net in current_inv.networks:
                 for sta in net.stations:
-                    print(sta.__str__())
+                    print(sta)
         print("____________________")
 
         remove_nets = input('Network(s) to remove, if any, separated by commas (e.g. > FR,RD): ')
@@ -67,7 +69,7 @@ def addAlternateCode(inventory):
         netCode = network.code
         staID = 0
         for station in network:
-            station.alternate_code = netCode + '.' + str(staID).rjust(4,'0')
+            station.alternate_code = netCode + '.' + str(staID).zfill(4)
             staID += 1
 
     return inventory
@@ -81,20 +83,18 @@ def combineCloseStations(inventory, parameters):
             all_stations.append((network.code, station))
 
     #--- Group stations by location
+    threshold_km = parameters.acceptedDistance / 1000
     groups = []
     for net_code, station in all_stations:
-        found_group = None
-        for group in groups:
-            for _, other_station in group:
-                distance = haversine(station.latitude, station.longitude,
-                                    other_station.latitude, other_station.longitude)
-                if distance <= (parameters.acceptedDistance / 1000):
-                    found_group = group
-                    break
-            if found_group is not None:
-                break
-        if found_group is not None:
-            found_group.append((net_code, station))
+        target_group = next(
+            (group for group in groups
+             if any(haversine(station.latitude, station.longitude,
+                              other.latitude, other.longitude) <= threshold_km
+                    for _, other in group)),
+            None,
+        )
+        if target_group is not None:
+            target_group.append((net_code, station))
         else:
             groups.append([(net_code, station)])
 
@@ -112,7 +112,7 @@ def combineCloseStations(inventory, parameters):
 def create_alternateCodeMapping(inventory,parameters):
     """Write a text file mapping each alternate code to its corresponding network/station codes and active date ranges."""
     # Dictionary to store the mapping
-    alternate_code_mapping = {}
+    alternate_code_mapping = defaultdict(list)
 
     # Iterate through each network and station in the inventory
     for network in inventory.networks:
@@ -122,10 +122,6 @@ def create_alternateCodeMapping(inventory,parameters):
             station_code = station.code
             start_date = station.start_date
             end_date = station.end_date
-
-            # If the alternate code is not already in the dictionary, add it
-            if alternate_code not in alternate_code_mapping:
-                alternate_code_mapping[alternate_code] = []
 
             # Append the station code and its time range to the list for this alternate code
             alternate_code_mapping[alternate_code].append({
@@ -237,7 +233,7 @@ def mergeInventory(parameters):
                 # Merge data from all stations to mainStation
                 for sta in stations_to_remove:
                     # Elevation: take from any station that has it
-                    if not hasattr(mainStation, 'elevation') and hasattr(sta, 'elevation'):
+                    if (mainStation.elevation == 0 or mainStation.elevation is None) and sta.elevation:
                         mainStation.elevation = sta.elevation
 
                     # Start date: take the earliest
