@@ -46,8 +46,7 @@ def get_codes(year,month):
     
 def get_all_codes(parameters):
     """Fetch all event codes for the full date range and write them to the codes file."""
-    with open(parameters.codeName, 'w') as f: # for codes
-        with open(parameters.errorName, 'w') as fE: # for errors
+    with open(parameters.codeName, 'w') as f, open(parameters.errorName, 'w') as fE: # codes and errors
             fE.write('### ERRORS DURING CODES FETCH\n')
             for year, month in iter_months(parameters.start_year, parameters.start_month, parameters.end_year, parameters.end_month):
                 status,value = get_codes(year,month) # value is either the codes if True or the response status code if False
@@ -67,11 +66,8 @@ def fetch_catalog(parameters):
     if os.path.exists(parameters.fileName):
         os.remove(parameters.fileName)
 
-    codes = []
     with open(parameters.codeName, 'r', encoding='utf-8', errors='ignore') as f:
-        lines = f.readlines()
-        for line in lines:
-            codes.append(line.split(',')[0])
+        codes = [line.split(',')[0] for line in f]
 
     catalog_errors = []
     first_catalog_error = True
@@ -172,7 +168,7 @@ def write_catalog_to_obs(parameters):
                 V_uncertainty = None
 
                 # Don't use if mag < magMin
-                if magnitude < parameters.magMin:
+                if magnitude is None or magnitude < parameters.magMin:
                     continue
 
                 # Write event line

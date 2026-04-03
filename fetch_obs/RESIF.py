@@ -17,8 +17,19 @@ class RESIFParams:
     saveName: str
     magType: str
 
+def _fetch_year_slice(client, parameters, year_start, year_end):
+    """Query the FDSN client for events in a given time slice."""
+    return client.get_events(
+        starttime=year_start, endtime=year_end,
+        minlatitude=parameters.Lat_min, maxlatitude=parameters.Lat_max,
+        minlongitude=parameters.Lon_min, maxlongitude=parameters.Lon_max,
+        minmagnitude=parameters.Mag_min, eventtype=parameters.Event_type,
+        includeallorigins=False, includeallmagnitudes=False,
+        includearrivals=True, orderby="time-asc",
+    )
+
 def generate_catalog(parameters):
-    """Query the FDSN client year by year and accumulate events into a QuakeML catalog file."""
+    """Query the FDSN client year by year, accumulate events into a QuakeML catalog file, and return the catalog."""
     #---- Initiate catalog
     print('\n')
     client = Client(parameters.client_name)
@@ -39,20 +50,8 @@ def generate_catalog(parameters):
         if year_end > t2:
             year_end = t2
 
-        year_catalog = client.get_events(
-            starttime=year_start, endtime=year_end,
-            minlatitude=parameters.Lat_min, maxlatitude=parameters.Lat_max,
-            minlongitude=parameters.Lon_min, maxlongitude=parameters.Lon_max,
-            minmagnitude=parameters.Mag_min, eventtype=parameters.Event_type,
-            includeallorigins=False, includeallmagnitudes=False,
-            includearrivals=True, orderby="time-asc",
-        )
-
-        if catalog is None:
-            catalog = year_catalog
-        else:
-            catalog += year_catalog
-
+        year_catalog = _fetch_year_slice(client, parameters, year_start, year_end)
+        catalog = year_catalog if catalog is None else catalog + year_catalog
         print(f"Events from {year_start} to {year_end} written in Catalog")
         current_year += 1
 
@@ -61,20 +60,8 @@ def generate_catalog(parameters):
         year_start = UTCDateTime(f"{current_year}-01-01T00:00:00")
         year_end = UTCDateTime(f"{current_year + 1}-01-01T00:00:00")
 
-        year_catalog = client.get_events(
-            starttime=year_start, endtime=year_end,
-            minlatitude=parameters.Lat_min, maxlatitude=parameters.Lat_max,
-            minlongitude=parameters.Lon_min, maxlongitude=parameters.Lon_max,
-            minmagnitude=parameters.Mag_min, eventtype=parameters.Event_type,
-            includeallorigins=False, includeallmagnitudes=False,
-            includearrivals=True, orderby="time-asc",
-        )
-
-        if catalog is None:
-            catalog = year_catalog
-        else:
-            catalog += year_catalog
-
+        year_catalog = _fetch_year_slice(client, parameters, year_start, year_end)
+        catalog = year_catalog if catalog is None else catalog + year_catalog
         print(f"Events from {current_year} written in Catalog")
         current_year += 1
 
@@ -83,21 +70,12 @@ def generate_catalog(parameters):
         year_start = UTCDateTime(f"{end_year}-01-01T00:00:00")
         year_end = t2
 
-        year_catalog = client.get_events(
-            starttime=year_start, endtime=year_end,
-            minlatitude=parameters.Lat_min, maxlatitude=parameters.Lat_max,
-            minlongitude=parameters.Lon_min, maxlongitude=parameters.Lon_max,
-            minmagnitude=parameters.Mag_min, eventtype=parameters.Event_type,
-            includeallorigins=False, includeallmagnitudes=False,
-            includearrivals=True, orderby="time-asc",
-        )
-
-        if catalog is None:
-            catalog = year_catalog
-        else:
-            catalog += year_catalog
-
+        year_catalog = _fetch_year_slice(client, parameters, year_start, year_end)
+        catalog = year_catalog if catalog is None else catalog + year_catalog
         print(f"Events from {year_start} to {year_end} written in Catalog")
+
+    catalog.write(parameters.fileName, format="QUAKEML")
+    return catalog
 
 def fetch_catalog(parameters):
     """Load an existing QuakeML catalog file and return it as an obspy Catalog object."""
@@ -112,18 +90,18 @@ def find_bestMagnitude(event,magType):
     """
     try: # look for a preferred magnitude
         if event.preferred_magnitude().magnitude_type == magType:
-            if not event.preferred_magnitude().creation_info.author.__contains__('auto'):
+            if 'auto' not in event.preferred_magnitude().creation_info.author:
                 return True, None
             else:
                 raise ValueError()
         else:
             raise ValueError()
-    except: # if no preferred magnitude
+    except Exception: # if no preferred magnitude
         try: # look for the manual magnitude with the best uncertainty
             best_mag = ()
             for i_mag, mag in enumerate(event.magnitudes):
                 if mag.magnitude_type == magType:
-                    if not getattr(getattr(mag, 'creation_info', 'None'), 'author', 'None').__contains__('auto'):
+                    if 'auto' not in getattr(getattr(mag, 'creation_info', 'None'), 'author', 'None'):
                         uncertainty = mag.mag_errors.uncertainty
                         if not best_mag:
                             best_mag = (i_mag,uncertainty)
@@ -136,7 +114,7 @@ def find_bestMagnitude(event,magType):
                         if getattr(mag, 'evaluation_status', 'None') == 'confirmed':
                             best_mag = (i_mag, None)
             return False, best_mag[0]
-        except:
+        except Exception:
             return False, None
 
 def write_catalog_to_obs(parameters):
@@ -169,21 +147,20 @@ def write_catalog_to_obs(parameters):
                     magnitude = event.preferred_magnitude().mag
                     magnitude_type = event.preferred_magnitude().magnitude_type
                     magnitude_author = event.preferred_magnitude().creation_info.agency_id
-                    pass
                 elif i_mag:
                     magnitude = event.magnitudes[i_mag].mag
                     magnitude_type = event.magnitudes[i_mag].magnitude_type
-                    magnitude_author = event.magnitudes[i_mag].magnitude().creation_info.agency_id
+                    magnitude_author = event.magnitudes[i_mag].creation_info.agency_id
                 else:
                     raise ValueError()
-            except:
+            except Exception:
                 continue
             phases_count = getattr(getattr(origin, 'quality', None), 'associated_phase_count', None)
             H_uncertainty = getattr(getattr(origin,'quality', None), 'horizontal_uncertainty', None)
             V_uncertainty = getattr(getattr(origin, 'quality', None), 'vertical_uncertainty', None)
             az_gap = getattr(getattr(origin, 'quality', None), 'azimuthal_gap', None)
             rms = getattr(getattr(origin, 'quality', None), 'standard_error', None)
-            
+
             # Write event line
             f.write(f"# {year} {month} {day} {hour} {minute} {second} {latitude} {longitude} {depth} {magnitude} {magnitude_type} {magnitude_author} {phases_count} {H_uncertainty} {V_uncertainty} {az_gap} {rms}\n")
 
@@ -239,16 +216,16 @@ def write_catalog_to_obs(parameters):
                 channel = str(pick.waveform_id.channel_code).ljust(4)
                 pick_origin = 'FDSN'.ljust(9)
                 PGV = 'None'.ljust(4) # in mm/s
-                
+
                 # Write phase line
                 f.write(
                     f"{code} {instrument} {component} {P_phase_onset} {phase_type} {P_first_motion_dir} {date} {hours} {seconds} {error_type} {error_mag} {coda_duration} {max_p2p_amp} {period_amp}"
                     f" # {real_phase} {channel} {pick_origin} {PGV}\n"
                 )
-            
+
             # Line jump after the event
             f.write("\n")
-    
+
     # Print
     print(f"Catalog succesfully written @ {parameters.saveName}\n")
 

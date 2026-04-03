@@ -61,6 +61,10 @@ def write_catalog_to_obs(parameters):
                 H_uncertainty = None
                 V_uncertainty = None
 
+                # Don't use if magnitude could not be parsed
+                if magnitude is None:
+                    continue
+
                 # Write event line
                 f.write(
                     f"# {year} {month.lstrip('0')} {day.lstrip('0')} {ev_hour.lstrip('0') if ev_hour != '00' else '0'} {minute.lstrip('0') if minute != '00' else '0'}"

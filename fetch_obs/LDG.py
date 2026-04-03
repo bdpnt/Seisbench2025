@@ -26,6 +26,7 @@ def write_catalog_to_obs(parameters):
         f.write("\n")
 
         #--- Events
+        arrivals_by_orid = arrivals.groupby('orid')
         for row in catalog.itertuples():
             # Informations on event
             year = row.datetime[6:10]
@@ -42,7 +43,7 @@ def write_catalog_to_obs(parameters):
 
             # Informations on magnitude if it exists
             magnitude = row.ML if not row.ML==-999 else (row.MD if not row.MD==-999 else None)
-            if not magnitude:
+            if magnitude is None:
                 continue
             magnitude_type = 'ML' if not row.ML==-999 else 'MD'
             magnitude_author = 'LDG'
@@ -61,7 +62,10 @@ def write_catalog_to_obs(parameters):
         #--- Phases
             # Get event ID
             eventID = row.orid
-            for rowP in arrivals[arrivals.orid==eventID].itertuples():
+            if eventID not in arrivals_by_orid.groups:
+                f.write("\n")
+                continue
+            for rowP in arrivals_by_orid.get_group(eventID).itertuples():
                 # If not a P or S phase
                 if (not rowP.phase.strip().lower().startswith('p')) and (not rowP.phase.strip().lower().startswith('s')):
                     continue

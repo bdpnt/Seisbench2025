@@ -15,6 +15,15 @@ def open_catalog(fileName):
     print(f"\nEvents from Catalog @ {fileName} succesfully retrieved")
     return lines
 
+def _format_arrival_datetime(arrival):
+    """Return (date, hours, seconds) strings formatted for the .obs bulletin."""
+    microsecond_str = str(arrival.microsecond)
+    microsecond_str = microsecond_str.zfill(3) if len(microsecond_str) < 3 else microsecond_str[:3]
+    date = f"{arrival.year:04d}{arrival.month:02d}{arrival.day:02d}"
+    hours = f"{arrival.hour:02d}{arrival.minute:02d}"
+    seconds = f"{arrival.second:02d}.{microsecond_str}"
+    return date, hours, seconds
+
 def write_catalog_to_obs(parameters):
     """Convert the OMP .mag catalog to the .obs bulletin format, extracting P and S picks."""
     #--- Retrieve catalog
@@ -37,7 +46,7 @@ def write_catalog_to_obs(parameters):
 
                 #--- Retrieve event informations from 4th line after ' Localisation'
                 eventInfoLine = lines[ind+4]
-                
+
                 year = int(eventInfoLine[0:3])
                 month = int(eventInfoLine[3:5])
                 day = int(eventInfoLine[5:7])
@@ -81,7 +90,7 @@ def write_catalog_to_obs(parameters):
                 # Verify if the day exists
                 try:
                     UTCDateTime(f'{year}-{month}-{day}T{hour}:{minute}:{second}Z')
-                except:
+                except Exception:
                     continue
 
                 # Keep date for Phases
@@ -160,6 +169,7 @@ def write_catalog_to_obs(parameters):
                     minuteP = int(phaseInfoLine[27:29])
                     secondP = phaseInfoLine[30:35].strip()
                     if secondP == '' or '*' in secondP:
+                        phaseInd += 1
                         continue
                     secondP = float(secondP)
                     if secondP < 0: # Strange format, - 1 minute
@@ -167,44 +177,20 @@ def write_catalog_to_obs(parameters):
                         secondP = secondP + 60
                     totalSecondsP = hourP * 3600 + minuteP * 60 + secondP
                     arrivalP = eventDate + datetime.timedelta(seconds=totalSecondsP)
-                    yearP = str(arrivalP.year)
-                    monthP = str(arrivalP.month)
-                    if len(monthP) == 1:
-                        monthP = '0' + monthP
-                    dayP = str(arrivalP.day)
-                    if len(dayP) == 1:
-                        dayP = '0' + dayP
-                    hourP = str(arrivalP.hour)
-                    if len(hourP) == 1 :
-                        hourP = '0' + hourP
-                    minuteP = str(arrivalP.minute)
-                    if len(minuteP) == 1:
-                        minuteP = '0' + minuteP
-                    secondP = str(arrivalP.second)
-                    if len(secondP) == 1:
-                        secondP = '0' + secondP
-                    microsecondP = str(arrivalP.microsecond)
-                    if len(microsecondP) < 3:
-                        microsecondP = microsecondP.zfill(3)
-                    else:
-                        microsecondP = microsecondP[:3]
 
                     # Verify if the day exists
                     try:
-                        UTCDateTime(f'{yearP}-{monthP}-{dayP}T{hourP}:{minuteP}:{secondP}.{microsecondP}Z')
-                    except:
+                        UTCDateTime(f'{arrivalP.year}-{arrivalP.month}-{arrivalP.day}T{arrivalP.hour}:{arrivalP.minute}:{arrivalP.second}.{arrivalP.microsecond}Z')
+                    except Exception:
                         phaseInd += 1
                         continue
-                    
+
                     # Informations on P-phase
-                    dateP = yearP + monthP + dayP
-                    hoursP = hourP + minuteP
-                    secondsP = secondP + '.' + microsecondP
-                    errorMagP = '0.05' if not doubleError else '0.10'
+                    dateP, hoursP, secondsP = _format_arrival_datetime(arrivalP)
+                    errorMagP = ('0.05' if not doubleError else '0.10').ljust(9)
 
                     # Lengths must match field length
                     phaseTypeP = phaseP.ljust(6)
-                    errorMagP = errorMagP.ljust(9)
 
                     # Add informations
                     realPhaseP = phaseP.ljust(6)
@@ -228,6 +214,7 @@ def write_catalog_to_obs(parameters):
                     minuteS = int(phaseInfoLine[27:29])
                     secondS = phaseInfoLine[105:110].strip()
                     if secondS == '' or '*' in secondS:
+                        phaseInd += 1
                         continue
                     secondS = float(secondS)
                     if secondS < 0: # Strange format, - 1 minute
@@ -235,44 +222,20 @@ def write_catalog_to_obs(parameters):
                         secondS = secondS + 60
                     totalSecondsS = hourS * 3600 + minuteS * 60 + secondS
                     arrivalS = eventDate + datetime.timedelta(seconds=totalSecondsS)
-                    yearS = str(arrivalS.year)
-                    monthS = str(arrivalS.month)
-                    if len(monthS) == 1:
-                        monthS = '0' + monthS
-                    dayS = str(arrivalS.day)
-                    if len(dayS) == 1:
-                        dayS = '0' + dayS
-                    hourS = str(arrivalS.hour)
-                    if len(hourS) == 1 :
-                        hourS = '0' + hourS
-                    minuteS = str(arrivalS.minute)
-                    if len(minuteS) == 1:
-                        minuteS = '0' + minuteS
-                    secondS = str(arrivalS.second)
-                    if len(secondS) == 1:
-                        secondS = '0' + secondS
-                    microsecondS = str(arrivalS.microsecond)
-                    if len(microsecondS) < 3:
-                        microsecondS = microsecondS.zfill(3)
-                    else:
-                        microsecondS = microsecondS[:3]
-                    
+
                     # Verify if the day exists
                     try:
-                        UTCDateTime(f'{yearS}-{monthS}-{dayS}T{hourS}:{minuteS}:{secondS}.{microsecondS}Z')
-                    except:
+                        UTCDateTime(f'{arrivalS.year}-{arrivalS.month}-{arrivalS.day}T{arrivalS.hour}:{arrivalS.minute}:{arrivalS.second}.{arrivalS.microsecond}Z')
+                    except Exception:
                         phaseInd += 1
                         continue
 
                     # Informations on S-phase
-                    dateS = yearS + monthS + dayS
-                    hoursS = hourS + minuteS
-                    secondsS = secondS + '.' + microsecondS
-                    errorMagS = '0.05' if not doubleError else '0.10'
+                    dateS, hoursS, secondsS = _format_arrival_datetime(arrivalS)
+                    errorMagS = ('0.05' if not doubleError else '0.10').ljust(9)
 
                     # Lengths must match field length
                     phaseTypeS = phaseS.ljust(6)
-                    errorMagS = errorMagS.ljust(9)
 
                     # Add informations
                     realPhaseS = phaseS.ljust(6)
@@ -293,4 +256,4 @@ def write_catalog_to_obs(parameters):
                 f.write("\n")
 
     # Print
-    print(f"Catalog succesfully written @ {parameters.saveName}\n") 
+    print(f"Catalog succesfully written @ {parameters.saveName}\n")
