@@ -9,6 +9,8 @@ __all__ = [
     "gen_second_run_files",
     "error_maps",
     "depth_maps",
+    # "merge_catalogs",
+    "match_catalogs",
 ]
 
 from . import *

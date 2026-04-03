@@ -1,70 +1,91 @@
-#### MATCH CATALOGS
 import pandas as pd
 import numpy as np
 from scipy.spatial import cKDTree
 from obspy import UTCDateTime as Timing
 
-## PARAMETERS
-file_pre_NLL = 'obs/GLOBAL_W.obs'
-file_post_NLL = 'RESULT/GLOBAL_PR_W.txt'
-
-save_file = 'RESULT/FINAL_W.obs'
-
 ## FUNCTION
-def read_file(file):
+def read_obs(file):
     with open(file, 'r') as f:
         lines = f.readlines()
-    return lines
 
-# Pre NLL
-lines_pre_NLL = read_file(file_pre_NLL)
+    obs = [
+        [*line.lstrip('# ').rstrip('\n').split(), idx] 
+        for idx, line in enumerate(lines) 
+        if line.startswith('# ')
+    ]
 
-pre_NLL = [
-    [*line.lstrip('# ').rstrip('\n').split(), idx] 
-    for idx, line in enumerate(lines_pre_NLL) 
-    if line.startswith('# ')
-]
+    df = pd.DataFrame(obs, columns=['Year',
+                                    'Month',
+                                    'Day',
+                                    'Hour',
+                                    'Min',
+                                    'Sec',
+                                    'Lat',
+                                    'Lon',
+                                    'Dep',
+                                    'Mag',
+                                    'MagType',
+                                    'MagAuthor',
+                                    'PhaseCount',
+                                    'HorUncer',
+                                    'VerUncer',
+                                    'AzGap',
+                                    'RMS',
+                                    'BulletinID'])
 
-pre_df = pd.DataFrame(pre_NLL, columns=['Year','Month','Day','Hour','Min','Sec','Lat','Lon','Dep','Mag','MagType','MagAuthor','PhaseCount','HorUncer','VerUncer','AzGap','RMS','BulletinID'])
+    cols_to_num = ['Year','Month','Day','Hour','Min','Sec','Lat','Lon','Dep','Mag','PhaseCount','HorUncer','VerUncer','AzGap','RMS']
+    df[cols_to_num] = df[cols_to_num].apply(pd.to_numeric, errors='coerce')
 
-cols_to_num = ['Year','Month','Day','Hour','Min','Sec','Lat','Lon','Dep','Mag','PhaseCount','HorUncer','VerUncer','AzGap','RMS']
-pre_df[cols_to_num] = pre_df[cols_to_num].apply(pd.to_numeric, errors='coerce')
+    df['Time'] = pd.to_datetime(
+        df['Year'].astype(str) + '-' \
+        + df['Month'].astype(str) + '-' \
+        + df['Day'].astype(str) + 'T' \
+        + df['Hour'].astype(str) + ':' \
+        + df['Min'].astype(str) + ':' \
+        + df['Sec'].astype(str) + 'Z'
+    )
 
-pre_df['Time'] = pd.to_datetime(
-    pre_df['Year'].astype(str) + '-' \
-    + pre_df['Month'].astype(str) + '-' \
-    + pre_df['Day'].astype(str) + 'T' \
-    + pre_df['Hour'].astype(str) + ':' \
-    + pre_df['Min'].astype(str) + ':' \
-    + pre_df['Sec'].astype(str) + 'Z'
-)
+    return df, lines
 
-del pre_NLL
+def read_final(file):
+    with open(file, 'r') as f:
+        lines = f.readlines()
 
-# Post NLL
-lines_post_NLL = read_file(file_post_NLL)
+    final = [line.rstrip('\n').split() for line in lines]
+    final = [[int(line[0]) + 1900 if int(line[0]) > 75 else int(line[0]) + 2000] + line[1:] for line in final]
 
-post_NLL = [line.rstrip('\n').split() for line in lines_post_NLL]
-post_NLL = [[int(line[0]) + 1900 if int(line[0]) > 75 else int(line[0]) + 2000] + line[1:] for line in post_NLL]
+    df = pd.DataFrame(final, columns=['Year',
+                                           'Month',
+                                           'Day',
+                                           'Hour',
+                                           'Min',
+                                           'Sec',
+                                           'Lat',
+                                           'Lon',
+                                           'Dep',
+                                           'Mag',
+                                           'RMS',
+                                           'PhaseCount',
+                                           'HorUncer',
+                                           'VerUncer',
+                                           'AzGap'])
 
-post_df = pd.DataFrame(post_NLL, columns=['Year','Month','Day','Hour','Min','Sec','Lat','Lon','Dep','Mag','RMS','PhaseCount','HorUncer','VerUncer','AzGap'])
+    cols_to_num = ['Year','Month','Day','Hour','Min','Sec','Lat','Lon','Dep','Mag','PhaseCount','HorUncer','VerUncer','AzGap','RMS']
+    df[cols_to_num] = df[cols_to_num].apply(pd.to_numeric, errors='coerce')
 
-cols_to_num = ['Year','Month','Day','Hour','Min','Sec','Lat','Lon','Dep','Mag','PhaseCount','HorUncer','VerUncer','AzGap','RMS']
-post_df[cols_to_num] = post_df[cols_to_num].apply(pd.to_numeric, errors='coerce')
+    # # Short Fix for under 0 seconds event
+    # df['Sec'] = [sec if sec >= 0 else 0 for sec in df['Sec']]
 
-# Short Fix for under 0 seconds event
-post_df['Sec'] = [sec if sec >= 0 else 0 for sec in post_df['Sec']]
+    df['Time'] = pd.to_datetime(
+        df['Year'].astype(str) + '-' \
+        + df['Month'].astype(str) + '-' \
+        + df['Day'].astype(str) + 'T' \
+        + df['Hour'].astype(str) + ':' \
+        + df['Min'].astype(str) + ':' \
+        + df['Sec'].astype(str) + 'Z'
+    )
 
-post_df['Time'] = pd.to_datetime(
-    post_df['Year'].astype(str) + '-' \
-    + post_df['Month'].astype(str) + '-' \
-    + post_df['Day'].astype(str) + 'T' \
-    + post_df['Hour'].astype(str) + ':' \
-    + post_df['Min'].astype(str) + ':' \
-    + post_df['Sec'].astype(str) + 'Z'
-)
-
-del lines_post_NLL, post_NLL
+    return df
 
 def _phase_key(phase_line: str) -> tuple:
     """
@@ -621,20 +642,24 @@ def update_bulletin(lines, matched_df):
 
     return updated_content
 
-def save_bulletin(lines,save_file):
-    with open(save_file, 'w') as f:
-        f.writelines(lines)
-    print(f'Succesfully saved Bulletin @ {save_file}')
+def save_bulletin(parameters):
+    # Read files
+    obs_df, lines = read_obs(parameters.file_obs)
+    final_df = read_final(parameters.file_final)
 
-## RUN CODE
+    # Match events
+    matched = match_catalogues(
+        obs_df, final_df,
+        max_dt_seconds=5.0,
+        max_dist_km=50.0,
+        bulletin_lines=lines,
+    )
 
-matched = match_catalogues(
-    pre_df, post_df,
-    max_dt_seconds=5.0,
-    max_dist_km=50.0,
-    bulletin_lines=lines_pre_NLL,
-)
+    # Update Bulletin
+    updated_bulletin = update_bulletin(lines, matched)
 
-updated_bulletin = update_bulletin(lines_pre_NLL, matched)
+    # Save updated Bulletin
+    with open(parameters.save_file, 'w') as f:
+        f.writelines(updated_bulletin)
 
-save_bulletin(updated_bulletin, save_file)
+    print(f'Succesfully saved Bulletin @ {parameters.save_file}')

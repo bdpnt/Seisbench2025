@@ -59,30 +59,20 @@ def genFigure(parameters):
 
 # MAIN
 if __name__ == "__main__":
-    params_W = Parameters(
-        fileBulletin = 'RESULT/GLOBAL_W.txt',
-        figSave = 'RESULT/MAPS/GLOBAL_PR_W.pdf',
-    )
+    all_runs = {
+        "1": ("RESULT/GLOBAL_1.txt", "RESULT/MAPS/GLOBAL_1.pdf"),
+        "2": ("RESULT/GLOBAL_2.txt", "RESULT/MAPS/GLOBAL_2.pdf"),
+        "3": ("RESULT/GLOBAL_3.txt", "RESULT/MAPS/GLOBAL_3.pdf"),
+        "4": ("RESULT/GLOBAL_4.txt", "RESULT/MAPS/GLOBAL_4.pdf"),
+        "5": ("RESULT/GLOBAL_5.txt", "RESULT/MAPS/GLOBAL_5.pdf"),
+        "6": ("RESULT/GLOBAL_6.txt", "RESULT/MAPS/GLOBAL_6.pdf"),
+        "Final": ("RESULT/FINAL.txt", "RESULT/MAPS/FINAL.pdf"),
+    }
 
-    genFigure(params_W)
+    for key,item in all_runs.items():
+        params = Parameters(
+            fileBulletin = item[0],
+            figSave = item[1],
+        )
 
-    params_C = Parameters(
-        fileBulletin = 'RESULT/GLOBAL_C.txt',
-        figSave = 'RESULT/MAPS/GLOBAL_PR_C.pdf',
-    )
-
-    genFigure(params_C)
-
-    params_E = Parameters(
-        fileBulletin = 'RESULT/GLOBAL_E.txt',
-        figSave = 'RESULT/MAPS/GLOBAL_PR_E.pdf',
-    )
-
-    genFigure(params_E)
-
-    params_FINAL = Parameters(
-        fileBulletin = 'RESULT/FINAL.txt',
-        figSave = 'RESULT/MAPS/FINAL.pdf',
-    )
-
-    genFigure(params_FINAL)
+        genFigure(params)
