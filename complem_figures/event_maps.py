@@ -56,7 +56,21 @@ def genFigure(parameters):
             close=True,
             pen="0.5p,blue",
             fill="blue",
-            transparency=70,
+            transparency=85,
+        )
+    
+    #---- Plot stations
+    if parameters.fileStations:
+        # Read last.stations file
+        stations = pd.read_csv(parameters.fileStations, header=0, delimiter=' ', names=['Code','x','y','z','Latitude','Longitude','Depth']).drop(columns=['x','y','z'])
+
+        # Plot
+        fig.plot(
+            x=stations.Longitude,
+            y=stations.Latitude,
+            style="i0.1c",
+            fill='black',
+            transparency=40,
         )
 
     #---- Plot events
@@ -68,7 +82,7 @@ def genFigure(parameters):
         # size=1 * events_df.Magnitude, # the Magnitude is 0 for all
         fill=events_df.Depth,
         cmap=True,
-        transparency=30,
+        transparency=15,
     )
 
     fig.colorbar(frame=['a5f5+lDepth [km] (events above 15 are in black)'])
@@ -80,28 +94,29 @@ def genFigure(parameters):
 # MAIN
 if __name__ == "__main__":
     all_runs = {
-        "1": ("RESULT/GLOBAL_1.txt", "complem_figures/event_maps/GLOBAL_1.pdf",
+        "1": ("RESULT/GLOBAL_1.txt", "loc/GLOBAL_1/last.stations", "complem_figures/event_maps/GLOBAL_1.pdf",
               ((42.50, -2.00), (43.50, -0.75)), ((41.60, -3.22), (44.40, 0.46))),
-        "2": ("RESULT/GLOBAL_2.txt", "complem_figures/event_maps/GLOBAL_2.pdf",
+        "2": ("RESULT/GLOBAL_2.txt", "loc/GLOBAL_2/last.stations", "complem_figures/event_maps/GLOBAL_2.pdf",
               ((42.50, -1.00), (43.25, 0.50)), ((41.60, -2.22), (44.15, 1.71))),
-        "3": ("RESULT/GLOBAL_3.txt", "complem_figures/event_maps/GLOBAL_3.pdf",
+        "3": ("RESULT/GLOBAL_3.txt", "loc/GLOBAL_3/last.stations", "complem_figures/event_maps/GLOBAL_3.pdf",
               ((42.00, 0.25), (43.25, 1.00)), ((41.10, -0.96), (44.15, 2.20))),
-        "4": ("RESULT/GLOBAL_4.txt", "complem_figures/event_maps/GLOBAL_4.pdf",
+        "4": ("RESULT/GLOBAL_4.txt", "loc/GLOBAL_4/last.stations", "complem_figures/event_maps/GLOBAL_4.pdf",
               ((42.00, 0.75), (43.00, 2.25)), ((41.10, -0.46), (43.90, 3.45))),
-        "5": ("RESULT/GLOBAL_5.txt", "complem_figures/event_maps/GLOBAL_5.pdf",
+        "5": ("RESULT/GLOBAL_5.txt", "loc/GLOBAL_5/last.stations", "complem_figures/event_maps/GLOBAL_5.pdf",
               ((42.00, 2.00), (43.00, 3.50)), ((41.10, 0.79), (43.90, 4.70))),
-        "6": ("RESULT/GLOBAL_6.txt", "complem_figures/event_maps/GLOBAL_6.pdf",
+        "6": ("RESULT/GLOBAL_6.txt", "loc/GLOBAL_6/last.stations", "complem_figures/event_maps/GLOBAL_6.pdf",
               ((42.75, 2.25), (43.75, 3.50)), ((41.85, 1.03), (44.65, 4.75))),
-        "Final": ("RESULT/FINAL.txt", "complem_figures/event_maps/FINAL.pdf",
+        "Final": ("RESULT/FINAL.txt", None, "complem_figures/event_maps/FINAL.pdf",
                   None, None),
     }
 
     for key,item in all_runs.items():
         params = Parameters(
             fileBulletin = item[0],
-            figSave = item[1],
-            region_in = item[2],
-            region_out = item[3],
+            fileStations = item[1],
+            figSave = item[2],
+            region_in = item[3],
+            region_out = item[4],
         )
 
         genFigure(params)
