@@ -85,5 +85,5 @@ Scripts in `complem_figures/` for visualization and statistics:
 
 - All AI-generated commits go to the **`claude` branch**, never to `main`
 - Commit messages must be clean and descriptive so changes are understandable without reading the diff
-- **Never push automatically** — only push when explicitly asked by the user
+- **Never push automatically to main** — commit and push to the **`claude` branch** without asking, but notice the user
 - The user reviews changes locally and decides when to merge or push to `main`
