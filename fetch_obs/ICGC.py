@@ -17,6 +17,7 @@ class ICGCParams:
     magMin: float = 0
 
 def iter_months(start_year, start_month, end_year, end_month):
+    """Yield (year, month_str) tuples for every month in the given date range."""
     year, month = start_year, start_month
 
     while (year < end_year) or (year == end_year and month <= end_month):
@@ -27,6 +28,7 @@ def iter_months(start_year, start_month, end_year, end_month):
             year += 1
 
 def get_codes(year,month):
+    """Fetch the list of event codes from the ICGC website for a given year and month."""
     url = f"https://sismocat.icgc.cat/siswebclient/index.php?seccio=llistat&area=locals&any={str(year).lstrip('0')}&mes={str(month).lstrip('0')}&idioma=ca"
     response = requests.get(url, timeout=15)
 
@@ -43,6 +45,7 @@ def get_codes(year,month):
         return False,response.status_code
     
 def get_all_codes(parameters):
+    """Fetch all event codes for the full date range and write them to the codes file."""
     with open(parameters.codeName, 'w') as f: # for codes
         with open(parameters.errorName, 'w') as fE: # for errors
             fE.write('### ERRORS DURING CODES FETCH\n')
@@ -60,6 +63,7 @@ def get_all_codes(parameters):
 
 
 def fetch_catalog(parameters):
+    """Download the GSE2 bulletin for each event code and append it to the catalog file."""
     if os.path.exists(parameters.fileName):
         os.remove(parameters.fileName)
 
@@ -113,12 +117,14 @@ def fetch_catalog(parameters):
     print(f"Errors file successfully written to {parameters.errorName}")
 
 def safe_float(s):
+    """Convert a string to float, returning None if the conversion fails."""
     try:
         return float(s.strip())
     except Exception:
         return None
 
 def open_catalog(fileName):
+    """Read a catalog file and return its lines as a list of strings."""
     with open(fileName, 'r', encoding='utf-8', errors='ignore') as fR:
         lines = fR.readlines()
 
@@ -126,6 +132,7 @@ def open_catalog(fileName):
     return lines
 
 def write_catalog_to_obs(parameters):
+    """Convert the ICGC GSE2 catalog to the .obs bulletin format, keeping only manual P/S picks."""
     #--- Retrieve catalog
     lines = open_catalog(parameters.fileName)
 

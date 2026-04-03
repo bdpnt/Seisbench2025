@@ -7,12 +7,14 @@ class IGNParams:
     saveName: str
 
 def safe_float(s):
+    """Convert a string to float, returning None if the conversion fails."""
     try:
         return float(s.strip())
     except Exception:
         return None
     
 def open_catalog(fileName):
+    """Read a catalog file and return its lines as a list of strings."""
     with open(fileName, 'r', encoding='utf-8', errors='ignore') as fR:
         lines = fR.readlines()
 
@@ -20,6 +22,7 @@ def open_catalog(fileName):
     return lines
 
 def write_catalog_to_obs(parameters):
+    """Convert the IGN GSE2 catalog to the .obs bulletin format, keeping only manual P/S picks."""
     #--- Retrieve catalog
     lines = open_catalog(parameters.fileName)
 

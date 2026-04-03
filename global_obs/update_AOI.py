@@ -22,6 +22,7 @@ import pandas as pd
 
 # Function
 def whichLineCoords(name):
+    """Return the boundary line coordinates and AOI direction for a named source catalog, or (None, None) if no boundary applies."""
     if name.__contains__('RESIF'):
         return [(43, -2.25),(42, 2.25)], True
     elif name.__contains__('IGN') or name.__contains__('ICGC'):
@@ -46,6 +47,7 @@ def is_inAOI(lat, lon, lineCoords, AOI_above=True):
         return cross > 0
 
 def frameUpdate_inAOI(frame, lineCoords, AOI_above=True):
+    """Add an inAOI boolean column to a DataFrame flagging events inside the area of interest boundary."""
     # Find events outside of AOI
     if lineCoords is not None:
         frame['inAOI'] = frame.apply(lambda row: is_inAOI(row.Latitude, row.Longitude, lineCoords, AOI_above=AOI_above), axis=1)
@@ -59,6 +61,7 @@ def frameUpdate_inAOI(frame, lineCoords, AOI_above=True):
     return frame
 
 def remove_outsideAOI(fileName, figSave):
+    """Remove events outside the catalog-specific AOI from an .obs file and save a map of the remaining events."""
     #---- Retrieve AOI line coordinates
     lineCoords, AOI_above = whichLineCoords(fileName)
 
@@ -131,6 +134,7 @@ def remove_outsideAOI(fileName, figSave):
     print(f"Catalog succesfully saved @ {fileName}\n")
 
 def updateBulletins(parameters):
+    """Apply AOI filtering to all source bulletin files listed in parameters."""
     print('\n#######\n')
     for id,fileName in enumerate(parameters.fileNames):
         remove_outsideAOI(fileName, parameters.figSaves[id])

@@ -15,6 +15,7 @@ class CleanPostRunParams:
     fileBulletin: str
 
 def preWork(parameters):
+    """Delete .hdr files from the NLL output folder and parse the hypo_71 summary file into a DataFrame."""
     # Remember current folder
     currentFolder = os.getcwd()
 
@@ -80,6 +81,7 @@ def preWork(parameters):
     return df
 
 def writeEvents(parameters):
+    """Write the NLL-relocated events to a plain-text result file and print summary statistics."""
     #---- Remove unnecessary files and fetch the events data
     events = preWork(parameters)
 

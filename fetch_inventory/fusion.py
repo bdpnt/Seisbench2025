@@ -31,6 +31,7 @@ def haversine(lat1, lon1, lat2, lon2):
     return 2 * R * math.asin(math.sqrt(a))
 
 def checkInventory(inventory):
+    """Interactively prompt the user to remove duplicate stations that appear in multiple networks."""
     # Get unique stations in networks
     uniqueSta = defaultdict(list)
     for net in inventory.networks:
@@ -60,6 +61,7 @@ def checkInventory(inventory):
     return inventory
 
 def addAlternateCode(inventory):
+    """Assign a unique alternate code (NET.XXXX) to every station in the inventory."""
     # Loop on all stations from all networks:
     for network in inventory.networks:
         netCode = network.code
@@ -71,6 +73,7 @@ def addAlternateCode(inventory):
     return inventory
 
 def combineCloseStations(inventory, parameters):
+    """Assign the same alternate code to stations from different networks that are within acceptedDistance metres of each other."""
     #--- List all stations with their metadata
     all_stations = []
     for network in inventory.networks:
@@ -107,6 +110,7 @@ def combineCloseStations(inventory, parameters):
     return inventory
 
 def create_alternateCodeMapping(inventory,parameters):
+    """Write a text file mapping each alternate code to its corresponding network/station codes and active date ranges."""
     # Dictionary to store the mapping
     alternate_code_mapping = {}
 
@@ -143,6 +147,7 @@ def create_alternateCodeMapping(inventory,parameters):
     print(f"Mapping file created: {parameters.fileSaveMapping}")
 
 def mergeInventory(parameters):
+    """Merge all station XML inventories into a single unified inventory with unique station codes, then save it."""
     #--- Create an inventory
     inventory = Inventory()
 

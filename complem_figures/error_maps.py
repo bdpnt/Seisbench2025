@@ -26,6 +26,7 @@ from multiprocessing import Pool,cpu_count
 
 # FUNCTION
 def readFile(file):
+    """Parse an NLL result file and return a DataFrame with date, latitude, longitude, erh, and erv columns."""
     with open(file,'r') as f:
         lines = f.readlines()
     
@@ -50,6 +51,7 @@ def readFile(file):
     return events_df
 
 def filteredDates(events,time_range):
+    """Slice the events DataFrame into fixed-length time windows and return a dict keyed by period label."""
     filtered_events = {}
 
     start_year = 1976
@@ -67,6 +69,7 @@ def filteredDates(events,time_range):
     return filtered_events
 
 def addSubplot(events,ax,type):
+    """Render a windowed-median error grid (ERH or ERV) and scatter of events onto a matplotlib axis."""
     # Limits for the error colorbar (in km)
     vmin = 0
     vmax = 5
@@ -177,6 +180,7 @@ def generate_plot(args, mapFolder):
     plt.close()
 
 def genFigure(params):
+    """Generate and save per-period ERH/ERV error map PDFs in parallel using all available CPU cores."""
     events = readFile(params.file)
     events_filtered = filteredDates(events, params.time_range)
 

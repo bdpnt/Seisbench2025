@@ -24,6 +24,7 @@ class EventMapsParams:
 
 # FUNCTION
 def removeHighErr(df):
+    """Filter out events with location errors or quality metrics above acceptable thresholds."""
     df = df[df.erh <= 3.0]
     df = df[df.erv <= 3.0]
     df = df[df.gap <= 300]
@@ -31,6 +32,7 @@ def removeHighErr(df):
     return df
 
 def genFigure(parameters):
+    """Read a .txt or .obs bulletin, filter high-error events, and save a PyGMT map coloured by depth."""
     #---- Read OBS file
     if parameters.fileBulletin.split('.')[-1] == "txt":
         with open(parameters.fileBulletin,'r',encoding='utf-8') as f:

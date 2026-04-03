@@ -15,6 +15,7 @@ class AssociatePicksParams:
     folderBulletin: str
 
 def findUniqueStations(inventory):
+    """Build a DataFrame of all unique stations in the inventory with their alternate codes and active date ranges."""
     uniqueSta = pd.DataFrame(columns=['Network','Code','AlternateCode','StartDate','EndDate'])
     for net in inventory.networks:
         for sta in net.stations:
@@ -30,6 +31,7 @@ def findUniqueStations(inventory):
 
 
 def findCode(line,uniqueSta):
+    """Look up the alternate code for the station in a pick line, returning None if no match is found."""
     stationLine = line[:9].lstrip('.').strip() if line.startswith('.') else line[:9].split('.')[1].strip() # works both with or without Network
     alternateStationLine = None
     matchingIndices = uniqueSta.index[uniqueSta.Code == stationLine].tolist()
@@ -73,6 +75,7 @@ def findCode(line,uniqueSta):
     return alternateStationLine.ljust(9)
 
 def associatePicks(parameters):
+    """Update all bulletin files so that every pick references its unified alternate station code; picks with no match are removed."""
     print('\n#########')
 
     #--- Load Inventory and Bulletin

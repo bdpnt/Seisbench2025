@@ -27,6 +27,7 @@ from datetime import datetime
 # ─────────────────────────────────────────────────────────────────────────────
 
 def parse_year(yy: int) -> int:
+    """Convert a two-digit year to a four-digit year using the 75-year cutoff convention."""
     return 2000 + yy if yy < 75 else 1900 + yy
 
 
@@ -88,6 +89,7 @@ def parse_line(line: str, source_file: str):
 
 
 def load_bulletin(filepath: str):
+    """Read all events from a bulletin file and return them as a list of dicts."""
     events = []
     with open(filepath, "r") as fh:
         for line in fh:
@@ -120,6 +122,7 @@ def three_d_distance_km(ev1, ev2) -> float:
 
 
 def time_diff_seconds(ev1, ev2) -> float:
+    """Return the absolute time difference in seconds between two events."""
     return abs((ev1["datetime"] - ev2["datetime"]).total_seconds())
 
 
@@ -187,6 +190,7 @@ def format_event(ev) -> str:
 
 
 def write_bulletin(events, filepath: str):
+    """Sort events chronologically and write them to a bulletin file."""
     # Sort chronologically before writing
     events_sorted = sorted(events, key=lambda e: e["datetime"])
     with open(filepath, "w") as fh:
@@ -200,6 +204,7 @@ def write_bulletin(events, filepath: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def main():
+    """Parse CLI arguments, load bulletins, deduplicate adjacent zone pairs, and write the merged output."""
     parser = argparse.ArgumentParser(
         description="Merge NonLinLoc bulletin files and remove duplicate events."
     )

@@ -40,6 +40,7 @@ def haversine(lat1, lon1, lat2, lon2):
     return 2 * R * math.asin(math.sqrt(a))
 
 def retrieveEvents_fromFile(fileName, magType):
+    """Read an .obs file and return event header lines that contain a magnitude of the specified type."""
     with open(fileName, 'r', encoding='utf-8', errors='ignore') as fR:
         catLines = fR.readlines()
 
@@ -55,6 +56,7 @@ def retrieveEvents_fromFile(fileName, magType):
     return eventLines
 
 def get_catalogFrame(eventLines):
+    """Build a DataFrame with lat, lon, depth, magnitude, and time from a list of event header lines."""
     latitudes = []
     longitudes = []
     times = []
@@ -85,6 +87,7 @@ def get_catalogFrame(eventLines):
     return catalogFrame
 
 def matchEvents(catalog1, catalog2, distThresh, timeThresh):
+    """Match events in catalog1 to catalog2 within distance (km) and time (s) thresholds and return a DataFrame of paired magnitudes."""
     """Catalog1 is the catalog to convert, distance in km and time in seconds"""
     timeThresh = pd.Timedelta(seconds=timeThresh)
 
@@ -136,10 +139,12 @@ def matchEvents(catalog1, catalog2, distThresh, timeThresh):
     return pd.DataFrame(matched_pairs), matched_indices_catalog1, matched_indices_catalog2
 
 def linear_func(p, x):
+    """Evaluate a linear model y = slope*x + intercept given parameter vector p = [slope, intercept]."""
     slope, intercept = p
     return slope * x + intercept
 
 def convertMagnitudes(parameters, printFigs=False):
+    """Build and save an ODR linear regression model to convert one magnitude type to another."""
     print('\n#########')
     print(f'\nGenerating model for {parameters.magName1} to {parameters.magName2} magnitudes conversion...\n') # opening line
 

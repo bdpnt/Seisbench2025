@@ -28,6 +28,7 @@ class GenRunParams:
 
 # FUNCTION
 def genChildObs(parameters):
+    """Extract events within the zone's lat/lon bounding box from the global bulletin and write them to a child .obs file."""
     #---- Load global file
     with open(parameters.fileBulletin,'r') as f:
         lines = f.readlines()
@@ -56,6 +57,7 @@ def genChildObs(parameters):
     print(f'Succesfully generated Bulletin @ {parameters.fileBulletinIn} [{nbEQ} EQ]')
 
 def build_alternateCodeMap(fileMap):
+    """Parse the inventory map file and return a dict mapping each alternate station code to its (network, station) tuple."""
     with open(fileMap,'r') as f:
         lines = f.readlines()
 
@@ -78,6 +80,7 @@ def build_alternateCodeMap(fileMap):
     return code_map
 
 def findStationInfo(inventory,alternateCodeMap,alternateCode):
+    """Return (latitude, longitude, elevation_km) for a station identified by its alternate code."""
     codes = alternateCodeMap.get(alternateCode)
     station = inventory.select(network=codes[0],station=codes[1]).networks[0].stations[0]
     sta_lat = station.latitude
@@ -86,10 +89,12 @@ def findStationInfo(inventory,alternateCodeMap,alternateCode):
     return sta_lat,sta_lon,sta_elev
 
 def getStationLine(inventory,alternateCodeMap,alternateCode):
+    """Format and return a NLL GTSRCE line string for a station."""
     sta_lat,sta_lon,sta_elev = findStationInfo(inventory,alternateCodeMap,alternateCode)
     return f"GTSRCE {alternateCode} LATLON {sta_lat:.6f} {sta_lon:.6f} 0.0 {sta_elev:.3f}\n"
 
 def genGTSRCE(parameters):
+    """Collect all unique station codes from the bulletin and write their NLL GTSRCE lines to the stations file."""
     #---- Bulletin
     with open(parameters.fileBulletin,'r') as f:
         lines = f.readlines()
@@ -114,6 +119,7 @@ def genGTSRCE(parameters):
     print(f'Succesfully generated GTSRCE file @ {parameters.fileStations}')
 
 def verifyFoldersExistence(parameters):
+    """Create all parent directories required by the output file paths in parameters."""
     params = [
         parameters.fileBulletinIn,
         parameters.fileBulletinOut,
@@ -191,6 +197,7 @@ def compute_new_grid_corners(lat_sw, lon_sw, lat_ne, lon_ne):
             (npoints_x, npoints_y, npoints_z))
 
 def genRun(parameters):
+    """Orchestrate generation of the child .obs, GTSRCE, and NLL run (.in) files for one zone."""
     verifyFoldersExistence(parameters) # Verify that all folders exist for the files to generate
     genChildObs(parameters) # Generate the OBS file
     genGTSRCE(parameters) # Generate the GTSRCE file

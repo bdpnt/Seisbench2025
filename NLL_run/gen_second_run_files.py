@@ -52,6 +52,7 @@ class SecondRunParams:
 #     return nonClusters_idx
 
 def genRun(parameters):
+    """Append station static corrections from the first NLL run to the run file to produce a second-pass run file."""
     # Fetch stations corrections
     locStatCorr = parameters.locFolderName + '/last.stat_totcorr'
     with open(locStatCorr, 'r') as f:
