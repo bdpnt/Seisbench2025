@@ -1,7 +1,14 @@
+from dataclasses import dataclass
 import pandas as pd
 import numpy as np
 from scipy.spatial import cKDTree
 from obspy import UTCDateTime as Timing
+
+@dataclass
+class MatchCatalogsParams:
+    file_obs: str
+    file_final: str
+    save_file: str
 
 ## FUNCTION
 def read_obs(file):

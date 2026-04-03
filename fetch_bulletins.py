@@ -1,9 +1,13 @@
-from parameters import Parameters
+from fetch_obs.RESIF import RESIFParams
+from fetch_obs.ICGC import ICGCParams
+from fetch_obs.IGN import IGNParams
+from fetch_obs.LDG import LDGParams
+from fetch_obs.OMP import OMPParams
 import fetch_obs
 from obspy import UTCDateTime
 
 # RESIF
-params_resif = Parameters(
+params_resif = RESIFParams(
     fileName = "ORGCATALOGS/RESIF_20-25.xml",
     saveName = "obs/RESIF_20-25.obs",
     client_name = "RESIF",
@@ -22,7 +26,7 @@ fetch_obs.RESIF.generate_catalog(params_resif)
 fetch_obs.RESIF.write_catalog_to_obs(params_resif)
 
 # ICGC
-params_icgc = Parameters(
+params_icgc = ICGCParams(
     fileName = 'ORGCATALOGS/ICGC_20-25.txt',
     codeName = 'ORGCATALOGS/CODES_ICGC_20-25.txt',
     errorName = 'ORGCATALOGS/ERR_ICGC_20-25.txt',
@@ -39,7 +43,7 @@ fetch_obs.ICGC.fetch_catalog(params_icgc)
 fetch_obs.ICGC.write_catalog_to_obs(params_icgc)
 
 # IGN
-params_ign = Parameters(
+params_ign = IGNParams(
     fileName = 'ORGCATALOGS/IGN_20-25.txt',
     saveName = 'obs/IGN_20-25.obs',
 )
@@ -47,25 +51,25 @@ params_ign = Parameters(
 fetch_obs.IGN.write_catalog_to_obs(params_ign)
 
 # LDG
-params_ldg = Parameters(
+params_ldg = LDGParams(
     catalogFile = 'ORGCATALOGS/LDG_20-25_catalog.txt',
     arrivalFile = 'ORGCATALOGS/LDG_20-25_arrivals.txt',
     saveName = 'obs/LDG_20-25.obs',
 )
 
-fetch_obs.IGN.write_catalog_to_obs(params_ldg)
+fetch_obs.LDG.write_catalog_to_obs(params_ldg)
 
 # OMP
-params_omp_1978 = Parameters(
+params_omp_1978 = OMPParams(
     fileName = 'ORGCATALOGS/OMP_78-19.mag',
     saveName = 'obs/OMP_78-19.obs',
 )
 
-fetch_obs.OMP.write_catalog_to_obs(params_omp_1978) 
+fetch_obs.OMP.write_catalog_to_obs(params_omp_1978)
 
-params_omp_2016 = Parameters(
+params_omp_2016 = OMPParams(
     fileName = 'ORGCATALOGS/OMP_2016.mag',
     saveName = 'obs/OMP_2016.obs',
 )
 
-fetch_obs.OMP.write_catalog_to_obs(params_omp_2016) 
+fetch_obs.OMP.write_catalog_to_obs(params_omp_2016)

@@ -2,7 +2,15 @@
 gen_second_run_files generates the run.in file using the LOCDELAY from the first run
 '''
 
+from dataclasses import dataclass
 import pandas as pd
+
+@dataclass
+class SecondRunParams:
+    locFolderName: str
+    fileRunName: str
+    fileRunSave: str
+    minPhases: int = 100
 
 # def getClusters(parameters):
 #     with open(parameters.fileMapping,'r') as f:

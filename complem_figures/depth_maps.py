@@ -8,8 +8,14 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(script_dir)
 sys.path.append(parent_dir)
 
-from parameters import Parameters
+from dataclasses import dataclass
 import pandas as pd
+
+@dataclass
+class DepthMapsParams:
+    file: str
+    mapFolder: str
+    time_range: float  # in years
 from obspy import UTCDateTime
 import numpy as np
 import pandas as pd
@@ -185,7 +191,7 @@ def genFigure(params):
 
 # MAIN
 if __name__ == '__main__':
-    params = Parameters(
+    params = DepthMapsParams(
         file = 'RESULT/FINAL.txt',
         mapFolder = 'complem_figures/depth_maps/',
         time_range = 5, # in years

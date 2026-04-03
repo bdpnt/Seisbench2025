@@ -1,5 +1,12 @@
+from dataclasses import dataclass
 import pandas as pd
 from obspy import UTCDateTime
+
+@dataclass
+class LDGParams:
+    catalogFile: str
+    arrivalFile: str
+    saveName: str
 
 def write_catalog_to_obs(parameters):
     #---- Build Dataframes

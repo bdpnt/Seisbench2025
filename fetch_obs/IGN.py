@@ -1,4 +1,10 @@
+from dataclasses import dataclass
 from obspy import UTCDateTime
+
+@dataclass
+class IGNParams:
+    fileName: str
+    saveName: str
 
 def safe_float(s):
     try:

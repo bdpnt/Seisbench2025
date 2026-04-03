@@ -9,9 +9,18 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(script_dir)
 sys.path.append(parent_dir)
 
-from parameters import Parameters
+from dataclasses import dataclass, field
+from typing import Optional
 import pygmt as pg
 import pandas as pd
+
+@dataclass
+class EventMapsParams:
+    fileBulletin: str
+    figSave: str
+    fileStations: Optional[str] = None
+    region_in: Optional[list] = None
+    region_out: Optional[list] = None
 
 # FUNCTION
 def removeHighErr(df):
@@ -127,7 +136,7 @@ if __name__ == "__main__":
     }
 
     for key,item in all_runs.items():
-        params = Parameters(
+        params = EventMapsParams(
             fileBulletin = item[0],
             fileStations = item[1],
             figSave = item[2],

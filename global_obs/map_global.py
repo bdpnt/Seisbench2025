@@ -8,9 +8,14 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(script_dir)
 sys.path.append(parent_dir)
 
-from parameters import Parameters
+from dataclasses import dataclass
 import pygmt as pg
 import pandas as pd
+
+@dataclass
+class MapGlobalParams:
+    fileName: str
+    figSave: str
 
 # FUNCTION
 
@@ -50,7 +55,7 @@ def genGlobalFigure(parameters):
 
 # MAIN
 if __name__ == "__main__":
-    params_figure = Parameters(
+    params_figure = MapGlobalParams(
         fileName = 'obs/GLOBAL.obs',
         figSave = 'obs/MAPS/GLOBAL.pdf',
     )

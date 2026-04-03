@@ -2,6 +2,7 @@
 fusion fusions all the OBS Bulletins into a single one, by matching events.
 '''
 
+from dataclasses import dataclass
 import glob
 import pandas as pd
 import math
@@ -11,7 +12,24 @@ import numpy as np
 from numpy import mean
 import seaborn as sns
 import matplotlib.pyplot as plt
-from parameters import Parameters
+
+@dataclass
+class FusionParams:
+    globalBulletinPath: str
+    mainBulletinPath: str
+    folderPath: str
+    distThresh: float
+    looseDistThresh: float
+    timeThresh: float
+    looseTimeThresh: float
+    magThresh: float
+    simPickThresh: int
+
+@dataclass
+class MergeDoublesParams:
+    globalBulletinPath: str
+    max_dt_seconds: float
+    max_dist_km: float
 
 # FUNCTION
 def haversine(lat1, lon1, lat2, lon2):
@@ -933,7 +951,7 @@ def fusionAll(parameters):
     saveBulletin(mainLines,parameters)
 
 def find_and_merge_doubles(
-    parameters: Parameters,
+    parameters: MergeDoublesParams,
 ) -> list:
     """
     Scan a bulletin for pairs of events that are suspiciously close in both

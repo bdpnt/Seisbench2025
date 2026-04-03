@@ -4,9 +4,27 @@ an OBS file and an Inventory file. It generates the child OBS file, the
 GTSRCE file and the IN (run) file.
 '''
 
+from dataclasses import dataclass, field
 from obspy import read_inventory
 import os
 import math
+
+@dataclass
+class GenRunParams:
+    fileBulletin: str
+    fileInventory: str
+    fileMap: str
+    fileBulletinIn: str
+    fileStations: str
+    fileRunSave: str
+    latMin_event: float
+    latMax_event: float
+    lonMin_event: float
+    lonMax_event: float
+    fileModel: str
+    fileTime: str
+    fileBulletinOut: str
+    VGGRID: list = field(default_factory=lambda: [9000, 800])
 
 # FUNCTION
 def genChildObs(parameters):
@@ -37,7 +55,7 @@ def genChildObs(parameters):
 
     print(f'Succesfully generated Bulletin @ {parameters.fileBulletinIn} [{nbEQ} EQ]')
 
-def build_alternateCodeMap(inventory,fileMap):
+def build_alternateCodeMap(fileMap):
     with open(fileMap,'r') as f:
         lines = f.readlines()
 
@@ -86,7 +104,7 @@ def genGTSRCE(parameters):
     inventory = read_inventory(parameters.fileInventory, format='STATIONXML')
 
     #---- Save to the file
-    alternateCodeMap = build_alternateCodeMap(inventory,parameters.fileMap)
+    alternateCodeMap = build_alternateCodeMap(parameters.fileMap)
 
     with open(parameters.fileStations,'w') as f:
         for alternateCode in uniqueStations:

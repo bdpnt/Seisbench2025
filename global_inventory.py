@@ -1,8 +1,8 @@
-from parameters import Parameters
+from fetch_inventory.fusion import MergeInventoryParams
 import fetch_inventory
 
 # Merge into the global inventory
-params_merge = Parameters(
+params_merge = MergeInventoryParams(
     folderPath = 'stations/*/*.xml',
     fileSaveInventory = 'stations/GLOBAL_inventory.xml',
     fileSaveMapping = 'stations/GLOBAL_code_mapping.txt',
