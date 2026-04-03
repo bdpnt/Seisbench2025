@@ -23,13 +23,29 @@ def removeHighErr(df):
 
 def genFigure(parameters):
     #---- Read OBS file
-    with open(parameters.fileBulletin,'r',encoding='utf-8') as f:
-        lines = f.readlines()
-    print(f"Catalog succesfully read @ {parameters.fileBulletin}")
+    if parameters.fileBulletin.split('.')[-1] == "txt":
+        with open(parameters.fileBulletin,'r',encoding='utf-8') as f:
+            lines = f.readlines()
+        print(f"Catalog succesfully read @ {parameters.fileBulletin}")
 
-    events = [event.split() for event in lines]
-    events_df = pd.DataFrame(events).drop(columns=[0,1,2,3,4,5,11]).rename(columns={6:'Latitude',7:'Longitude',8:'Depth',9:'Magnitude',10:'rms',12:'erh',13:'erv',14:'gap'}).astype(float)
-    events_df = removeHighErr(events_df)
+        events = [event.split() for event in lines]
+        events_df = pd.DataFrame(events).drop(columns=[0,1,2,3,4,5,11]).rename(columns={6:'Latitude',7:'Longitude',8:'Depth',9:'Magnitude',10:'rms',12:'erh',13:'erv',14:'gap'})\
+            .astype(float)
+        events_df = removeHighErr(events_df)
+
+    elif parameters.fileBulletin.split('.')[-1] == "obs":
+        with open(parameters.fileBulletin,'r',encoding='utf-8') as f:
+            lines = f.readlines()
+
+        print(f"Catalog succesfully read @ {parameters.fileBulletin}")
+
+        events = [line.lstrip('# ').rstrip('\n').split() for line in lines if line.startswith('# ')]
+        events_df = pd.DataFrame(events).drop(columns=[0,1,2,3,4,5,10,11,12]).rename(columns={6:'Latitude',7:'Longitude',8:'Depth',9:'Magnitude',13:'erh',14:'erv',15:'gap',16:'rms'})\
+            .astype(float)
+        events_df = removeHighErr(events_df)
+    else:
+        print(f'File is not in a compatible format ("txt"/"obs"): {parameters.fileBulletin}')
+        return
 
     #---- Set Pyrenees borders
     region = [-4.0,4,41,45]
@@ -106,7 +122,7 @@ if __name__ == "__main__":
               ((42.00, 2.00), (43.00, 3.50)), ((41.10, 0.79), (43.90, 4.70))),
         "6": ("RESULT/GLOBAL_6.txt", "loc/GLOBAL_6/last.stations", "complem_figures/event_maps/GLOBAL_6.pdf",
               ((42.75, 2.25), (43.75, 3.50)), ((41.85, 1.03), (44.65, 4.75))),
-        "Final": ("RESULT/FINAL.txt", None, "complem_figures/event_maps/FINAL.pdf",
+        "Final": ("obs/FINAL.obs", None, "complem_figures/event_maps/FINAL.pdf",
                   None, None),
     }
 
