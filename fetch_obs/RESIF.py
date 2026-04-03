@@ -1,5 +1,21 @@
+from dataclasses import dataclass
 from obspy.clients.fdsn import Client
 from obspy import UTCDateTime, read_events
+
+@dataclass
+class RESIFParams:
+    client_name: str
+    t1: UTCDateTime
+    t2: UTCDateTime
+    Lat_min: float
+    Lat_max: float
+    Lon_min: float
+    Lon_max: float
+    Mag_min: float
+    Event_type: str
+    fileName: str
+    saveName: str
+    magType: str
 
 def generate_catalog(parameters):
     #---- Initiate catalog

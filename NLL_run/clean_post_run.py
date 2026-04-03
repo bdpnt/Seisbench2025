@@ -3,9 +3,16 @@ postRunClean removes unnecessary files after an NLL run, and generates the
 final NLL result file.
 '''
 
+from dataclasses import dataclass
 import os
 import numpy as np
 import pandas as pd
+
+@dataclass
+class CleanPostRunParams:
+    folderLoc: str
+    obsFile: str
+    fileBulletin: str
 
 def preWork(parameters):
     # Remember current folder

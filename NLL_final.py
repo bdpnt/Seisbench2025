@@ -1,10 +1,11 @@
-from parameters import Parameters
+from NLL_run.clean_post_run import CleanPostRunParams
+from NLL_run.match_catalogs import MatchCatalogsParams
 import NLL_run
 import subprocess
 
 # Clean the files post-run
 for key in range(1,7):
-    params_clean = Parameters(
+    params_clean = CleanPostRunParams(
         folderLoc = f'loc/GLOBAL_{key}',
         obsFile = f'GLOBAL_{key}.obs',
         fileBulletin = f'RESULT/GLOBAL_{key}_PR.txt',
@@ -13,41 +14,24 @@ for key in range(1,7):
     NLL_run.clean_post_run.writeEvents(params_clean)
 
 # Generate the FINAL.txt file
-params_merge = Parameters(
-    file1="RESULT/GLOBAL_1_PR.txt",
-    file2="RESULT/GLOBAL_2_PR.txt",
-    file3="RESULT/GLOBAL_3_PR.txt",
-    file4="RESULT/GLOBAL_4_PR.txt",
-    file5="RESULT/GLOBAL_5_PR.txt",
-    file6="RESULT/GLOBAL_6_PR.txt",
-    file_out="RESULT/FINAL.txt",
-    log_file="RESULT/FINAL.log"
-)
+result_files = [f"RESULT/GLOBAL_{key}_PR.txt" for key in range(1, 7)]
+file_out = "RESULT/FINAL.txt"
+log_file = "RESULT/FINAL.log"
 
-with open(params_merge.log_file, 'w') as f:
+with open(log_file, 'w') as f:
     command = [
-        "conda",
-        "run",
-        "-n",
-        "seisbench_env",
-        "python",
-        "NLL_run/merge_catalogs.py",
-        params_merge.file1,
-        params_merge.file2,
-        params_merge.file3,
-        params_merge.file4,
-        params_merge.file5,
-        params_merge.file6,
-        "-o",
-        params_merge.file_out,
+        "conda", "run", "-n", "seisbench_env",
+        "python", "NLL_run/merge_catalogs.py",
+        *result_files,
+        "-o", file_out,
     ]
 
     subprocess.run(command, stdout=f, stderr=subprocess.STDOUT, check=True)
-    print(f'Bulletin succesfully saved @ {params_merge.file_out}')
-    print(f'Log succesfully saved @ {params_merge.log_file}')
+    print(f'Bulletin succesfully saved @ {file_out}')
+    print(f'Log succesfully saved @ {log_file}')
 
 # Match events pre/post NLL
-params_final = Parameters(
+params_final = MatchCatalogsParams(
     file_obs = 'obs/GLOBAL.obs',
     file_final = 'RESULT/FINAL.txt',
     save_file = 'obs/FINAL.obs',

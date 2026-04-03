@@ -1,5 +1,11 @@
+from dataclasses import dataclass
 import datetime
 from obspy import UTCDateTime
+
+@dataclass
+class OMPParams:
+    fileName: str
+    saveName: str
 
 def open_catalog(fileName):
     with open(fileName, 'r', encoding='utf-8', errors='ignore') as fR:

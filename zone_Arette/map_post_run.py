@@ -9,9 +9,14 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(script_dir)
 sys.path.append(parent_dir)
 
-from parameters import Parameters
+from dataclasses import dataclass
 import pygmt as pg
 import pandas as pd
+
+@dataclass
+class MapPostRunParams:
+    fileBulletin: str
+    figSave: str
 
 # FUNCTION
 def removeHighErr(df):
@@ -59,28 +64,28 @@ def genFigure(parameters):
 
 # MAIN
 if __name__ == "__main__":
-    params_W_40 = Parameters(
+    params_W_40 = MapPostRunParams(
         fileBulletin = 'RESULT/GLOBAL_W_40.txt',
         figSave = 'RESULT/MAPS/GLOBAL_W_40.pdf',
     )
 
     genFigure(params_W_40)
 
-    params_W_80 = Parameters(
+    params_W_80 = MapPostRunParams(
         fileBulletin = 'RESULT/GLOBAL_W_80.txt',
         figSave = 'RESULT/MAPS/GLOBAL_W_80.pdf',
     )
 
     genFigure(params_W_80)
 
-    params_W_140 = Parameters(
+    params_W_140 = MapPostRunParams(
         fileBulletin = 'RESULT/GLOBAL_W_140.txt',
         figSave = 'RESULT/MAPS/GLOBAL_W_140.pdf',
     )
 
     genFigure(params_W_140)
 
-    params_W_200 = Parameters(
+    params_W_200 = MapPostRunParams(
         fileBulletin = 'RESULT/GLOBAL_W_200.txt',
         figSave = 'RESULT/MAPS/GLOBAL_W_200.pdf',
     )

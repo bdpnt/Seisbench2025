@@ -1,8 +1,9 @@
-from parameters import Parameters
+from NLL_run.remove_far_picks import RemoveFarPicksParams
+from NLL_run.gen_run_files import GenRunParams
 import NLL_run
 
 # Remove far picks
-params_farpicks = Parameters(
+params_farpicks = RemoveFarPicksParams(
     fileBulletin = 'obs/GLOBAL.obs',
     fileInventory = 'stations/GLOBAL_inventory.xml',
     maxDistance = 80, # max distance between event and station, in kilometers
@@ -21,7 +22,7 @@ all_runs = {
 }
 
 for key,item in all_runs.items():
-    params_run = Parameters(
+    params_run = GenRunParams(
         fileBulletin = "obs/GLOBAL.obs", # GLOBAL OBS file to use
         fileInventory = 'stations/GLOBAL_inventory.xml', # GLOBAL inventory file to use
         fileMap = 'stations/GLOBAL_code_map.txt', # AlternateCodes map file to use

@@ -2,9 +2,16 @@
 removeFarPicks_obs removes the picks from stations too far to the event 
 '''
 
+from dataclasses import dataclass
 import math
 from obspy import read_inventory
 import pandas as pd
+
+@dataclass
+class RemoveFarPicksParams:
+    fileBulletin: str
+    fileInventory: str
+    maxDistance: float  # in km
 
 # FUNCTION
 def haversine(lat1, lon1, lat2, lon2):

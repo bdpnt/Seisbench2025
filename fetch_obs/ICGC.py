@@ -1,7 +1,20 @@
+from dataclasses import dataclass
 import requests
 import os
 import time
 from obspy import UTCDateTime
+
+@dataclass
+class ICGCParams:
+    fileName: str
+    codeName: str
+    errorName: str
+    saveName: str
+    start_year: int
+    start_month: int
+    end_year: int
+    end_month: int
+    magMin: float = 0
 
 def iter_months(start_year, start_month, end_year, end_month):
     year, month = start_year, start_month

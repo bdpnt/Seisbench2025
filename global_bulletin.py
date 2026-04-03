@@ -1,9 +1,12 @@
-from parameters import Parameters
+from global_obs.update_picks import AssociatePicksParams
+from global_obs.generate_mag_model import MagModelParams
+from global_obs.use_mag_models import UpdateMagFilesParams
+from global_obs.fusion import FusionParams, MergeDoublesParams
 import global_obs
 import subprocess
 
 # Associate picks
-params_association= Parameters(
+params_association = AssociatePicksParams(
     fileInventory = 'stations/GLOBAL_inventory.xml',
     folderBulletin = 'obs/*.obs',
 )
@@ -11,7 +14,7 @@ params_association= Parameters(
 global_obs.update_picks.associatePicks(params_association)
 
 # Generate magnitude models
-params_magModel_RESIF = Parameters(
+params_magModel_RESIF = MagModelParams(
     fileName1 = 'obs/RESIF_20-25.obs', # magnitudes to convert
     fileName2 = 'obs/LDG_20-25.obs', # magnitudes to keep
     magType1 = 'MLv', # magnitude type to convert from (in fileName1) ; e.g. 'mb_Lg' (without origin 'IGN')
@@ -20,16 +23,13 @@ params_magModel_RESIF = Parameters(
     magName2 = 'ML LDG', # magnitude name to convert to (in fileName2), for printing/model name only ; e.g. 'ML LDG' (with origin if needed)
     distThresh = 10.0, # distance threshold between events in km
     timeThresh = 2.0, # time threshold between events in s
-)
-
-params_magModel_RESIF.update(
-    saveName = f'MAGMODELS/{params_magModel_RESIF.magName1}.joblib', # model name
+    saveName = 'MAGMODELS/MLv RESIF.joblib', # model name
     saveFigs = 'MAGMODELS/FIGURES/', # figures folder
 )
 
 global_obs.generate_mag_model.convertMagnitudes(params_magModel_RESIF, printFigs=True)
 
-params_magModel_IGN = Parameters(
+params_magModel_IGN = MagModelParams(
     fileName1 = 'obs/IGN_20-25.obs', # magnitudes to convert
     fileName2 = 'obs/LDG_20-25.obs', # magnitudes to keep
     magType1 = 'mb_Lg', # magnitude type to convert from (in fileName1) ; e.g. 'mb_Lg' (without origin 'IGN')
@@ -38,16 +38,13 @@ params_magModel_IGN = Parameters(
     magName2 = 'ML LDG', # magnitude name to convert to (in fileName2), for printing/model name only ; e.g. 'ML LDG' (with origin if needed)
     distThresh = 10.0, # distance threshold between events in km
     timeThresh = 2.0, # time threshold between events in s
-)
-
-params_magModel_IGN.update(
-    saveName = f'MAGMODELS/{params_magModel_RESIF.magName1}.joblib', # model name
+    saveName = 'MAGMODELS/MLv RESIF.joblib', # model name
     saveFigs = 'MAGMODELS/FIGURES/', # figures folder
 )
 
 global_obs.generate_mag_model.convertMagnitudes(params_magModel_IGN, printFigs=True)
 
-params_magModel_ICGC = Parameters(
+params_magModel_ICGC = MagModelParams(
     fileName1 = 'obs/ICGC_20-25.obs', # magnitudes to convert
     fileName2 = 'obs/LDG_20-25.obs', # magnitudes to keep
     magType1 = 'ML', # magnitude type to convert from (in fileName1) ; e.g. 'mb_Lg' (without origin 'IGN')
@@ -56,17 +53,14 @@ params_magModel_ICGC = Parameters(
     magName2 = 'ML LDG', # magnitude name to convert to (in fileName2), for printing/model name only ; e.g. 'ML LDG' (with origin if needed)
     distThresh = 10.0, # distance threshold between events in km
     timeThresh = 2.0, # time threshold between events in s
-)
-
-params_magModel_ICGC.update(
-    saveName = f'MAGMODELS/{params_magModel_RESIF.magName1}.joblib', # model name
+    saveName = 'MAGMODELS/MLv RESIF.joblib', # model name
     saveFigs = 'MAGMODELS/FIGURES/', # figures folder
 )
 
 global_obs.generate_mag_model.convertMagnitudes(params_magModel_ICGC, printFigs=True)
 
 # Use magnitude models
-parameters_magModels = Parameters(
+parameters_magModels = UpdateMagFilesParams(
     folderPath = 'obs/*_20-25.obs', # use model for those files
 )
 
@@ -76,7 +70,7 @@ global_obs.use_mag_models.updateAllFiles(parameters_magModels)
 subprocess.run(["conda", "run", "-n", "pygmt_env", "python", "global_obs/update_AOI.py"], check=True)
 
 # Fusion all bulletins
-params_fusion = Parameters(
+params_fusion = FusionParams(
     globalBulletinPath = 'obs/GLOBAL.obs',
     mainBulletinPath = 'obs/RESIF_20-25.obs',
     folderPath = 'obs/*.obs',
@@ -92,7 +86,7 @@ global_obs.fusion.fusionAll(params_fusion)
 subprocess.run(["conda", "run", "-n", "pygmt_env", "python", "global_obs/map_global.py"], check=True)
 
 # Check for potential doubles that came from the same Bulletin
-params_merge_doubles = Parameters(
+params_merge_doubles = MergeDoublesParams(
     globalBulletinPath = 'obs/GLOBAL.obs',
     max_dt_seconds = 1.0,
     max_dist_km = 50.0,

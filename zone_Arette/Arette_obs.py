@@ -4,7 +4,7 @@ from pathlib import Path
 # Add the project root to sys.path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from parameters import Parameters
+from NLL_run.clean_post_run import CleanPostRunParams
 # from global_obs import fusion as fusion_obs
 from NLL_run import remove_far_picks as removeFarPicks_nll
 from NLL_run import gen_run_files as genRunFiles_nll
@@ -59,7 +59,7 @@ from NLL_run import clean_post_run as cleanPost_nll
 # genRunFiles_nll.genRun(params_run_W) # Generate the run file
 
 # Clean the files post-run
-params_clean_W = Parameters(
+params_clean_W = CleanPostRunParams(
     folderLoc = 'loc/GLOBAL_W_200',
     obsFile = 'GLOBAL_W_200.obs',
     fileBulletin = 'RESULT/GLOBAL_W_200.txt',

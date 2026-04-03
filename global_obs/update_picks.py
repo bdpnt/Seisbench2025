@@ -4,9 +4,15 @@ with every pick in an OBS Catalog. If the Network is not found, removes the pick
 It also updates the codes for any duplicate station in a Network.
 '''
 
+from dataclasses import dataclass
 from obspy import read_inventory, UTCDateTime
 import pandas as pd
 import glob
+
+@dataclass
+class AssociatePicksParams:
+    fileInventory: str
+    folderBulletin: str
 
 def findUniqueStations(inventory):
     uniqueSta = pd.DataFrame(columns=['Network','Code','AlternateCode','StartDate','EndDate'])

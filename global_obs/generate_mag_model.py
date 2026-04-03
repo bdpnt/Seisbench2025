@@ -3,9 +3,23 @@ genMagModel_obs generates a regression model from a magnitude type from
 a .obs Bulletin to another magnitude type from another .obs Bulletin.
 '''
 
+from dataclasses import dataclass
 import pandas as pd
 import math
 import numpy as np
+
+@dataclass
+class MagModelParams:
+    fileName1: str
+    fileName2: str
+    magType1: str
+    magType2: str
+    magName1: str
+    magName2: str
+    distThresh: float
+    timeThresh: float
+    saveName: str
+    saveFigs: str
 from scipy.spatial import KDTree
 from scipy.odr import ODR, Model, RealData
 from scipy.optimize import minimize

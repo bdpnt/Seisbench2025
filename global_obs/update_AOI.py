@@ -9,8 +9,14 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(script_dir)
 sys.path.append(parent_dir)
 
-from parameters import Parameters
+from dataclasses import dataclass
+from typing import List
 import pygmt as pg
+
+@dataclass
+class UpdateAOIParams:
+    fileNames: List[str]
+    figSaves: List[str]
 from math import cos, sin, radians
 import pandas as pd
 
@@ -132,7 +138,7 @@ def updateBulletins(parameters):
 
 # MAIN
 if __name__ == '__main__':
-    params_AOI = Parameters(
+    params_AOI = UpdateAOIParams(
         fileNames = ['obs/RESIF_20-25.obs','obs/IGN_20-25.obs','obs/ICGC_20-25.obs','obs/LDG_20-25.obs','obs/OMP_2016.obs','obs/OMP_78-19.obs'],
         figSaves = ['obs/MAPS/RESIF_20-25.pdf','obs/MAPS/IGN_20-25.pdf','obs/MAPS/ICGC_20-25.pdf','obs/MAPS/LDG_20-25.pdf','obs/MAPS/OMP_2016.pdf',
                     'obs/MAPS/OMP_78-19.pdf'],

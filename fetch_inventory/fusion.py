@@ -3,12 +3,20 @@ fusion merges several Inventory into one, by safely comparing stations
 in each Network and merging them if necessary, otherwise renaming them.
 '''
 
+from dataclasses import dataclass
 from obspy import read_inventory, UTCDateTime
 from obspy.core.inventory import Inventory
 import glob
 from collections import Counter, defaultdict
 import datetime
 import math
+
+@dataclass
+class MergeInventoryParams:
+    folderPath: str
+    fileSaveInventory: str
+    fileSaveMapping: str
+    acceptedDistance: int = 20  # in meters
 
 # FUNCTION
 def haversine(lat1, lon1, lat2, lon2):
