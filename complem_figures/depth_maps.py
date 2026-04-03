@@ -186,8 +186,8 @@ def genFigure(params):
 # MAIN
 if __name__ == '__main__':
     params = Parameters(
-        file = 'RESULT/GLOBAL_PR_TEST.txt',
-        mapFolder = 'RESULT/MAPS/DEPTHS/',
+        file = 'RESULT/FINAL.txt',
+        mapFolder = 'complem_figures/depth_maps/',
         time_range = 5, # in years
     )
     

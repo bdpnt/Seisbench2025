@@ -60,13 +60,13 @@ def genFigure(parameters):
 # MAIN
 if __name__ == "__main__":
     all_runs = {
-        "1": ("RESULT/GLOBAL_1.txt", "RESULT/MAPS/GLOBAL_1.pdf"),
-        "2": ("RESULT/GLOBAL_2.txt", "RESULT/MAPS/GLOBAL_2.pdf"),
-        "3": ("RESULT/GLOBAL_3.txt", "RESULT/MAPS/GLOBAL_3.pdf"),
-        "4": ("RESULT/GLOBAL_4.txt", "RESULT/MAPS/GLOBAL_4.pdf"),
-        "5": ("RESULT/GLOBAL_5.txt", "RESULT/MAPS/GLOBAL_5.pdf"),
-        "6": ("RESULT/GLOBAL_6.txt", "RESULT/MAPS/GLOBAL_6.pdf"),
-        "Final": ("RESULT/FINAL.txt", "RESULT/MAPS/FINAL.pdf"),
+        "1": ("RESULT/GLOBAL_1.txt", "complem_figures/event_maps/GLOBAL_1.pdf"),
+        "2": ("RESULT/GLOBAL_2.txt", "complem_figures/event_maps/GLOBAL_2.pdf"),
+        "3": ("RESULT/GLOBAL_3.txt", "complem_figures/event_maps/GLOBAL_3.pdf"),
+        "4": ("RESULT/GLOBAL_4.txt", "complem_figures/event_maps/GLOBAL_4.pdf"),
+        "5": ("RESULT/GLOBAL_5.txt", "complem_figures/event_maps/GLOBAL_5.pdf"),
+        "6": ("RESULT/GLOBAL_6.txt", "complem_figures/event_maps/GLOBAL_6.pdf"),
+        "Final": ("RESULT/FINAL.txt", "complem_figures/event_maps/FINAL.pdf"),
     }
 
     for key,item in all_runs.items():
