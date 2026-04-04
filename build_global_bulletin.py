@@ -1,7 +1,7 @@
-from global_obs.update_picks import AssociatePicksParams
-from global_obs.generate_mag_model import MagModelParams
-from global_obs.use_mag_models import UpdateMagFilesParams
-from global_obs.fusion import FusionParams, MergeDoublesParams
+from global_obs.remap_picks_to_unified_codes import AssociatePicksParams
+from global_obs.generate_magnitude_models import MagModelParams
+from global_obs.apply_magnitude_models import UpdateMagFilesParams
+from global_obs.fuse_bulletins import FusionParams, MergeDoublesParams
 import global_obs
 import subprocess
 
@@ -11,7 +11,7 @@ params_association = AssociatePicksParams(
     folderBulletin = 'obs/*.obs',
 )
 
-global_obs.update_picks.associatePicks(params_association)
+global_obs.remap_picks_to_unified_codes.associatePicks(params_association)
 
 # Generate magnitude models
 params_magModel_RESIF = MagModelParams(
@@ -27,7 +27,7 @@ params_magModel_RESIF = MagModelParams(
     saveFigs = 'MAGMODELS/FIGURES/', # figures folder
 )
 
-global_obs.generate_mag_model.convertMagnitudes(params_magModel_RESIF, printFigs=True)
+global_obs.generate_magnitude_models.convertMagnitudes(params_magModel_RESIF, printFigs=True)
 
 params_magModel_IGN = MagModelParams(
     fileName1 = 'obs/IGN_20-25.obs', # magnitudes to convert
@@ -42,7 +42,7 @@ params_magModel_IGN = MagModelParams(
     saveFigs = 'MAGMODELS/FIGURES/', # figures folder
 )
 
-global_obs.generate_mag_model.convertMagnitudes(params_magModel_IGN, printFigs=True)
+global_obs.generate_magnitude_models.convertMagnitudes(params_magModel_IGN, printFigs=True)
 
 params_magModel_ICGC = MagModelParams(
     fileName1 = 'obs/ICGC_20-25.obs', # magnitudes to convert
@@ -57,17 +57,17 @@ params_magModel_ICGC = MagModelParams(
     saveFigs = 'MAGMODELS/FIGURES/', # figures folder
 )
 
-global_obs.generate_mag_model.convertMagnitudes(params_magModel_ICGC, printFigs=True)
+global_obs.generate_magnitude_models.convertMagnitudes(params_magModel_ICGC, printFigs=True)
 
 # Use magnitude models
 parameters_magModels = UpdateMagFilesParams(
     folderPath = 'obs/*_20-25.obs', # use model for those files
 )
 
-global_obs.use_mag_models.updateAllFiles(parameters_magModels)
+global_obs.apply_magnitude_models.updateAllFiles(parameters_magModels)
 
 # Update bulletins AOI
-subprocess.run(["conda", "run", "-n", "pygmt_env", "python", "global_obs/update_AOI.py"], check=True)
+subprocess.run(["conda", "run", "-n", "pygmt_env", "python", "global_obs/filter_events_by_aoi.py"], check=True)
 
 # Fusion all bulletins
 params_fusion = FusionParams(
@@ -82,8 +82,8 @@ params_fusion = FusionParams(
     simPickThresh = 2, # minimal number of picks to confirm match from possible matches if no thresholds
 )
 
-global_obs.fusion.fusionAll(params_fusion)
-subprocess.run(["conda", "run", "-n", "pygmt_env", "python", "global_obs/map_global.py"], check=True)
+global_obs.fuse_bulletins.fusionAll(params_fusion)
+subprocess.run(["conda", "run", "-n", "pygmt_env", "python", "global_obs/plot_global_catalog_map.py"], check=True)
 
 # Check for potential doubles that came from the same Bulletin
 params_merge_doubles = MergeDoublesParams(
@@ -92,4 +92,4 @@ params_merge_doubles = MergeDoublesParams(
     max_dist_km = 50.0,
 )
 
-global_obs.fusion.find_and_merge_doubles(params_merge_doubles)
+global_obs.fuse_bulletins.find_and_merge_doubles(params_merge_doubles)

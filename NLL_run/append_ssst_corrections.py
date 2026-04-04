@@ -1,5 +1,5 @@
 '''
-gen_second_run_files generates the run.in file using the LOCDELAY from the first run
+append_ssst_corrections generates the run.in file using the LOCDELAY from the first run
 '''
 
 from dataclasses import dataclass

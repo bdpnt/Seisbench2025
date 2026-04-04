@@ -1,1 +1,1 @@
-from . import fusion
+from . import merge_station_inventories

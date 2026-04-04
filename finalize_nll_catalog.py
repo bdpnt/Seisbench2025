@@ -1,5 +1,5 @@
-from NLL_run.clean_post_run import CleanPostRunParams
-from NLL_run.match_catalogs import MatchCatalogsParams
+from NLL_run.parse_nll_output import CleanPostRunParams
+from NLL_run.match_pre_post_relocation import MatchCatalogsParams
 import NLL_run
 import subprocess
 
@@ -11,7 +11,7 @@ for key in range(1,7):
         fileBulletin = f'RESULT/GLOBAL_{key}_PR.txt',
     )
 
-    NLL_run.clean_post_run.writeEvents(params_clean)
+    NLL_run.parse_nll_output.writeEvents(params_clean)
 
 # Generate the FINAL.txt file
 result_files = [f"RESULT/GLOBAL_{key}_PR.txt" for key in range(1, 7)]
@@ -21,7 +21,7 @@ log_file = "RESULT/FINAL.log"
 with open(log_file, 'w') as f:
     command = [
         "conda", "run", "-n", "seisbench_env",
-        "python", "NLL_run/merge_catalogs.py",
+        "python", "NLL_run/merge_regional_results.py",
         *result_files,
         "-o", file_out,
     ]
@@ -37,4 +37,4 @@ params_final = MatchCatalogsParams(
     save_file = 'obs/FINAL.obs',
 )
 
-NLL_run.match_catalogs.save_bulletin(params_final)
+NLL_run.match_pre_post_relocation.save_bulletin(params_final)
