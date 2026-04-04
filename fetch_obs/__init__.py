@@ -1,12 +1,1 @@
-import sys, os
-sys.path.insert(0, os.path.dirname(__file__))
-
-__all__ = [
-    "RESIF",
-    "ICGC",
-    "IGN",
-    "LDG",
-    "OMP",
-]
-
-from . import *
+from . import RESIF, ICGC, IGN, LDG, OMP
