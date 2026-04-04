@@ -1,5 +1,5 @@
-from NLL_run.remove_far_picks import RemoveFarPicksParams
-from NLL_run.gen_run_files import GenRunParams
+from NLL_run.filter_distant_picks import RemoveFarPicksParams
+from NLL_run.generate_regional_runfiles import GenRunParams
 import NLL_run
 
 # Remove far picks
@@ -9,7 +9,7 @@ params_farpicks = RemoveFarPicksParams(
     maxDistance = 80, # max distance between event and station, in kilometers
 )
 
-# NLL_run.remove_far_picks.removeFarPicks(params_farpicks)
+# NLL_run.filter_distant_picks.removeFarPicks(params_farpicks)
 
 # Generate run files
 all_runs = {
@@ -39,6 +39,6 @@ for key,item in all_runs.items():
         VGGRID = [9000,800], # VGGRID h/v parameters
     )
 
-    NLL_run.gen_run_files.genRun(params_run) # Generate the run file
+    NLL_run.generate_regional_runfiles.genRun(params_run) # Generate the run file
 
     print()

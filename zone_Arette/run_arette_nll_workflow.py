@@ -4,11 +4,11 @@ from pathlib import Path
 # Add the project root to sys.path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from NLL_run.clean_post_run import CleanPostRunParams
-# from global_obs import fusion as fusion_obs
-from NLL_run import remove_far_picks as removeFarPicks_nll
-from NLL_run import gen_run_files as genRunFiles_nll
-from NLL_run import clean_post_run as cleanPost_nll
+from NLL_run.parse_nll_output import CleanPostRunParams
+# from global_obs import fuse_bulletins as fusion_obs
+from NLL_run import filter_distant_picks as removeFarPicks_nll
+from NLL_run import generate_regional_runfiles as genRunFiles_nll
+from NLL_run import parse_nll_output as cleanPost_nll
 # import subprocess
 
 # # Fusion all bulletins

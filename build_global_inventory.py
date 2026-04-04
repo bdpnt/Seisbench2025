@@ -1,4 +1,4 @@
-from fetch_inventory.fusion import MergeInventoryParams
+from fetch_inventory.merge_station_inventories import MergeInventoryParams
 import fetch_inventory
 
 # Merge into the global inventory
@@ -9,4 +9,4 @@ params_merge = MergeInventoryParams(
     acceptedDistance = 20, # in m, accepted distance between two stations considered as similar
 )
 
-fetch_inventory.fusion.mergeInventory(params_merge)
+fetch_inventory.merge_station_inventories.mergeInventory(params_merge)
