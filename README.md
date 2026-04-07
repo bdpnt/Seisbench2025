@@ -43,12 +43,12 @@ All catalogs are converted to a common `.obs` format, magnitudes are harmonized 
 ```
 Seisbench2025/
 │
-├── fetch_bulletins.py        # Entry point: fetch & convert all catalogs
-├── global_inventory.py       # Entry point: fuse all station inventories
-├── global_bulletin.py        # Entry point: harmonize & merge catalogs
-├── NLL_prerun.py             # Entry point: prepare NLL run files (6 zones)
-├── NLL_postrun.py            # Entry point: prepare second-pass NLL run files
-├── NLL_final.py              # Entry point: compile and match final catalog
+├── fetch_all_bulletins.py        # Entry point: fetch & convert all catalogs
+├── build_global_inventory.py     # Entry point: fuse all station inventories
+├── build_global_bulletin.py      # Entry point: harmonize & merge catalogs
+├── prepare_nll_inputs.py         # Entry point: prepare NLL run files (6 zones)
+├── generate_nll_corrections.py   # Entry point: prepare second-pass NLL run files
+├── finalize_nll_catalog.py       # Entry point: compile and match final catalog
 ├── parameters.py             # Simple parameter container class
 │
 ├── fetch_obs/                # Catalog fetching & .obs conversion modules
@@ -59,27 +59,27 @@ Seisbench2025/
 │   └── OMP.py
 │
 ├── fetch_inventory/          # Station inventory fusion modules
-│   ├── fusion.py
-│   ├── _checkNetworks.py
-│   ├── _checkElevation.py
-│   └── _csv2xml.py
+│   ├── merge_station_inventories.py
+│   ├── _remove_fdsn_duplicates.py
+│   ├── _fill_missing_elevations.py
+│   └── _convert_csv_to_stationxml.py
 │
 ├── global_obs/               # Catalog harmonization modules
-│   ├── update_picks.py
-│   ├── mag_types.py
-│   ├── generate_mag_model.py
-│   ├── use_mag_models.py
-│   ├── update_AOI.py
-│   ├── fusion.py
-│   └── map_global.py
+│   ├── remap_picks_to_unified_codes.py
+│   ├── list_magnitude_types.py
+│   ├── generate_magnitude_models.py
+│   ├── apply_magnitude_models.py
+│   ├── filter_events_by_aoi.py
+│   ├── fuse_bulletins.py
+│   └── plot_global_catalog_map.py
 │
 ├── NLL_run/                  # NonLinLoc workflow modules
-│   ├── gen_run_files.py
-│   ├── gen_second_run_files.py
-│   ├── clean_post_run.py
-│   ├── remove_far_picks.py
-│   ├── match_catalogs.py
-│   └── merge_catalogs.py
+│   ├── generate_regional_runfiles.py
+│   ├── append_ssst_corrections.py
+│   ├── parse_nll_output.py
+│   ├── filter_distant_picks.py
+│   ├── match_pre_post_relocation.py
+│   └── merge_regional_results.py
 │
 ├── complem_figures/          # Visualization & statistical analysis
 │   ├── event_maps.py
@@ -107,10 +107,10 @@ Seisbench2025/
 
 ### 1. Station Inventory Fusion
 
-**Script:** `global_inventory.py`  
-**Module:** `fetch_inventory/fusion.py` → `mergeInventory()`
+**Script:** `build_global_inventory.py`  
+**Module:** `fetch_inventory/merge_station_inventories.py` → `mergeInventory()`
 
-Merges all station XML inventories (FDSN networks + OMP) into a single unified inventory. Each station receives a unique code; duplicates within 20 m are removed. OMP CSV data is pre-processed with `_checkNetworks.py`, `_checkElevation.py`, and `_csv2xml.py` before fusion.
+Merges all station XML inventories (FDSN networks + OMP) into a single unified inventory. Each station receives a unique code; duplicates within 20 m are removed. OMP CSV data is pre-processed with `_remove_fdsn_duplicates.py`, `_fill_missing_elevations.py`, and `_convert_csv_to_stationxml.py` before fusion.
 
 **Outputs:**
 - `stations/GLOBAL_inventory.xml` — unified QuakeML inventory
@@ -120,7 +120,7 @@ Merges all station XML inventories (FDSN networks + OMP) into a single unified i
 
 ### 2. Catalog Fetching & Conversion
 
-**Script:** `fetch_bulletins.py`  
+**Script:** `fetch_all_bulletins.py`  
 **Modules:** `fetch_obs/` (one module per source)
 
 Downloads or reads each catalog and converts it to the `.obs` format. RESIF and ICGC are fetched dynamically; IGN, LDG, and OMP are read from local files in `ORGCATALOGS/`.
@@ -142,19 +142,19 @@ STA.CODE  INS  CMP  ONSET  PHASE  DIR  YYYYMMDD  HHMM  S.MS  Err  ErrMag  Coda  
 
 ### 3. Catalog Harmonization
 
-**Script:** `global_bulletin.py`  
+**Script:** `build_global_bulletin.py`  
 **Module:** `global_obs/`
 
 Runs the following steps in sequence:
 
 | Step | Module | Function | Description |
 |------|--------|----------|-------------|
-| 1 | `update_picks.py` | `associatePicks()` | Associates picks with unified station codes from global inventory |
-| 2 | `generate_mag_model.py` | `convertMagnitudes()` | Builds ODR regression models: MLv→ML, mb_Lg→ML, ML(ICGC)→ML |
-| 3 | `use_mag_models.py` | `updateAllFiles()` | Applies magnitude models to all `.obs` files |
-| 4 | `update_AOI.py` | — | Removes events outside the area of interest |
-| 5 | `fusion.py` | `fusionAll()`, `find_and_merge_doubles()` | Matches and merges all catalogs into `GLOBAL.obs` |
-| 6 | `map_global.py` | — | Generates a map of the merged catalog |
+| 1 | `remap_picks_to_unified_codes.py` | `associatePicks()` | Associates picks with unified station codes from global inventory |
+| 2 | `generate_magnitude_models.py` | `convertMagnitudes()` | Builds ODR regression models: MLv→ML, mb_Lg→ML, ML(ICGC)→ML |
+| 3 | `apply_magnitude_models.py` | `updateAllFiles()` | Applies magnitude models to all `.obs` files |
+| 4 | `filter_events_by_aoi.py` | — | Removes events outside the area of interest |
+| 5 | `fuse_bulletins.py` | `fusionAll()`, `find_and_merge_doubles()` | Matches and merges all catalogs into `GLOBAL.obs` |
+| 6 | `plot_global_catalog_map.py` | — | Generates a map of the merged catalog |
 
 **Matching thresholds (fusion):** ≤15 km distance, ≤2 s time, ≤1.5 magnitude units, ≥2 common picks.
 
@@ -169,9 +169,9 @@ Runs the following steps in sequence:
 
 The study area is too large for a single NLL run, so it is divided into **6 geographic zones**. Each zone is processed independently, then results are merged.
 
-#### Pre-run — `NLL_prerun.py`
+#### Pre-run — `prepare_nll_inputs.py`
 
-Calls `NLL_run/gen_run_files.py` → `genRun()` for each zone:
+Calls `NLL_run/generate_regional_runfiles.py` → `genRun()` for each zone:
 - Generates `obs/GLOBAL_1.obs` … `obs/GLOBAL_6.obs` (regional subsets, with far picks removed)
 - Generates `stations/GTSRCE_1.txt` … `stations/GTSRCE_6.txt` (station lists)
 - Generates `run/run_1.in` … `run/run_6.in` (NLL configuration files)
@@ -184,7 +184,7 @@ Grid2Time run/run_<N>.in
 NLLoc run/run_<N>.in
 ```
 
-#### Second pass (SSST) — `NLL_postrun.py`
+#### Second pass (SSST) — `generate_nll_corrections.py`
 
 Uses arrival-time residuals from the first run to compute station corrections (SSST), then generates second-pass run files `run/run_<N>_PR.in`.
 
@@ -200,8 +200,8 @@ NLLoc run/run_<N>_PR.in
 
 ### 5. Post-relocation Processing
 
-**Script:** `NLL_final.py`  
-**Modules:** `NLL_run/clean_post_run.py`, `NLL_run/merge_catalogs.py`, `NLL_run/match_catalogs.py`
+**Script:** `finalize_nll_catalog.py`  
+**Modules:** `NLL_run/parse_nll_output.py`, `NLL_run/merge_regional_results.py`, `NLL_run/match_pre_post_relocation.py`
 
 1. Parses NLL `.hypo_71` output files for each zone → `RESULT/GLOBAL_<N>_PR.txt`
 2. Merges all 6 regional results → `RESULT/FINAL.txt`
@@ -237,7 +237,7 @@ Scripts in `complem_figures/` for post-processing visualization:
 | `pygmt` | Geographic maps (requires separate `pygmt_env` conda environment) |
 | `joblib` | Magnitude model serialization |
 | `requests` | ICGC catalog fetching |
-| `seisbench`, `torch` | PhaseNet phase detection (`lancement_gamma.py`) |
+| `seisbench`, `torch` | PhaseNet phase detection (`run_gamma_detection.py`) |
 | `pyproj` | Coordinate transformations |
 | **NonLinLoc** | Probabilistic earthquake location (external tool, run manually) |
 
