@@ -6,6 +6,7 @@ __all__ = [
     "list_magnitude_types",
     "generate_magnitude_models",
     "apply_magnitude_models",
+    "add_temporary_picks",
     # "filter_events_by_aoi",
     "fuse_bulletins",
     # "plot_global_catalog_map",
