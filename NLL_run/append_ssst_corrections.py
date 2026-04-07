@@ -10,6 +10,7 @@ class SecondRunParams:
     locFolderName: str
     fileRunName: str
     fileRunSave: str
+    # newObsFile: str
     minPhases: int = 100
 
 # def getClusters(parameters):
@@ -81,9 +82,16 @@ def genRun(parameters):
     idx = set(statCorr_df[(statCorr_df.PhaseNum >= parameters.minPhases) & (statCorr_df.StdDev >= 0)].index)
     statCorr_list =  [lines[i+3] for i in idx]
 
-    # Add stations corrections to the run file
+    # Add stations corrections + new obs source to the run file
     with open(parameters.fileRunName, 'r') as f:
         lines = f.readlines()
+
+    # for i, line in enumerate(lines):
+    #     if line.startswith('LOCFILES'):
+    #         parts = line.split()
+    #         parts[1] = parameters.newObsFile
+    #         lines[i] = ' '.join(parts) + '\n'
+    #         break
     
     lines.append('# Stations TotCorr\n')
     lines.extend(statCorr_list)
