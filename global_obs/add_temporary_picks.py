@@ -34,6 +34,7 @@ class RemapStationCodesParams:
     inputPath: str
     outputPath: str
     inventoryPath: str
+    sourceName: str = 'TEMP'
 
 
 @dataclass
@@ -87,7 +88,7 @@ def _findAlternateCode(station_name, date_str, time_str, uniqueSta):
     return None  # no match or ambiguous
 
 
-def _format_pick_line(alt_code, fields):
+def _format_pick_line(alt_code, fields, source_name='TEMP'):
     """Reconstruct a pick line in exact GLOBAL.obs fixed-column format.
 
     Takes whitespace-split fields from a Pyrocko pick line and an already-looked-up
@@ -142,7 +143,7 @@ def _format_pick_line(alt_code, fields):
         f"{alt_code:<9} {ins}    {comp}    {onset} {phase}      {direc} "
         f"{date} {hhmm} {sec} GAU {err}"
         f"{coda} {amp} {period} "
-        f"# {phase:<7}None {'Pyrocko':<10}None\n"
+        f"# {phase:<7}None {source_name:<10}None\n"
     )
 
 
@@ -190,7 +191,7 @@ def remapStationCodes(parameters):
         # Zero-pad seconds to match GLOBAL.obs convention (e.g. 9.44 → 09.440)
         fields[8] = f"{float(fields[8]):06.3f}"
 
-        new_lines.append(_format_pick_line(alt_code, fields))
+        new_lines.append(_format_pick_line(alt_code, fields, parameters.sourceName))
         n_matched += 1
 
     with open(parameters.outputPath, 'w', encoding='utf-8') as f:
