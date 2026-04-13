@@ -246,19 +246,19 @@ def build_figure(time_tables, output):
         time_tables.distance, time_tables.tp_low, time_tables.tp_high,
         color=palette[0], alpha=0.4, label="P-wave band"
     )
+    ax_p.set_ylim(0,30)
     ax_p.set_ylabel("Arrival Time (s)")
     ax_p.set_title("P-wave arrivals — ±5% velocity variation")
-    ax_p.legend()
 
     # --- Bottom panel: S-wave arrivals ---
     ax_s.fill_between(
         time_tables.distance, time_tables.ts_low, time_tables.ts_high,
         color=palette[1], alpha=0.4, label="S-wave band"
     )
+    ax_p.set_ylim(0,30)
     ax_s.set_xlabel("Distance (km)")
     ax_s.set_ylabel("Arrival Time (s)")
     ax_s.set_title("S-wave arrivals — ±5% velocity variation")
-    ax_s.legend()
 
     plt.tight_layout()
     plt.savefig(output, dpi=150)
