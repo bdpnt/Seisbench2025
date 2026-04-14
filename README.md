@@ -266,9 +266,9 @@ All scripts are importable as a Python package (`from temp_picks.match_picks imp
 | `joblib` | Magnitude model serialization |
 | `requests` | ICGC catalog fetching |
 | `seisbench`, `torch` | PhaseNet phase detection (`run_gamma_detection.py`) |
-| `pyrocko` / `cake` | Theoretical travel-time computation (`temp_picks/build_theoretical_tables.py`) |
 | `pyproj` | Coordinate transformations |
 | **NonLinLoc** | Probabilistic earthquake location (external tool, run manually) |
+| **Pyrocko** / **cake** | Theoretical travel-time computation (external tool, run manually) |
 
 ---
 
