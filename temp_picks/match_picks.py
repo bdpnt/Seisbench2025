@@ -34,12 +34,18 @@ import bisect
 import logging
 import math
 import os
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pandas as pd
 from obspy import read_inventory
+
+# Ensure the project root is on sys.path so the import works both when the
+# script is run directly and when it is imported as part of the package.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from temp_picks.sort_picks import sort_picks
 
 logger = logging.getLogger('match_picks')
 
@@ -413,6 +419,11 @@ def match_picks(pick_file, bulletin_file, inventory_file, tables_file,
     logger.info(f"Skipped - multi-match: {n_skipped_multi}")
     logger.info(f"Skipped - duplicate  : {n_skipped_dup}")
     logger.info(f"Output               : {output_file}")
+
+    # Sort picks by arrival time within each event
+    logger.info("Sorting picks by arrival time ...")
+    sort_result = sort_picks(output_file, output_file)
+    logger.info(f"Sorted {sort_result['n_picks']} picks across {sort_result['n_events']} events.")
 
     return {
         'output':                output_file,
