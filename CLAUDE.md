@@ -15,7 +15,7 @@ The workflow follows 5 main stages:
 ### 1. Station Inventory Fusion
 - Source: FDSN XML files + OMP CSV files (in `stations/`)
 - Script: `global_inventory.py` → calls modules in `fetch_inventory/`
-- Output: `stations/GLOBAL_inventory.xml` + `stations/GLOBAL_code_mapping.txt`
+- Output: `stations/GLOBAL_inventory.xml` + `stations/GLOBAL_code_map.txt`
 - Each station gets a unique code; duplicates are removed by distance threshold (20m)
 
 ### 2. Catalog Fetching & Conversion
@@ -65,6 +65,20 @@ Scripts in `complem_figures/` for visualization and statistics:
 - `cross_section.py` — vertical cross-sections
 
 `zone_Arette/` — focused analysis of the Arette seismic zone.
+
+---
+
+## External Pick Ingestion (temp_picks/)
+
+A self-contained sub-pipeline for ingesting picks from external sources into `GLOBAL.obs`. All scripts live in `temp_picks/` and are importable as a package (`from temp_picks.<module> import <function>`). Log files are written to `temp_picks/console_output/`.
+
+| Script | Role |
+|--------|------|
+| `build_theoretical_tables.py` | Runs Pyrocko's `cake` CLI to compute P/S travel-time envelopes (±5% velocity, 0–100 km) → `temp_picks/tables_Pyr.csv` |
+| `convert_picks.py` | Converts external pick files to `.obs` pick line format; maps station names to internal codes via `GLOBAL_code_map.txt`. Format `TEMP_OBS` is currently supported; new formats are registered in `FORMAT_HANDLERS`. |
+| `match_picks.py` | Matches converted picks to bulletin events: 60 s time window + residual filter (±0.1 s P, ±0.3 s S); appends new picks and updates `PhaseCount`; auto-sorts output via `sort_picks`. |
+| `sort_picks.py` | Sorts pick lines within each event block by ascending arrival time. |
+| `plot_travel_times.py` | QC figure: scatter of observed (distance, travel time) picks over theoretical P/S bands. |
 
 ---
 
