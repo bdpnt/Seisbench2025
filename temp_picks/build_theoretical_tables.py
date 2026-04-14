@@ -5,7 +5,7 @@ Compute theoretical P- and S-wave travel-time tables using Pyrocko's `cake` CLI.
 
 For each combination of velocity model, source depth, and epicentral distance,
 the script queries `cake arrivals` and extracts the first-arriving P and S times.
-It then reduces the results across the "min" and "max" models to obtain envelopes
+It then reduces the results across the "min" and "plu" models to obtain envelopes
 (lower/upper bounds) representing the travel-time uncertainty due to velocity
 variation.
 
@@ -37,7 +37,7 @@ class BuildTablesParams:
     ----------
     models : dict
         Mapping of model role to .nd file path. Must contain at least the
-        keys "min" and "max" (used to build the arrival-time envelope).
+        keys "min" and "plu" (used to build the arrival-time envelope).
         The "ref" key (nominal model) is stored here for reference but is
         not used in the current computation.
     depths : list[float]
@@ -139,7 +139,7 @@ def get_times(models, depths, distances):
     Parameters
     ----------
     models : dict
-        Mapping of model key to .nd file path (e.g. {"min": "...", "max": "..."}).
+        Mapping of model key to .nd file path (e.g. {"min": "...", "plu": "..."}).
     depths : list[float]
         Source depths in km.
     distances : list[float]
@@ -178,15 +178,15 @@ def compute_min_max_times(models, depths, distances):
     Build a DataFrame of P/S arrival-time envelopes across all models and depths.
 
     The envelope (low/high bounds) is the element-wise minimum and maximum of
-    the "min" and "max" model arrivals, taken across all provided depths.
+    the "min" and "plu" model arrivals, taken across all provided depths.
 
-    Note: The "min" and "max" keys must be present in the models dict. Any
+    Note: The "min" and "plu" keys must be present in the models dict. Any
     additional keys (e.g. "ref") are computed by get_times but not used here.
 
     Parameters
     ----------
     models : dict
-        Must contain at least "min" and "max" keys (see BuildTablesParams).
+        Must contain at least "min" and "plu" keys (see BuildTablesParams).
     depths : list[float]
         Source depths in km.
     distances : list[float]
@@ -200,17 +200,17 @@ def compute_min_max_times(models, depths, distances):
     TP, TS = get_times(models, depths, distances)
 
     # Initialize envelopes using the first depth
-    tp_low  = TP["min"][depths[0]]
-    tp_high = TP["max"][depths[0]]
-    ts_low  = TS["min"][depths[0]]
-    ts_high = TS["max"][depths[0]]
+    tp_low  = np.minimum(TP["min"][depths[0]], TP["plu"][depths[0]])
+    tp_high = np.maximum(TP["min"][depths[0]], TP["plu"][depths[0]])
+    ts_low  = np.minimum(TS["min"][depths[0]], TS["plu"][depths[0]])
+    ts_high = np.maximum(TS["min"][depths[0]], TS["plu"][depths[0]])
 
     # Expand envelopes across remaining depths
     for depth in depths[1:]:
         tp_low  = np.minimum(tp_low,  TP["min"][depth])
-        tp_high = np.maximum(tp_high, TP["max"][depth])
+        tp_high = np.maximum(tp_high, TP["plu"][depth])
         ts_low  = np.minimum(ts_low,  TS["min"][depth])
-        ts_high = np.maximum(ts_high, TS["max"][depth])
+        ts_high = np.maximum(ts_high, TS["plu"][depth])
 
     return pd.DataFrame({
         "distance": distances,
@@ -225,7 +225,7 @@ def build_figure(time_tables, output):
     """
     Save a two-panel figure showing P-wave and S-wave travel-time bands.
 
-    The shaded band represents the range of arrival times across the min/max
+    The shaded band represents the range of arrival times across the min/plu
     velocity models and all source depths (±5% velocity variation).
 
     Parameters
@@ -288,11 +288,11 @@ if __name__ == "__main__":
             # It is stored here for future use (e.g. plotting a reference curve)
             # but is not currently used in the envelope computation.
             "ref": "models/model_Pyr_100.nd",
-            # "min" and "max" bound the ±5% velocity uncertainty range
+            # "min" and "plu" bound the ±5% velocity uncertainty range
             "min": "models/model_Pyr_95.nd",
-            "max": "models/model_Pyr_105.nd",
+            "plu": "models/model_Pyr_105.nd",
         },
-        distances=list(np.arange(0, 100.5, 2)),
+        distances=list(np.arange(0, 100.5, 0.5)),
         depths=[0.0, 30.0],
         output="tables_Pyr.csv",
         figure_output="figures/tables_Pyr.png",
