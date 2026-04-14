@@ -90,6 +90,18 @@ Seisbench2025/
 │
 ├── zone_Arette/              # Focused analysis of the Arette seismic zone
 │
+├── temp_picks/               # External pick ingestion & QC sub-pipeline
+│   ├── build_theoretical_tables.py  # Compute P/S travel-time bands (Pyrocko/cake)
+│   ├── convert_picks.py             # Convert external pick files to .obs format
+│   ├── match_picks.py               # Match converted picks to bulletin events
+│   ├── sort_picks.py                # Sort picks by arrival time within each event
+│   ├── plot_travel_times.py         # Plot theoretical bands vs observed picks
+│   ├── models/                      # Velocity model files (.nd)
+│   ├── pick_files/                  # Input pick files (raw external format)
+│   ├── tables_Pyr.csv               # Computed travel-time table
+│   ├── figures/                     # Output figures
+│   └── console_output/              # Log files
+│
 ├── ORGCATALOGS/              # Raw input catalogs (not modified)
 ├── obs/                      # .obs bulletin files (source + merged)
 ├── stations/                 # Station inventories (XML + unified)
@@ -226,6 +238,22 @@ Scripts in `complem_figures/` for post-processing visualization:
 
 ---
 
+## External Pick Ingestion (temp_picks)
+
+Scripts in `temp_picks/` implement a self-contained sub-pipeline for ingesting picks from external sources (e.g. Pyrocko-generated bulletins) into `GLOBAL.obs`.
+
+| Step | Script | Description |
+|------|--------|-------------|
+| 1 | `build_theoretical_tables.py` | Uses Pyrocko's `cake` CLI to compute P/S travel-time envelopes across ±5% velocity models and source depths of 0–30 km, for epicentral distances 0–100 km → `tables_Pyr.csv` |
+| 2 | `convert_picks.py` | Converts external pick files to the project's `.obs` pick line format; maps short station names to internal codes via `GLOBAL_code_map.txt`. Supports format `TEMP_OBS`; new formats are added as handler functions. |
+| 3 | `match_picks.py` | For each converted pick, finds candidate events within a 60 s origin-time window, filters by theoretical travel-time residual (±0.1 s P, ±0.3 s S), and appends matched picks to the bulletin. Runs `sort_picks` automatically on the output. |
+| 4 | `sort_picks.py` | Sorts all pick lines within each event block by ascending arrival time. Also usable as a standalone script on any bulletin. |
+| 5 | `plot_travel_times.py` | QC figure: overlays all observed (distance, travel time) picks from a bulletin on top of the theoretical P/S bands. |
+
+All scripts are importable as a Python package (`from temp_picks.match_picks import match_picks`) and accept `--help` for CLI usage.
+
+---
+
 ## Dependencies
 
 | Package | Use |
@@ -238,6 +266,7 @@ Scripts in `complem_figures/` for post-processing visualization:
 | `joblib` | Magnitude model serialization |
 | `requests` | ICGC catalog fetching |
 | `seisbench`, `torch` | PhaseNet phase detection (`run_gamma_detection.py`) |
+| `pyrocko` / `cake` | Theoretical travel-time computation (`temp_picks/build_theoretical_tables.py`) |
 | `pyproj` | Coordinate transformations |
 | **NonLinLoc** | Probabilistic earthquake location (external tool, run manually) |
 
