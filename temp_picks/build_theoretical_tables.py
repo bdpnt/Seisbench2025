@@ -287,15 +287,15 @@ if __name__ == "__main__":
             # "ref" is the nominal velocity model (100% of reference velocities).
             # It is stored here for future use (e.g. plotting a reference curve)
             # but is not currently used in the envelope computation.
-            "ref": "model_Pyr_100.nd",
+            "ref": "models/model_Pyr_100.nd",
             # "min" and "max" bound the ±5% velocity uncertainty range
-            "min": "model_Pyr_95.nd",
-            "max": "model_Pyr_105.nd",
+            "min": "models/model_Pyr_95.nd",
+            "max": "models/model_Pyr_105.nd",
         },
         distances=list(np.arange(0, 100.5, 2)),
         depths=[0.0, 30.0],
         output="tables_Pyr.csv",
-        figure_output="tables_Pyr.png",
+        figure_output="figures/tables_Pyr.png",
     )
 
     save_theoretical_tables(params)
