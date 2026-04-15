@@ -83,19 +83,22 @@ def load_code_map(path):
     return code_map
 
 
-def load_locdelay(path):
+def load_locdelay(path, min_abs_residual=0.3):
     """
-    Extract all LOCDELAY entries from a NLL run file.
+    Extract LOCDELAY entries whose absolute residual exceeds the threshold.
 
     Parameters
     ----------
-    path : str — path to a NLL .in run file
+    path             : str   — path to a NLL .in run file
+    min_abs_residual : float — keep only entries where |residual| > this value
+                               (default: 0.3 s)
 
     Returns
     -------
     dict[str, list[str]]
         Maps alternate code → list of raw LOCDELAY line strings (stripped),
-        in file order (P typically before S).
+        in file order (P typically before S). Only entries passing the
+        residual threshold are included.
     """
     entries = {}
     with open(path, 'r') as f:
@@ -105,6 +108,12 @@ def load_locdelay(path):
                 continue
             parts = line.split()
             if len(parts) < 6:
+                continue
+            try:
+                residual = float(parts[4])
+            except ValueError:
+                continue
+            if abs(residual) <= min_abs_residual:
                 continue
             alt_code = parts[1]
             entries.setdefault(alt_code, []).append(line)
@@ -168,6 +177,8 @@ def export_locdelay_info(run_dir, codemap_path, output_path):
                     output_lines.append(f"  {dl}\n")
             else:
                 for b_line in block:
+                    if b_line.lstrip().startswith('Start Date:') or b_line.lstrip().startswith('End Date:'):
+                        continue
                     output_lines.append(b_line + '\n')
                 for dl in delay_lines:
                     output_lines.append(f"  {dl}\n")
