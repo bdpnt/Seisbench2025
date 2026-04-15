@@ -15,49 +15,49 @@ global_obs.remap_picks_to_unified_codes.associatePicks(params_association)
 
 # Generate magnitude models
 params_magModel_RESIF = MagModelParams(
-    fileName1 = 'obs/RESIF_20-25.obs', # magnitudes to convert
-    fileName2 = 'obs/LDG_20-25.obs', # magnitudes to keep
-    magType1 = 'MLv', # magnitude type to convert from (in fileName1) ; e.g. 'mb_Lg' (without origin 'IGN')
-    magType2 = 'ML', # magnitude type to convert to (in fileName2) ; e.g. 'ML' (without origin 'LDG')
-    magName1 = 'MLv RESIF', # magnitude name to convert from (in fileName1), for printing/model name only ; e.g. 'mb_Lg IGN' (with origin if needed)
-    magName2 = 'ML LDG', # magnitude name to convert to (in fileName2), for printing/model name only ; e.g. 'ML LDG' (with origin if needed)
-    distThresh = 10.0, # distance threshold between events in km
-    timeThresh = 2.0, # time threshold between events in s
-    saveName = 'MAGMODELS/MLv RESIF.joblib', # model name
-    saveFigs = 'MAGMODELS/FIGURES/', # figures folder
+    file_name1  = 'obs/RESIF_20-25.obs',
+    file_name2  = 'obs/LDG_20-25.obs',
+    mag_type1   = 'MLv',
+    mag_type2   = 'ML',
+    mag_name1   = 'MLv RESIF',
+    mag_name2   = 'ML LDG',
+    dist_thresh = 10.0,
+    time_thresh = 2.0,
+    save_name   = 'MAGMODELS/MLv RESIF.joblib',
+    save_figs   = 'MAGMODELS/FIGURES/',
 )
 
-global_obs.generate_magnitude_models.convertMagnitudes(params_magModel_RESIF, printFigs=True)
+global_obs.generate_magnitude_models.convert_magnitudes(params_magModel_RESIF, save_figs=True)
 
 params_magModel_IGN = MagModelParams(
-    fileName1 = 'obs/IGN_20-25.obs', # magnitudes to convert
-    fileName2 = 'obs/LDG_20-25.obs', # magnitudes to keep
-    magType1 = 'mb_Lg', # magnitude type to convert from (in fileName1) ; e.g. 'mb_Lg' (without origin 'IGN')
-    magType2 = 'ML', # magnitude type to convert to (in fileName2) ; e.g. 'ML' (without origin 'LDG')
-    magName1 = 'mb_Lg IGN', # magnitude name to convert from (in fileName1), for printing/model name only ; e.g. 'mb_Lg IGN' (with origin if needed)
-    magName2 = 'ML LDG', # magnitude name to convert to (in fileName2), for printing/model name only ; e.g. 'ML LDG' (with origin if needed)
-    distThresh = 10.0, # distance threshold between events in km
-    timeThresh = 2.0, # time threshold between events in s
-    saveName = 'MAGMODELS/MLv RESIF.joblib', # model name
-    saveFigs = 'MAGMODELS/FIGURES/', # figures folder
+    file_name1  = 'obs/IGN_20-25.obs',
+    file_name2  = 'obs/LDG_20-25.obs',
+    mag_type1   = 'mb_Lg',
+    mag_type2   = 'ML',
+    mag_name1   = 'mb_Lg IGN',
+    mag_name2   = 'ML LDG',
+    dist_thresh = 10.0,
+    time_thresh = 2.0,
+    save_name   = 'MAGMODELS/MLv RESIF.joblib',
+    save_figs   = 'MAGMODELS/FIGURES/',
 )
 
-global_obs.generate_magnitude_models.convertMagnitudes(params_magModel_IGN, printFigs=True)
+global_obs.generate_magnitude_models.convert_magnitudes(params_magModel_IGN, save_figs=True)
 
 params_magModel_ICGC = MagModelParams(
-    fileName1 = 'obs/ICGC_20-25.obs', # magnitudes to convert
-    fileName2 = 'obs/LDG_20-25.obs', # magnitudes to keep
-    magType1 = 'ML', # magnitude type to convert from (in fileName1) ; e.g. 'mb_Lg' (without origin 'IGN')
-    magType2 = 'ML', # magnitude type to convert to (in fileName2) ; e.g. 'ML' (without origin 'LDG')
-    magName1 = 'ML ICGC', # magnitude name to convert from (in fileName1), for printing/model name only ; e.g. 'mb_Lg IGN' (with origin if needed)
-    magName2 = 'ML LDG', # magnitude name to convert to (in fileName2), for printing/model name only ; e.g. 'ML LDG' (with origin if needed)
-    distThresh = 10.0, # distance threshold between events in km
-    timeThresh = 2.0, # time threshold between events in s
-    saveName = 'MAGMODELS/MLv RESIF.joblib', # model name
-    saveFigs = 'MAGMODELS/FIGURES/', # figures folder
+    file_name1  = 'obs/ICGC_20-25.obs',
+    file_name2  = 'obs/LDG_20-25.obs',
+    mag_type1   = 'ML',
+    mag_type2   = 'ML',
+    mag_name1   = 'ML ICGC',
+    mag_name2   = 'ML LDG',
+    dist_thresh = 10.0,
+    time_thresh = 2.0,
+    save_name   = 'MAGMODELS/MLv RESIF.joblib',
+    save_figs   = 'MAGMODELS/FIGURES/',
 )
 
-global_obs.generate_magnitude_models.convertMagnitudes(params_magModel_ICGC, printFigs=True)
+global_obs.generate_magnitude_models.convert_magnitudes(params_magModel_ICGC, save_figs=True)
 
 # Use magnitude models
 parameters_magModels = UpdateMagFilesParams(
