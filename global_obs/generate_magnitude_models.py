@@ -281,20 +281,18 @@ def _plot_regression(matched_frame, parameters,
     # Breakpoint line
     ax.axvline(x=2, color='grey', lw=1, ls='--', alpha=0.6)
 
-    # Equation annotations
-    x_mid_lt  = matched_frame['magnitude1'].min() + 0.1
-    x_mid_geq = matched_frame['magnitude1'].max() - 0.3
-    ax.annotate(
+    # Equation annotations — bottom-left corner, stacked, colour-coded
+    ax.text(
+        0.03, 0.03,
         f'y = {slope_lt_2:.3f}x + {intercept_lt_2:.3f}\n$R^2$ = {R2_lt_2:.3f}',
-        xy=(x_mid_lt, slope_lt_2 * x_mid_lt + intercept_lt_2),
-        xytext=(0, 18), textcoords='offset points',
-        fontsize=9, color=palette[1],
+        transform=ax.transAxes,
+        fontsize=9, color=palette[1], va='bottom',
     )
-    ax.annotate(
+    ax.text(
+        0.03, 0.17,
         f'y = {slope_geq_2:.3f}x + {intercept_geq_2:.3f}\n$R^2$ = {R2_geq_2:.3f}',
-        xy=(x_mid_geq, slope_geq_2 * x_mid_geq + intercept_geq_2),
-        xytext=(-10, -40), textcoords='offset points',
-        fontsize=9, color=palette[0],
+        transform=ax.transAxes,
+        fontsize=9, color=palette[0], va='bottom',
     )
 
     ax.set_xlabel(f'{parameters.mag_name1}', fontsize=12)
