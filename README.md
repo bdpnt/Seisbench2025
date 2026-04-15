@@ -49,7 +49,7 @@ Seisbench2025/
 ├── prepare_nll_inputs.py         # Entry point: prepare NLL run files (6 zones)
 ├── generate_nll_corrections.py   # Entry point: prepare second-pass NLL run files
 ├── finalize_nll_catalog.py       # Entry point: compile and match final catalog
-├── parameters.py             # Simple parameter container class
+├── run_gamma_detection.py        # Entry point: run GAMMA phase detection
 │
 ├── fetch_obs/                # Catalog fetching & .obs conversion modules
 │   ├── RESIF.py
