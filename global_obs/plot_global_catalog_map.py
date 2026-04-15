@@ -14,7 +14,6 @@ import argparse
 import os
 import sys
 
-import matplotlib.pyplot as plt
 import pandas as pd
 import pygmt as pg
 from dataclasses import dataclass
@@ -99,7 +98,6 @@ def plot_global_catalog_map(parameters):
 
     fig.colorbar(frame=['a5f5+lDepth [km] (events above 15 are in black)'])
     fig.savefig(parameters.fig_save, dpi=300)
-    plt.close('all')
 
     print(f'Figure successfully saved @ {parameters.fig_save}')
     return {'output': parameters.fig_save}
