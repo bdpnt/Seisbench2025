@@ -49,7 +49,7 @@ Seisbench2025/
 ├── prepare_nll_inputs.py         # Entry point: prepare NLL run files (6 zones)
 ├── generate_nll_corrections.py   # Entry point: prepare second-pass NLL run files
 ├── finalize_nll_catalog.py       # Entry point: compile and match final catalog
-├── parameters.py             # Simple parameter container class
+├── run_gamma_detection.py        # Entry point: run GAMMA phase detection
 │
 ├── fetch_obs/                # Catalog fetching & .obs conversion modules
 │   ├── RESIF.py
@@ -271,7 +271,8 @@ All scripts are importable as a Python package (`from temp_picks.match_picks imp
 | `pygmt` | Geographic maps (requires separate `pygmt_env` conda environment) |
 | `joblib` | Magnitude model serialization |
 | `requests` | ICGC catalog fetching |
-| `seisbench`, `torch` | PhaseNet phase detection (`run_gamma_detection.py`) |
+| `seisbench`, `torch` | PhaseNet phase detection — `run_gamma_detection.py` |
+| `gamma` | GaMMA event association — `run_gamma_detection.py` |
 | `pyproj` | Coordinate transformations |
 | **NonLinLoc** | Probabilistic earthquake location (external tool, run manually) |
 | **Pyrocko** / **cake** | Theoretical travel-time computation (`temp_picks/build_theoretical_tables.py`) |
