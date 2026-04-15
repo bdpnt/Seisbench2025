@@ -1,50 +1,100 @@
-'''
-fusion merges several Inventory into one, by safely comparing stations
-in each Network and merging them if necessary, otherwise renaming them.
-'''
+"""
+merge_station_inventories.py
+============================
+Merge all station XML inventories into a single unified inventory with
+unique alternate station codes.
 
-from dataclasses import dataclass
-from obspy import read_inventory, UTCDateTime
-from obspy.core.inventory import Inventory
-import glob
-from collections import Counter, defaultdict
+Networks are deduplicated, stations that are within accepted_distance metres
+of each other receive the same alternate code, and an alternate-code mapping
+file is written alongside the unified StationXML.
+
+Usage
+-----
+    python fetch_inventory/merge_station_inventories.py \\
+        --folder-path   "stations/*/*.xml" \\
+        --save-inventory stations/GLOBAL_inventory.xml \\
+        --save-mapping   stations/GLOBAL_code_map.txt \\
+        --distance       20
+"""
+
+import argparse
 import datetime
 import math
+from collections import Counter, defaultdict
+from dataclasses import dataclass
+
+from obspy import UTCDateTime, read_inventory
+from obspy.core.inventory import Inventory
+
+
+# ---------------------------------------------------------------------------
+# Data structures
+# ---------------------------------------------------------------------------
 
 @dataclass
 class MergeInventoryParams:
-    folderPath: str
-    fileSaveInventory: str
-    fileSaveMapping: str
-    acceptedDistance: int = 20  # in meters
+    """
+    Configuration for merging station inventories.
 
-# FUNCTION
+    Attributes
+    ----------
+    folder_path        : str — glob pattern for input StationXML files
+    file_save_inventory: str — output path for the unified StationXML
+    file_save_mapping  : str — output path for the alternate-code mapping text file
+    accepted_distance  : int — max distance (m) for two stations to be considered
+                               the same physical site (default: 20)
+    """
+    folder_path:         str
+    file_save_inventory: str
+    file_save_mapping:   str
+    accepted_distance:   int = 20
+
+
+# ---------------------------------------------------------------------------
+# Geometry
+# ---------------------------------------------------------------------------
+
 def haversine(lat1, lon1, lat2, lon2):
-    """Distance in km between two geographical points."""
-    R = 6371.0
+    """Return the great-circle distance in km between two lat/lon points."""
+    R    = 6371.0
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
-    a = (math.sin(dlat/2)**2 +
-         math.cos(math.radians(lat1)) *
-         math.cos(math.radians(lat2)) *
-         math.sin(dlon/2)**2)
+    a    = (math.sin(dlat / 2) ** 2
+            + math.cos(math.radians(lat1))
+            * math.cos(math.radians(lat2))
+            * math.sin(dlon / 2) ** 2)
     return 2 * R * math.asin(math.sqrt(a))
 
-def checkInventory(inventory):
-    """Interactively prompt the user to remove duplicate stations that appear in multiple networks."""
-    # Get unique stations in networks
-    uniqueSta = defaultdict(list)
+
+# ---------------------------------------------------------------------------
+# Inventory helpers
+# ---------------------------------------------------------------------------
+
+def check_inventory(inventory):
+    """
+    Interactively prompt the user to remove duplicate stations that appear
+    in multiple networks.
+
+    Parameters
+    ----------
+    inventory : obspy.core.inventory.Inventory
+
+    Returns
+    -------
+    obspy.core.inventory.Inventory
+        Inventory with user-selected duplicates removed.
+    """
+    unique_sta = defaultdict(list)
     for net in inventory.networks:
         for sta in net.stations:
-            uniqueSta[sta.code.split('_')[0]].append(net.code)
+            unique_sta[sta.code.split('_')[0]].append(net.code)
 
-    uniqueSta = {
-        sta: nets for sta, nets in uniqueSta.items()
+    unique_sta = {
+        sta: nets for sta, nets in unique_sta.items()
         if len(nets) >= 2 and any(net != nets[0] for net in nets)
     }
 
-    # Manually remove unwanted stations from specific network
-    for station, networks in uniqueSta.items():
+    for station, networks in unique_sta.items():
         print('\n' * 40)
         print(f"\nStation: {station}")
         for network in networks:
@@ -62,35 +112,33 @@ def checkInventory(inventory):
 
     return inventory
 
-def addAlternateCode(inventory):
-    """Assign a unique alternate code (NET.XXXX) to every station in the inventory."""
-    # Loop on all stations from all networks:
-    for network in inventory.networks:
-        netCode = network.code
-        staID = 0
-        for station in network:
-            station.alternate_code = netCode + '.' + str(staID).zfill(4)
-            staID += 1
 
+def _add_alternate_code(inventory):
+    """Assign a unique alternate code (NET.XXXX) to every station."""
+    for network in inventory.networks:
+        net_code = network.code
+        sta_id   = 0
+        for station in network:
+            station.alternate_code = f'{net_code}.{str(sta_id).zfill(4)}'
+            sta_id += 1
     return inventory
 
-def combineCloseStations(inventory, parameters):
-    """Assign the same alternate code to stations from different networks that are within acceptedDistance metres of each other."""
-    #--- List all stations with their metadata
-    all_stations = []
-    for network in inventory.networks:
-        for station in network.stations:
-            all_stations.append((network.code, station))
 
-    #--- Group stations by location
-    threshold_km = parameters.acceptedDistance / 1000
-    groups = []
+def _combine_close_stations(inventory, parameters):
+    """
+    Give the same alternate code to stations from different networks that
+    are within accepted_distance metres of each other.
+    """
+    all_stations   = [(net.code, sta) for net in inventory.networks for sta in net.stations]
+    threshold_km   = parameters.accepted_distance / 1000
+    groups         = []
+
     for net_code, station in all_stations:
         target_group = next(
-            (group for group in groups
+            (g for g in groups
              if any(haversine(station.latitude, station.longitude,
                               other.latitude, other.longitude) <= threshold_km
-                    for _, other in group)),
+                    for _, other in g)),
             None,
         )
         if target_group is not None:
@@ -98,181 +146,193 @@ def combineCloseStations(inventory, parameters):
         else:
             groups.append([(net_code, station)])
 
-    #--- For each group, find the oldest station and update alternate codes
     for group in groups:
         if len(group) > 1:
-            #-- Find the oldest station in the group
-            oldest_station = min(group, key=lambda x: x[1].start_date or UTCDateTime(datetime.datetime.max))
-            for net_code, station in group:
-                if station != oldest_station[1]:
-                    station.alternate_code = oldest_station[1].alternate_code
+            oldest = min(group, key=lambda x: x[1].start_date or UTCDateTime(datetime.datetime.max))
+            for _, station in group:
+                if station is not oldest[1]:
+                    station.alternate_code = oldest[1].alternate_code
 
     return inventory
 
-def create_alternateCodeMapping(inventory,parameters):
-    """Write a text file mapping each alternate code to its corresponding network/station codes and active date ranges."""
-    # Dictionary to store the mapping
-    alternate_code_mapping = defaultdict(list)
 
-    # Iterate through each network and station in the inventory
+def _create_alternate_code_mapping(inventory, parameters):
+    """Write the alternate-code → station-code mapping file."""
+    mapping = defaultdict(list)
+
     for network in inventory.networks:
-        network_code = network.code
         for station in network.stations:
-            alternate_code = station.alternate_code
-            station_code = station.code
-            start_date = station.start_date
-            end_date = station.end_date
-
-            # Append the station code and its time range to the list for this alternate code
-            alternate_code_mapping[alternate_code].append({
-                'station_code': network_code + '.' + station_code,
-                'start_date': start_date,
-                'end_date': end_date
+            mapping[station.alternate_code].append({
+                'station_code': f'{network.code}.{station.code}',
+                'start_date':   station.start_date,
+                'end_date':     station.end_date,
             })
 
-    # Write the mapping to the output file
-    with open(parameters.fileSaveMapping, 'w') as f:
-        for alternate_code, stations in alternate_code_mapping.items():
-            f.write(f"Alternate Code: {alternate_code}\n")
-            for station in stations:
-                f.write(f"  Station Code: {station['station_code']}\n")
-                f.write(f"  Start Date: {station['start_date']}\n")
-                f.write(f"  End Date: {station['end_date']}\n")
-            f.write("\n")
+    with open(parameters.file_save_mapping, 'w') as f:
+        for alt_code, stations in mapping.items():
+            f.write(f'Alternate Code: {alt_code}\n')
+            for sta in stations:
+                f.write(f"  Station Code: {sta['station_code']}\n")
+                f.write(f"  Start Date: {sta['start_date']}\n")
+                f.write(f"  End Date: {sta['end_date']}\n")
+            f.write('\n')
 
-    print(f"Mapping file created: {parameters.fileSaveMapping}")
+    print(f'Mapping file created: {parameters.file_save_mapping}')
 
-def mergeInventory(parameters):
-    """Merge all station XML inventories into a single unified inventory with unique station codes, then save it."""
-    #--- Create an inventory
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def merge_inventory(parameters):
+    """
+    Merge all station XML inventories into a single unified inventory.
+
+    Steps: load all XMLs → merge duplicate networks → merge duplicate
+    stations within each network → interactive duplicate check →
+    assign unique alternate codes → combine co-located stations →
+    write unified StationXML and mapping file.
+
+    Parameters
+    ----------
+    parameters : MergeInventoryParams
+
+    Returns
+    -------
+    dict with keys: output (inventory path), mapping (mapping path)
+    """
+    import glob
+
     inventory = Inventory()
 
-    #--- Merge all inventories
-    for folderFile in glob.glob(parameters.folderPath):
-        fileInventory = read_inventory(folderFile,format='STATIONXML')
-        inventory.extend(fileInventory)
+    for folder_file in glob.glob(parameters.folder_path):
+        inventory.extend(read_inventory(folder_file, format='STATIONXML'))
 
-    #--- Merge duplicate networks
-    # Find duplicates
-    allNetworks = [net.code for net in inventory.networks]
-    duplicateNetworks = [code for code,count in Counter(allNetworks).items() if count > 1]
+    # --- Merge duplicate networks ---
+    all_networks       = [net.code for net in inventory.networks]
+    duplicate_networks = [code for code, count in Counter(all_networks).items() if count > 1]
 
-    # Merge duplicates (not caring about stations at this step)
-    for networkCode in duplicateNetworks:
-        foundNetworks = [net for net in inventory.networks if net.code == networkCode]
-        mainNetwork = foundNetworks[0]
-        for subNetwork in foundNetworks[1:]:
-            for station in subNetwork:
-                mainNetwork.stations.append(station)
-            inventory.networks.remove(subNetwork)
+    for net_code in duplicate_networks:
+        found = [net for net in inventory.networks if net.code == net_code]
+        main  = found[0]
+        for sub in found[1:]:
+            for station in sub:
+                main.stations.append(station)
+            inventory.networks.remove(sub)
 
-    #--- Merge duplicate stations inside same network
+    # --- Merge duplicate stations within each network ---
     for network in inventory.networks:
-        # Find all stations with the same code (potential duplicates)
         station_groups = defaultdict(list)
         for sta in network.stations:
             station_groups[sta.code].append(sta)
 
-        # Process each group of stations with the same code
-        for _, stationsWithThisCode in station_groups.items():
-            if len(stationsWithThisCode) <= 1:
+        for _, same_code_stations in station_groups.items():
+            if len(same_code_stations) <= 1:
                 continue
 
-            # Sort stations by start date (earliest first)
-            stationsWithThisCode.sort(key=lambda sta: getattr(sta, 'start_date', None) or UTCDateTime(datetime.datetime.max))
+            same_code_stations.sort(
+                key=lambda s: getattr(s, 'start_date', None) or UTCDateTime(datetime.datetime.max)
+            )
 
-            # Create graph: nodes are indices of stations, edges when distance <= acceptedDistance
-            n = len(stationsWithThisCode)
+            n     = len(same_code_stations)
             graph = defaultdict(list)
-
             for i in range(n):
-                for j in range(i+1, n):
-                    sta1 = stationsWithThisCode[i]
-                    sta2 = stationsWithThisCode[j]
-                    if haversine(sta1.latitude, sta1.longitude,
-                                sta2.latitude, sta2.longitude) <= parameters.acceptedDistance/1000:
+                for j in range(i + 1, n):
+                    s1, s2 = same_code_stations[i], same_code_stations[j]
+                    if haversine(s1.latitude, s1.longitude,
+                                 s2.latitude, s2.longitude) <= parameters.accepted_distance / 1000:
                         graph[i].append(j)
                         graph[j].append(i)
 
-            # Find connected components (clusters) using DFS
-            visited = [False] * n
+            visited  = [False] * n
             clusters = []
-
             for i in range(n):
                 if not visited[i]:
-                    cluster_indices = []
+                    cluster_idx = []
                     stack = [i]
                     visited[i] = True
                     while stack:
                         node = stack.pop()
-                        cluster_indices.append(node)
-                        for neighbor in graph.get(node, []):
-                            if not visited[neighbor]:
-                                visited[neighbor] = True
-                                stack.append(neighbor)
-                    clusters.append([stationsWithThisCode[idx] for idx in cluster_indices])
+                        cluster_idx.append(node)
+                        for nb in graph.get(node, []):
+                            if not visited[nb]:
+                                visited[nb] = True
+                                stack.append(nb)
+                    clusters.append([same_code_stations[k] for k in cluster_idx])
 
-            # Process each cluster
-            for it,cluster in enumerate(clusters):
-                # Pass if there are no duplicates in the cluster
+            for it, cluster in enumerate(clusters):
                 if len(cluster) <= 1:
-                    cluster[0].code = f'{cluster[0].code}_{it}' # rename the station (no need to check for multiple clusters here)
+                    cluster[0].code = f'{cluster[0].code}_{it}'
                     continue
 
-                # Select the station with earliest start date as main station
-                mainStation = min(cluster, key=lambda sta: getattr(sta, 'start_date', None) or UTCDateTime(datetime.datetime.max))
+                main_sta   = min(cluster, key=lambda s: getattr(s, 'start_date', None) or UTCDateTime(datetime.datetime.max))
+                main_index = cluster.index(main_sta)
 
-                # Rename the station if there are multiple clusters
                 if len(clusters) > 1:
-                    mainStation.code = f'{mainStation.code}_{it}' # rename the station
+                    main_sta.code = f'{main_sta.code}_{it}'
 
-                # Stations to be removed (all except mainStation at exactly mainIndex, because sometimes stations are exactly identical in their informations)
-                mainIndex = cluster.index(mainStation)
-                stations_to_remove = [sta for i, sta in enumerate(cluster) if i != mainIndex]
+                to_remove = [s for i, s in enumerate(cluster) if i != main_index]
 
-                # Merge data from all stations to mainStation
-                for sta in stations_to_remove:
-                    # Elevation: take from any station that has it
-                    if (mainStation.elevation == 0 or mainStation.elevation is None) and sta.elevation:
-                        mainStation.elevation = sta.elevation
-
-                    # Start date: take the earliest
+                for sta in to_remove:
+                    if (main_sta.elevation == 0 or main_sta.elevation is None) and sta.elevation:
+                        main_sta.elevation = sta.elevation
                     if hasattr(sta, 'start_date') and sta.start_date is not None:
-                        current_start = getattr(mainStation, 'start_date', None)
-                        if current_start is None or sta.start_date < current_start:
-                            mainStation.start_date = sta.start_date
-
-                    # End date: take the latest or None
+                        current = getattr(main_sta, 'start_date', None)
+                        if current is None or sta.start_date < current:
+                            main_sta.start_date = sta.start_date
                     if hasattr(sta, 'end_date'):
-                        current_end = getattr(mainStation, 'end_date', None)
+                        current = getattr(main_sta, 'end_date', None)
                         if sta.end_date is None:
-                            mainStation.end_date = None
-                        elif current_end is not None and sta.end_date > current_end:
-                            mainStation.end_date = sta.end_date
-
-                    # Merge channels (avoid duplicates)
+                            main_sta.end_date = None
+                        elif current is not None and sta.end_date > current:
+                            main_sta.end_date = sta.end_date
                     for channel in sta.channels:
-                        if channel not in mainStation.channels:
-                            mainStation.channels.append(channel)
+                        if channel not in main_sta.channels:
+                            main_sta.channels.append(channel)
 
-                # Remove all stations except the main one from the network
-                for sta in stations_to_remove:
-                    if sta in network.stations:  # Safety check
+                for sta in to_remove:
+                    if sta in network.stations:
                         network.stations.remove(sta)
 
-    #--- Verify that all stations are distinct by network/time
-    inventory = checkInventory(inventory)
+    inventory = check_inventory(inventory)
+    inventory = _add_alternate_code(inventory)
+    inventory = _combine_close_stations(inventory, parameters)
 
-    #--- Add alternate code as NET.0000
-    inventory = addAlternateCode(inventory)
+    inventory.write(parameters.file_save_inventory, format='STATIONXML')
+    print(f'\nInventory saved → {parameters.file_save_inventory}')
 
-    #--- Combine very close stations with not the same code
-    inventory = combineCloseStations(inventory, parameters)
+    _create_alternate_code_mapping(inventory, parameters)
+    print(f'Alternate code mapping saved → {parameters.file_save_mapping}\n')
 
-    #--- Write the merged Inventory
-    inventory.write(parameters.fileSaveInventory,format='STATIONXML')
-    print(f"\nInventory successfully saved @ {parameters.fileSaveInventory}")
+    return {
+        'output':  parameters.file_save_inventory,
+        'mapping': parameters.file_save_mapping,
+    }
 
-    #--- Save the Mapping
-    create_alternateCodeMapping(inventory,parameters)
-    print(f"Alternate codes mapping successfully saved @ {parameters.fileSaveMapping}\n")
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Merge all station XML inventories into a single unified inventory.'
+    )
+    parser.add_argument('--folder-path',    required=True, help='Glob pattern for input StationXML files')
+    parser.add_argument('--save-inventory', required=True, help='Output unified StationXML path')
+    parser.add_argument('--save-mapping',   required=True, help='Output alternate-code mapping path')
+    parser.add_argument('--distance',       type=int, default=20,
+                        help='Max distance (m) for co-location (default: 20)')
+    args = parser.parse_args()
+
+    params = MergeInventoryParams(
+        folder_path         = args.folder_path,
+        file_save_inventory = args.save_inventory,
+        file_save_mapping   = args.save_mapping,
+        accepted_distance   = args.distance,
+    )
+    merge_inventory(params)
+
+
+if __name__ == '__main__':
+    main()

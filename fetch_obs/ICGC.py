@@ -1,261 +1,363 @@
-from dataclasses import dataclass
-import requests
+"""
+ICGC.py
+============================
+Fetch the ICGC (Institut Cartogràfic i Geològic de Catalunya) earthquake
+catalog and convert it to the .obs bulletin format.
+
+Step 1 — get_all_codes  : fetch all event codes for the date range.
+Step 2 — fetch_catalog  : download the GSE2 bulletin for each code.
+Step 3 — write_catalog_to_obs : parse the GSE2 file and write .obs.
+
+Usage
+-----
+    python fetch_obs/ICGC.py \\
+        --file-name   ORGCATALOGS/ICGC_20-25.txt \\
+        --code-name   ORGCATALOGS/CODES_ICGC_20-25.txt \\
+        --error-name  ORGCATALOGS/ERR_ICGC_20-25.txt \\
+        --save-name   obs/ICGC_20-25.obs \\
+        --start-year  2020 --start-month 1 \\
+        --end-year    2025 --end-month   12
+"""
+
+import argparse
 import os
 import time
+from dataclasses import dataclass
+
+import requests
 from obspy import UTCDateTime
+
+
+# ---------------------------------------------------------------------------
+# Data structures
+# ---------------------------------------------------------------------------
 
 @dataclass
 class ICGCParams:
-    fileName: str
-    codeName: str
-    errorName: str
-    saveName: str
-    start_year: int
+    """
+    Configuration for fetching and converting the ICGC catalog.
+
+    Attributes
+    ----------
+    file_name   : str — path for the downloaded GSE2 catalog
+    code_name   : str — path for the event codes file
+    error_name  : str — path for the error log
+    save_name   : str — path for the .obs output file
+    start_year  : int — query start year
+    start_month : int — query start month
+    end_year    : int — query end year
+    end_month   : int — query end month
+    mag_min     : float — minimum magnitude (default: 0)
+    """
+    file_name:   str
+    code_name:   str
+    error_name:  str
+    save_name:   str
+    start_year:  int
     start_month: int
-    end_year: int
-    end_month: int
-    magMin: float = 0
+    end_year:    int
+    end_month:   int
+    mag_min:     float = 0
 
-def iter_months(start_year, start_month, end_year, end_month):
-    """Yield (year, month_str) tuples for every month in the given date range."""
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _iter_months(start_year, start_month, end_year, end_month):
+    """Yield (year, month_str) tuples for every month in the date range."""
     year, month = start_year, start_month
-
     while (year < end_year) or (year == end_year and month <= end_month):
-        yield year, f"{month:02d}" 
+        yield year, f'{month:02d}'
         month += 1
         if month > 12:
             month = 1
             year += 1
 
-def get_codes(year,month):
-    """Fetch the list of event codes from the ICGC website for a given year and month."""
-    url = f"https://sismocat.icgc.cat/siswebclient/index.php?seccio=llistat&area=locals&any={str(year).lstrip('0')}&mes={str(month).lstrip('0')}&idioma=ca"
 
-    max_retries = 3
-    for _ in range(max_retries):
+def _get_codes(year, month):
+    """
+    Fetch the list of event codes from the ICGC website for a given month.
+
+    Returns
+    -------
+    (True, list[str]) on success or (False, error_info) on failure.
+    """
+    url = (
+        f'https://sismocat.icgc.cat/siswebclient/index.php'
+        f'?seccio=llistat&area=locals'
+        f'&any={str(year).lstrip("0")}&mes={str(month).lstrip("0")}&idioma=ca'
+    )
+    for _ in range(3):
         try:
             response = requests.get(url, timeout=15)
             break
         except requests.exceptions.RequestException as e:
-            print(f"Request failed, retrying... ({e})")
+            print(f'Request failed, retrying... ({e})')
             time.sleep(2)
     else:
-        return False, f"Failed after {max_retries} retries"
+        return False, 'Failed after 3 retries'
 
-    if response.status_code == 200:
-        html_content = response.text
-        lines = html_content.split('<a class')[1:]
+    if response.status_code != 200:
+        return False, response.status_code
 
-        codes = []
-        for event in lines:
-            code = event.split('>')[1].rstrip('</a')
-            codes.append(code)
-        return True,codes
-    else:
-        return False,response.status_code
-    
-def get_all_codes(parameters):
-    """Fetch all event codes for the full date range and write them to the codes file."""
-    with open(parameters.codeName, 'w') as f, open(parameters.errorName, 'w') as fE: # codes and errors
-            fE.write('### ERRORS DURING CODES FETCH\n')
-            for year, month in iter_months(parameters.start_year, parameters.start_month, parameters.end_year, parameters.end_month):
-                status,value = get_codes(year,month) # value is either the codes if True or the response status code if False
-                if status:
-                    for code in value:
-                        f.write(f'{code}, {year}-{month}\n')
-                else:
-                    fE.write(f'{year}-{month} : error {value}\n')
-    # Print
-    print(f"Codes file succesfully written to {parameters.codeName}")
-    print(f"Errors file succesfully written to {parameters.errorName}")
+    html   = response.text
+    lines  = html.split('<a class')[1:]
+    codes  = [event.split('>')[1].rstrip('</a') for event in lines]
+    return True, codes
 
 
-
-def fetch_catalog(parameters):
-    """Download the GSE2 bulletin for each event code and append it to the catalog file."""
-    if os.path.exists(parameters.fileName):
-        os.remove(parameters.fileName)
-
-    with open(parameters.codeName, 'r', encoding='utf-8', errors='ignore') as f:
-        codes = [line.split(',')[0] for line in f]
-
-    catalog_errors = []
-    first_catalog_error = True
-    for code in codes:
-        if not code.strip():
-            print(f"Skipping empty code: {code}")
-            continue
-
-        print(f"Processing code: {code}")
-        url = f"http://sismocat.icgc.cat/siswebclient/index.php?seccio=gse&codi={code}"
-
-        max_retries = 3
-        for _ in range(max_retries):
-            try:
-                response = requests.get(url, timeout=10)
-                break  # success, exit the retry loop
-            except requests.exceptions.RequestException as e:
-                print(f"Request failed, retrying... ({e})")
-                time.sleep(2)  # wait before retrying
-        else:
-            print(f"Failed to fetch {url} after {max_retries} retries.")
-            with open(parameters.errorName, 'a') as fE:
-                if first_catalog_error:
-                    first_catalog_error = False
-                    fE.write('### ERRORS DURING EVENTS FETCH\n')
-                fE.write(f'{code} : Failed after retries\n')
-            continue
-
-        if "S'ha produit un error" in response.text:
-            print(f"Error page received for code: {code}")
-            with open(parameters.errorName, 'a') as fE:
-                if first_catalog_error:
-                    first_catalog_error = False
-                    fE.write('### ERRORS DURING EVENTS FETCH\n')
-                fE.write(f'{code} : Error page received\n')
-        else:
-            with open(parameters.fileName, 'ab') as f:
-                f.write(response.content)
-            print(f"Successfully wrote code: {code}")
-
-    # Catalog print
-    print(f"Catalog successfully written to {parameters.fileName}")
-    print(f"Errors file successfully written to {parameters.errorName}")
-
-def safe_float(s):
-    """Convert a string to float, returning None if the conversion fails."""
+def _safe_float(s):
+    """Convert a string to float, returning None on failure."""
     try:
         return float(s.strip())
     except Exception:
         return None
 
-def open_catalog(fileName):
-    """Read a catalog file and return its lines as a list of strings."""
-    with open(fileName, 'r', encoding='utf-8', errors='ignore') as fR:
-        lines = fR.readlines()
 
-    print(f"\nEvents from Catalog @ {fileName} succesfully retrieved")
+def _open_catalog(file_name):
+    """Read a catalog file and return its lines."""
+    with open(file_name, 'r', encoding='utf-8', errors='ignore') as f:
+        lines = f.readlines()
+    print(f'\nEvents from {file_name!r} successfully retrieved')
     return lines
 
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def get_all_codes(parameters):
+    """
+    Fetch all event codes for the full date range and write them to code_name.
+
+    Parameters
+    ----------
+    parameters : ICGCParams
+
+    Returns
+    -------
+    dict with keys: output (code_name), errors (error_name)
+    """
+    with open(parameters.code_name, 'w') as f, open(parameters.error_name, 'w') as fe:
+        fe.write('### ERRORS DURING CODES FETCH\n')
+        for year, month in _iter_months(
+            parameters.start_year, parameters.start_month,
+            parameters.end_year,   parameters.end_month,
+        ):
+            status, value = _get_codes(year, month)
+            if status:
+                for code in value:
+                    f.write(f'{code}, {year}-{month}\n')
+            else:
+                fe.write(f'{year}-{month} : error {value}\n')
+
+    print(f'Codes file written  → {parameters.code_name}')
+    print(f'Errors file written → {parameters.error_name}')
+    return {'output': parameters.code_name, 'errors': parameters.error_name}
+
+
+def fetch_catalog(parameters):
+    """
+    Download the GSE2 bulletin for each event code and append to file_name.
+
+    Parameters
+    ----------
+    parameters : ICGCParams
+
+    Returns
+    -------
+    dict with key: output
+    """
+    if os.path.exists(parameters.file_name):
+        os.remove(parameters.file_name)
+
+    with open(parameters.code_name, 'r', encoding='utf-8', errors='ignore') as f:
+        codes = [line.split(',')[0] for line in f]
+
+    first_error = True
+
+    for code in codes:
+        if not code.strip():
+            continue
+
+        print(f'Processing code: {code}')
+        url = f'http://sismocat.icgc.cat/siswebclient/index.php?seccio=gse&codi={code}'
+
+        for _ in range(3):
+            try:
+                response = requests.get(url, timeout=10)
+                break
+            except requests.exceptions.RequestException as e:
+                print(f'Request failed, retrying... ({e})')
+                time.sleep(2)
+        else:
+            print(f'Failed to fetch {url} after 3 retries.')
+            with open(parameters.error_name, 'a') as fe:
+                if first_error:
+                    first_error = False
+                    fe.write('### ERRORS DURING EVENTS FETCH\n')
+                fe.write(f'{code} : Failed after retries\n')
+            continue
+
+        if "S'ha produit un error" in response.text:
+            print(f'Error page for code: {code}')
+            with open(parameters.error_name, 'a') as fe:
+                if first_error:
+                    first_error = False
+                    fe.write('### ERRORS DURING EVENTS FETCH\n')
+                fe.write(f'{code} : Error page received\n')
+        else:
+            with open(parameters.file_name, 'ab') as f:
+                f.write(response.content)
+            print(f'Written: {code}')
+
+    print(f'Catalog written → {parameters.file_name}')
+    print(f'Errors written  → {parameters.error_name}')
+    return {'output': parameters.file_name}
+
+
 def write_catalog_to_obs(parameters):
-    """Convert the ICGC GSE2 catalog to the .obs bulletin format, keeping only manual P/S picks."""
-    #--- Retrieve catalog
-    lines = open_catalog(parameters.fileName)
+    """
+    Convert the ICGC GSE2 catalog to the .obs bulletin format.
 
-    with open(parameters.saveName, 'w') as f:
-    #--- File informations
-        f.write(f"### Catalog generated on the {UTCDateTime()}\n")
-        f.write("### Year Month Day Hour Min Sec Lat Lon Dep Mag MagType MagAuthor PhaseCount HorUncer VerUncer AzGap RMS\n")
-        f.write("### Code Ins Comp Onset Phase Dir Date HHMM S.MS Err ErrMag CodaDur P2PAmp PeriodAmp # RealPhase Channel PickOrigin PGV\n")
-        f.write("\n")
+    Only manual P/S picks are written.
 
-    #--- Event
+    Parameters
+    ----------
+    parameters : ICGCParams
+
+    Returns
+    -------
+    dict with key: output
+    """
+    lines = _open_catalog(parameters.file_name)
+
+    with open(parameters.save_name, 'w') as f:
+        f.write(f'### Catalog generated on the {UTCDateTime()}\n')
+        f.write('### Year Month Day Hour Min Sec Lat Lon Dep Mag MagType MagAuthor PhaseCount HorUncer VerUncer AzGap RMS\n')
+        f.write('### Code Ins Comp Onset Phase Dir Date HHMM S.MS Err ErrMag CodaDur P2PAmp PeriodAmp # RealPhase Channel PickOrigin PGV\n')
+        f.write('\n')
+
         for ind, line in enumerate(lines):
-            # Check for new event
-            if line.startswith("DATA_TYPE"):
-                # Informations on event : 3rd line after DATA_TYPE
-                event_info = lines[ind+3].rstrip('\n')
-                year = event_info[0:4].strip()
-                month = event_info[5:7].strip()
-                day = event_info[8:10].strip()
-                ev_hour = event_info[11:13].strip()
-                minute = event_info[14:16].strip()
-                second = event_info[17:22].strip()
-                latitude = safe_float(event_info[36:44])
-                longitude = safe_float(event_info[45:54])
-                depth = safe_float(event_info[71:76])
-                az_gap = safe_float(event_info[92:97])
-                rms = safe_float(event_info[30:35])
+            if not line.startswith('DATA_TYPE'):
+                continue
 
-                # Informations on magnitude : 6th line after DATA_TYPE
-                mag_info = lines[ind+6].rstrip('\n')
-                magnitude = safe_float(mag_info[7:10])
-                magnitude_type = mag_info[0:6].strip()
-                magnitude_author = mag_info[20:29].strip()
+            # Event header: 3rd line after DATA_TYPE
+            event_info = lines[ind + 3].rstrip('\n')
+            year       = event_info[0:4].strip()
+            month      = event_info[5:7].strip()
+            day        = event_info[8:10].strip()
+            ev_hour    = event_info[11:13].strip()
+            minute     = event_info[14:16].strip()
+            second     = event_info[17:22].strip()
+            latitude   = _safe_float(event_info[36:44])
+            longitude  = _safe_float(event_info[45:54])
+            depth      = _safe_float(event_info[71:76])
+            az_gap     = _safe_float(event_info[92:97])
+            rms        = _safe_float(event_info[30:35])
 
-                phases_count = safe_float(event_info[89:93])
-                H_uncertainty = None
-                V_uncertainty = None
+            # Magnitude: 6th line after DATA_TYPE
+            mag_info       = lines[ind + 6].rstrip('\n')
+            magnitude      = _safe_float(mag_info[7:10])
+            magnitude_type = mag_info[0:6].strip()
+            mag_author     = mag_info[20:29].strip()
 
-                # Don't use if mag < magMin
-                if magnitude is None or magnitude < parameters.magMin:
+            phases_count = _safe_float(event_info[89:93])
+
+            if magnitude is None or magnitude < parameters.mag_min:
+                continue
+
+            f.write(
+                f"# {year} {month.lstrip('0')} {day.lstrip('0')} "
+                f"{ev_hour.lstrip('0') if ev_hour != '00' else '0'} "
+                f"{minute.lstrip('0') if minute != '00' else '0'} "
+                f"{second[1:] if second.startswith('00') else second.lstrip('0')} "
+                f"{latitude} {longitude} {depth} {magnitude} "
+                f"{magnitude_type} {mag_author} {phases_count} None None {az_gap} {rms}\n"
+            )
+
+            # Phases: from 11th line after DATA_TYPE
+            phase_ind = ind + 11
+            while phase_ind < len(lines) and lines[phase_ind].strip():
+                phase_info = lines[phase_ind].rstrip('\n')
+
+                phase_name = phase_info[19:27].strip()
+                if (not phase_name.lower().startswith('p') and
+                        not phase_name.lower().startswith('s')):
+                    phase_ind += 1
+                    continue
+                if phase_info[99:102] != 'm__':
+                    phase_ind += 1
                     continue
 
-                # Write event line
+                network   = phase_info[114:116].strip()
+                station   = phase_info[0:7].strip()
+                phase     = phase_name
+                hr        = phase_info[28:30].strip()
+                mn        = phase_info[31:33].strip()
+                sc        = phase_info[34:36].strip()
+                ms        = phase_info[37:41].strip()
+                error_mag = '0.05' if phase.lower().startswith('p') else '0.15'
+
+                code       = (network + '.' + station).ljust(9)
+                phase_type = phase[0].ljust(6)
+                if ev_hour == '23' and hr == '00':
+                    phase_day = str(int(day.lstrip('0')) + 1).ljust(2)
+                    date = year + month + phase_day
+                else:
+                    date = year + month + day
+                hours   = hr + mn
+                seconds = sc + '.' + ms
+
                 f.write(
-                    f"# {year} {month.lstrip('0')} {day.lstrip('0')} {ev_hour.lstrip('0') if ev_hour != '00' else '0'} {minute.lstrip('0') if minute != '00' else '0'}"
-                    f" {second[1:] if second.startswith('00') else second.lstrip('0')} {latitude} {longitude} {depth} {magnitude}"
-                    f" {magnitude_type} {magnitude_author} {phases_count} {H_uncertainty} {V_uncertainty} {az_gap} {rms}\n"
+                    f"{code} {'?'.ljust(4)} {'?'.ljust(4)} {'?'.ljust(1)} {phase_type} {'?'.ljust(1)} "
+                    f"{date} {hours} {seconds} {'GAU'.ljust(3)} {error_mag.ljust(9)} "
+                    f"{'-1.00e+00'.ljust(9)} {'-1.00e+00'.ljust(9)} {'-1.00e+00'.ljust(9)}"
+                    f" # {phase.ljust(6)} {'None'.ljust(4)} {'ICGC'.ljust(9)} {'None'.ljust(4)}\n"
                 )
-    #--- Phases
-                # Phases : from 11th line after DATA_TYPE
-                phase_ind = ind+11
-                while phase_ind < len(lines) and lines[phase_ind].strip():
-                    # Informations on phase
-                    phase_info = lines[phase_ind].rstrip('\n')
+                phase_ind += 1
 
-                    # If not a P or S phase or not a manual phase
-                    if (not phase_info[19:27].strip().lower().startswith('p')) and (not phase_info[19:27].strip().lower().startswith('s')):
-                        phase_ind += 1
-                        continue
-                    elif phase_info[99:102] != 'm__':
-                        phase_ind += 1
-                        continue
+            f.write('\n')
 
-                    network = phase_info[114:116].strip()
-                    station = phase_info[0:7].strip()
-                    instrument = '?'
-                    component = '?'
-                    P_phase_onset = '?'
-                    phase = phase_info[19:27].strip()
-                    P_first_motion_dir = '?'
-                    hour = phase_info[28:30].strip()
-                    minute = phase_info[31:33].strip()
-                    second = phase_info[34:36].strip()
-                    microsecond = phase_info[37:41].strip()
-                    error_type = 'GAU'
-                    error_mag = '0.05' if phase.lower().startswith('p') else '0.15' # 0.05 for P and 0.15 for S
-                    coda_duration = '-1.00e+00'
-                    max_p2p_amp = '-1.00e+00'
-                    period_amp = '-1.00e+00'
+    print(f'Catalog written → {parameters.save_name}\n')
+    return {'output': parameters.save_name}
 
-                    # Lengths must match field length
-                    code = (network + '.' + station).ljust(9)
-                    instrument = instrument.ljust(4)
-                    component = component.ljust(4)
-                    P_phase_onset = P_phase_onset.ljust(1)
-                    phase_type = phase[0].ljust(6)
-                    P_first_motion_dir = P_phase_onset.ljust(1)
-                    if ev_hour == '23' and hour == '00': # if event hour is 23 and phase hour is 00, day must be ajusted
-                        phase_day = str(int(day.lstrip('0')) + 1).ljust(2)
-                        date = year + month + phase_day
-                    else:
-                        date = year + month + day
-                    hours = hour + minute
-                    seconds = second + '.' + microsecond
-                    error_type = error_type.ljust(3)
-                    error_mag = error_mag.ljust(9)
-                    coda_duration = coda_duration.ljust(9)
-                    max_p2p_amp = max_p2p_amp.ljust(9)
-                    period_amp = period_amp.ljust(9)
 
-                    # Add informations
-                    real_phase = phase.ljust(6)
-                    channel = 'None'.ljust(4)
-                    pick_origin = 'ICGC'.ljust(9)
-                    PGV = 'None'.ljust(4) # in mm/s
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
 
-                    # Write phase line
-                    f.write(
-                        f"{code} {instrument} {component} {P_phase_onset} {phase_type} {P_first_motion_dir} {date} {hours} {seconds} {error_type} {error_mag} {coda_duration} {max_p2p_amp} {period_amp}"
-                        f" # {real_phase} {channel} {pick_origin} {PGV}\n"
-                    )
+def main():
+    parser = argparse.ArgumentParser(
+        description='Fetch the ICGC catalog (codes → GSE2 → .obs).'
+    )
+    parser.add_argument('--file-name',   required=True)
+    parser.add_argument('--code-name',   required=True)
+    parser.add_argument('--error-name',  required=True)
+    parser.add_argument('--save-name',   required=True)
+    parser.add_argument('--start-year',  type=int, required=True)
+    parser.add_argument('--start-month', type=int, required=True)
+    parser.add_argument('--end-year',    type=int, required=True)
+    parser.add_argument('--end-month',   type=int, required=True)
+    parser.add_argument('--mag-min',     type=float, default=0)
+    args = parser.parse_args()
 
-                    # Increment phase_ind
-                    phase_ind += 1
+    params = ICGCParams(
+        file_name   = args.file_name,
+        code_name   = args.code_name,
+        error_name  = args.error_name,
+        save_name   = args.save_name,
+        start_year  = args.start_year,
+        start_month = args.start_month,
+        end_year    = args.end_year,
+        end_month   = args.end_month,
+        mag_min     = args.mag_min,
+    )
+    get_all_codes(params)
+    fetch_catalog(params)
+    write_catalog_to_obs(params)
 
-                # Line jump after the event
-                f.write("\n")
-    
-    # Print
-    print(f"Catalog succesfully written @ {parameters.saveName}\n")
+
+if __name__ == '__main__':
+    main()

@@ -1,78 +1,97 @@
-from obspy import Inventory
-from obspy.core.inventory import Network, Station, Channel, util
-import pandas as pd
+"""
+_convert_csv_to_stationxml.py
+============================
+Convert an OMP station CSV file to a StationXML inventory.
 
+The CSV must contain columns: network, station, latitude, longitude,
+elevation, starttime, endtime.
+
+Usage
+-----
+    python fetch_inventory/_convert_csv_to_stationxml.py \\
+        --file  stations/OMP_stations_XML/ADDITIONAL_sta.csv \\
+        --save  stations/OMP_stations_XML/ADDITIONAL_inventory.xml \\
+        --description ADDITIONAL
+"""
+
+import argparse
+
+import pandas as pd
+from obspy import Inventory
+from obspy.core.inventory import Network, Station
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 def csv_to_stationxml(file, file_save, network_description='ADDITIONAL'):
-    """Convert an OMP CSV station file to a StationXML inventory."""
-    # Read file with specific types for non-datetimes
-    columnUse = [
-        'network',
-        'station',
-        'latitude',
-        'longitude',
-        'elevation',
-        'starttime',
-        'endtime',
-    ]
-    columnTypes = {
-        'network': 'str',
-        'station': 'str',
-        'latitude': 'float64',
-        'longitude': 'float64',
-        'elevation': 'float32',
-    }
+    """
+    Convert an OMP station CSV to a StationXML inventory.
 
-    df = pd.read_csv(file, usecols=columnUse, dtype=columnTypes, parse_dates=['starttime','endtime'], date_format='%Y:%m:%dT%H:%M:%S')
+    Parameters
+    ----------
+    file                : str — input CSV path
+    file_save           : str — output StationXML path
+    network_description : str — description string for the Network object
 
-    #--- Create an inventory
-    inventory = Inventory(
-        source='Additional',
+    Returns
+    -------
+    dict with key: output
+    """
+    column_use   = ['network', 'station', 'latitude', 'longitude', 'elevation', 'starttime', 'endtime']
+    column_types = {'network': 'str', 'station': 'str', 'latitude': 'float64',
+                    'longitude': 'float64', 'elevation': 'float32'}
+
+    df = pd.read_csv(
+        file, usecols=column_use, dtype=column_types,
+        parse_dates=['starttime', 'endtime'],
+        date_format='%Y:%m:%dT%H:%M:%S',
     )
 
-    #--- Create the network
-    # Only one network per file
-    net_codes = df.network.unique()
+    inventory = Inventory(source='Additional')
 
-    for net_code in net_codes:
-        net_df = df[df.network == net_code]
-
+    for net_code in df.network.unique():
+        net_df  = df[df.network == net_code]
         network = Network(
             code=net_code,
             stations=None,
             total_number_of_stations=len(net_df),
-            description=network_description
+            description=network_description,
         )
 
-    #--- Create the station and append to network
         for _, row in net_df.iterrows():
-            sta_code = row.station
-            sta_latitude = row.latitude
-            sta_longitude = row.longitude
-            sta_elevation = row.elevation if not pd.isna(row.elevation) else 0
-            sta_startdate = row.starttime
-            sta_enddate = row.endtime if not pd.isna(row.endtime) else None
-
             station = Station(
-                code=sta_code,
-                latitude=sta_latitude,
-                longitude=sta_longitude,
-                elevation=sta_elevation,
-                start_date=sta_startdate,
-                end_date=sta_enddate,
+                code      = row.station,
+                latitude  = row.latitude,
+                longitude = row.longitude,
+                elevation = row.elevation if not pd.isna(row.elevation) else 0,
+                start_date = row.starttime,
+                end_date   = row.endtime if not pd.isna(row.endtime) else None,
             )
-
             network.stations.append(station)
 
-    #--- Append network to inventory
         inventory.networks.append(network)
 
-    #--- Save inventory
     inventory.write(file_save, format='STATIONXML')
+    return {'output': file_save}
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Convert an OMP station CSV to a StationXML inventory.'
+    )
+    parser.add_argument('--file',        required=True, help='Input station CSV')
+    parser.add_argument('--save',        required=True, help='Output StationXML path')
+    parser.add_argument('--description', default='ADDITIONAL', help='Network description string')
+    args = parser.parse_args()
+
+    csv_to_stationxml(args.file, args.save, args.description)
 
 
 if __name__ == '__main__':
-    csv_to_stationxml(
-        file='stations/OMP_stations_XML/ADDITIONAL_sta.csv',
-        file_save='stations/OMP_stations_XML/ADDITIONAL_inventory.xml',
-    )
+    main()
