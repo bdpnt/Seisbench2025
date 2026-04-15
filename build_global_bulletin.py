@@ -38,7 +38,7 @@ params_magModel_IGN = MagModelParams(
     mag_name2   = 'ML LDG',
     dist_thresh = 10.0,
     time_thresh = 2.0,
-    save_name   = 'MAGMODELS/MLv RESIF.joblib',
+    save_name   = 'MAGMODELS/mb_Lg IGN.joblib',
     save_figs   = 'MAGMODELS/FIGURES/',
 )
 
@@ -53,7 +53,7 @@ params_magModel_ICGC = MagModelParams(
     mag_name2   = 'ML LDG',
     dist_thresh = 10.0,
     time_thresh = 2.0,
-    save_name   = 'MAGMODELS/MLv RESIF.joblib',
+    save_name   = 'MAGMODELS/ML ICGC.joblib',
     save_figs   = 'MAGMODELS/FIGURES/',
 )
 
