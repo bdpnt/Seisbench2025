@@ -925,7 +925,7 @@ def fuse_bulletins(parameters):
 
     main_lines = _replace_mean_magnitudes(main_lines)
     main_lines = _remove_stats_values(main_lines)
-    main_lines = _remove_magnitudes_under_1(main_lines)
+    # main_lines = _remove_magnitudes_under_1(main_lines)
     main_lines = _remove_duplicate_picks(main_lines)
 
     _save_bulletin(main_lines, parameters)
