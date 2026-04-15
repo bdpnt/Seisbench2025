@@ -1,316 +1,576 @@
-'''
-genMagModel_obs generates a regression model from a magnitude type from
-a .obs Bulletin to another magnitude type from another .obs Bulletin.
-'''
+"""
+generate_magnitude_models.py
+============================
+Build piecewise ODR linear regression models to convert one earthquake
+magnitude type to another, using matched events from two .obs catalogs.
 
-from dataclasses import dataclass
-import pandas as pd
+A piecewise model is fitted with a breakpoint at M=2:
+  - M ≥ 2 : unconstrained orthogonal regression (ODR)
+  - M < 2 : constrained ODR, continuous at M=2
+
+The fitted model is serialised with joblib and optionally figures are saved
+to the directory specified in MagModelParams.save_figs.
+
+Usage
+-----
+    python global_obs/generate_magnitude_models.py \\
+        --file1      obs/RESIF_20-25.obs \\
+        --file2      obs/LDG_20-25.obs  \\
+        --mag-type1  MLv               \\
+        --mag-type2  ML                \\
+        --mag-name1  "MLv RESIF"       \\
+        --mag-name2  "ML LDG"          \\
+        --save-name  MAGMODELS/MLv_RESIF.joblib \\
+        --save-figs  MAGMODELS/FIGURES/
+
+    # --dist-thresh (km, default 10) and --time-thresh (s, default 2) are optional
+"""
+
+import argparse
 import math
+from dataclasses import dataclass
+
+import joblib
+import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+import seaborn as sns
+from scipy.odr import Model, ODR, RealData
+from scipy.optimize import minimize
+from scipy.spatial import KDTree
+from sklearn.metrics import r2_score
+
+
+# ---------------------------------------------------------------------------
+# Data structures
+# ---------------------------------------------------------------------------
 
 @dataclass
 class MagModelParams:
-    fileName1: str
-    fileName2: str
-    magType1: str
-    magType2: str
-    magName1: str
-    magName2: str
-    distThresh: float
-    timeThresh: float
-    saveName: str
-    saveFigs: str
-from scipy.spatial import KDTree
-from scipy.odr import ODR, Model, RealData
-from scipy.optimize import minimize
-from sklearn.metrics import r2_score
-import matplotlib.pyplot as plt
-import seaborn as sns
-import joblib
+    """
+    Configuration for building a magnitude conversion model.
+
+    Attributes
+    ----------
+    file_name1   : str   — .obs file whose magnitude type is being converted
+    file_name2   : str   — .obs file providing the target magnitude type
+    mag_type1    : str   — magnitude type token to search in file_name1 headers
+    mag_type2    : str   — magnitude type token to search in file_name2 headers
+    mag_name1    : str   — human-readable label for the source magnitude
+    mag_name2    : str   — human-readable label for the target magnitude
+    dist_thresh  : float — max epicentral distance (km) for event matching
+    time_thresh  : float — max origin-time difference (s) for event matching
+    save_name    : str   — path for the serialised joblib model
+    save_figs    : str   — directory path for output PNG figures
+    """
+    file_name1:  str
+    file_name2:  str
+    mag_type1:   str
+    mag_type2:   str
+    mag_name1:   str
+    mag_name2:   str
+    dist_thresh: float
+    time_thresh: float
+    save_name:   str
+    save_figs:   str
+
+
+# ---------------------------------------------------------------------------
+# Geometry
+# ---------------------------------------------------------------------------
 
 def haversine(lat1, lon1, lat2, lon2):
-    """Distance in km between two geographical points."""
-    R = 6371.0
+    """Return the great-circle distance in km between two lat/lon points."""
+    R    = 6371.0
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
-    a = (math.sin(dlat/2)**2 +
-         math.cos(math.radians(lat1)) *
-         math.cos(math.radians(lat2)) *
-         math.sin(dlon/2)**2)
+    a    = (math.sin(dlat / 2) ** 2
+            + math.cos(math.radians(lat1))
+            * math.cos(math.radians(lat2))
+            * math.sin(dlon / 2) ** 2)
     return 2 * R * math.asin(math.sqrt(a))
 
-def retrieveEvents_fromFile(fileName, magType):
-    """Read an .obs file and return event header lines that contain a magnitude of the specified type."""
-    with open(fileName, 'r', encoding='utf-8', errors='ignore') as fR:
-        catLines = fR.readlines()
 
-    eventLines = []
-    for line in catLines:
-        if line.startswith('###'):
-            continue
-        elif line.startswith('#'):
-            if magType in line:
-                eventLines.append(line.rstrip('\n').lstrip('# '))
+# ---------------------------------------------------------------------------
+# Loaders
+# ---------------------------------------------------------------------------
 
-    print(f"{len(eventLines)} events from Catalog @ {fileName} (MagType '{magType}') successfully retrieved")
-    return eventLines
+def _retrieve_events(file_name, mag_type):
+    """
+    Read an .obs file and return event header lines that contain mag_type.
 
-def get_catalogFrame(eventLines):
-    """Build a DataFrame with lat, lon, depth, magnitude, and time from a list of event header lines."""
-    latitudes = []
-    longitudes = []
-    times = []
-    magnitudes = []
+    Parameters
+    ----------
+    file_name : str — path to the .obs bulletin file
+    mag_type  : str — magnitude type token (e.g. 'MLv', 'ML', 'mb_Lg')
 
-    for line in eventLines:
-        infos = line.split()
+    Returns
+    -------
+    list[str]
+        Event header lines (stripped of the leading '# ').
+    """
+    with open(file_name, 'r', encoding='utf-8', errors='ignore') as f:
+        lines = f.readlines()
 
-        year = infos[0]
-        month = infos[1]
-        day = infos[2]
-        hour = infos[3]
-        minute = infos[4]
-        second = infos[5]
+    event_lines = [
+        line.rstrip('\n').lstrip('# ')
+        for line in lines
+        if line.startswith('#') and not line.startswith('###') and mag_type in line
+    ]
+    print(f"{len(event_lines)} events from {file_name!r} (type '{mag_type}')")
+    return event_lines
 
-        times.append(pd.to_datetime(f"{year}-{month}-{day}T{hour}:{minute}:{second}Z"))
-        latitudes.append(float(infos[6]))
-        longitudes.append(float(infos[7]))
-        magnitudes.append(float(infos[9]))
 
-    catalogFrame = pd.DataFrame({
-        'latitude': latitudes,
-        'longitude': longitudes,
-        'time': times,
-        'magnitude': magnitudes,
-    })
+def _get_catalog_frame(event_lines):
+    """
+    Build a DataFrame of event coordinates, times, and magnitudes.
 
-    return catalogFrame
+    Parameters
+    ----------
+    event_lines : list[str] — stripped event header strings from _retrieve_events
 
-def matchEvents(catalog1, catalog2, distThresh, timeThresh):
-    """Match events in catalog1 to catalog2 within distance (km) and time (s) thresholds and return a DataFrame of paired magnitudes."""
-    """Catalog1 is the catalog to convert, distance in km and time in seconds"""
-    timeThresh = pd.Timedelta(seconds=timeThresh)
+    Returns
+    -------
+    pd.DataFrame
+        Columns: latitude, longitude, time (datetime64), magnitude.
+    """
+    rows = []
+    for line in event_lines:
+        p = line.split()
+        dt = pd.to_datetime(f"{p[0]}-{p[1]}-{p[2]}T{p[3]}:{p[4]}:{p[5]}Z")
+        rows.append({
+            'latitude':  float(p[6]),
+            'longitude': float(p[7]),
+            'time':      dt,
+            'magnitude': float(p[9]),
+        })
+    return pd.DataFrame(rows)
 
+
+# ---------------------------------------------------------------------------
+# Matching
+# ---------------------------------------------------------------------------
+
+def _match_events(catalog1, catalog2, dist_thresh, time_thresh):
+    """
+    One-to-one event matching between two catalogs.
+
+    For each event in catalog1, find the nearest event in catalog2 that
+    falls within dist_thresh (km) and time_thresh (s). Each event is
+    matched at most once (greedy closest-first).
+
+    Parameters
+    ----------
+    catalog1     : pd.DataFrame — events to match (from the source catalog)
+    catalog2     : pd.DataFrame — events to match against (target catalog)
+    dist_thresh  : float        — maximum epicentral distance in km
+    time_thresh  : float        — maximum origin-time difference in seconds
+
+    Returns
+    -------
+    matched_frame : pd.DataFrame
+        Columns: catalog1_idx, catalog2_idx, distance_km, time_diff_seconds,
+                 magnitude1, magnitude2.
+    matched_idx1  : set — indices used from catalog1
+    matched_idx2  : set — indices used from catalog2
+    """
     coords2 = catalog2[['latitude', 'longitude']].values
-    tree = KDTree(coords2)
+    tree    = KDTree(coords2)
 
-    matched_pairs = []
-    matched_indices_catalog1 = set()
-    matched_indices_catalog2 = set()
+    matched_pairs  = []
+    matched_idx1   = set()
+    matched_idx2   = set()
 
     for idx1, row in catalog1.iterrows():
-        if idx1 in matched_indices_catalog1:
+        if idx1 in matched_idx1:
             continue
 
-        _, idx = tree.query([row['latitude'], row['longitude']], k=100)
+        _, candidates = tree.query([row['latitude'], row['longitude']], k=100)
 
-        best_match_idx = None
-        best_match_distance = float('inf')
-        best_match_time_diff = float('inf')
+        best_idx  = None
+        best_dist = float('inf')
+        best_dt   = float('inf')
 
-        for i in idx:
-            if i in matched_indices_catalog2:
+        for i in candidates:
+            if i in matched_idx2:
                 continue
+            cand = catalog2.iloc[i]
+            dist = haversine(row['latitude'], row['longitude'],
+                             cand['latitude'], cand['longitude'])
+            if dist > dist_thresh:
+                continue
+            dt = abs((row['time'] - cand['time']).total_seconds())
+            if dt > time_thresh:
+                continue
+            if dist < best_dist or (dist == best_dist and dt < best_dt):
+                best_idx  = i
+                best_dist = dist
+                best_dt   = dt
 
-            candidate = catalog2.iloc[i]
-            distance_km = haversine(row['latitude'], row['longitude'], candidate['latitude'], candidate['longitude'])
-
-            if distance_km <= distThresh:
-                time_diff = abs((row['time'] - candidate['time']).total_seconds())
-
-                if time_diff <= timeThresh.total_seconds():
-                    if distance_km < best_match_distance or (distance_km == best_match_distance and time_diff < best_match_time_diff):
-                        best_match_idx = i
-                        best_match_distance = distance_km
-                        best_match_time_diff = time_diff
-
-        if best_match_idx is not None:
-            matched_indices_catalog1.add(idx1)
-            matched_indices_catalog2.add(best_match_idx)
+        if best_idx is not None:
+            matched_idx1.add(idx1)
+            matched_idx2.add(best_idx)
             matched_pairs.append({
-                'catalog1_idx': idx1,
-                'catalog2_idx': best_match_idx,
-                'distance_km': best_match_distance,
-                'time_diff_seconds': best_match_time_diff,
-                'magnitude1': row['magnitude'],
-                'magnitude2': catalog2.iloc[best_match_idx]['magnitude']
+                'catalog1_idx':     idx1,
+                'catalog2_idx':     best_idx,
+                'distance_km':      best_dist,
+                'time_diff_seconds': best_dt,
+                'magnitude1':       row['magnitude'],
+                'magnitude2':       catalog2.iloc[best_idx]['magnitude'],
             })
 
-    return pd.DataFrame(matched_pairs), matched_indices_catalog1, matched_indices_catalog2
+    return pd.DataFrame(matched_pairs), matched_idx1, matched_idx2
 
-def linear_func(p, x):
-    """Evaluate a linear model y = slope*x + intercept given parameter vector p = [slope, intercept]."""
+
+# ---------------------------------------------------------------------------
+# Models
+# ---------------------------------------------------------------------------
+
+def _linear_func(p, x):
+    """ODR linear model: y = slope * x + intercept."""
     slope, intercept = p
     return slope * x + intercept
 
-def convertMagnitudes(parameters, printFigs=False):
-    """Build and save an ODR linear regression model to convert one magnitude type to another."""
+
+# ---------------------------------------------------------------------------
+# Figures
+# ---------------------------------------------------------------------------
+
+def _plot_regression(matched_frame, parameters,
+                     slope_geq_2, intercept_geq_2,
+                     slope_lt_2,  intercept_lt_2,
+                     R2_geq_2, R2_lt_2):
+    """Save the scatter + piecewise regression figure."""
+    sns.set_theme(style='ticks')
+    palette = sns.color_palette('deep')
+
+    fig, ax = plt.subplots(figsize=(9, 7))
+
+    label_geq = f'{parameters.mag_name1} ≥ 2'
+    label_lt  = f'{parameters.mag_name1} < 2'
+    matched_frame['_group'] = matched_frame['magnitude1'].apply(
+        lambda x: label_geq if x >= 2 else label_lt
+    )
+
+    # Scatter
+    group_colors = {label_geq: palette[0], label_lt: palette[1]}
+    for label, grp in matched_frame.groupby('_group'):
+        ax.scatter(grp['magnitude1'], grp['magnitude2'],
+                   s=15, alpha=0.45, color=group_colors[label],
+                   linewidths=0, label=label, zorder=1)
+
+    # Regression lines + confidence bands (±1 residual std)
+    x_lt  = np.linspace(matched_frame['magnitude1'].min(), 2, 60)
+    x_geq = np.linspace(2, matched_frame['magnitude1'].max(), 60)
+    y_lt  = slope_lt_2  * x_lt  + intercept_lt_2
+    y_geq = slope_geq_2 * x_geq + intercept_geq_2
+
+    grp_lt  = matched_frame[matched_frame['magnitude1'] < 2]
+    grp_geq = matched_frame[matched_frame['magnitude1'] >= 2]
+    std_lt  = (grp_lt['magnitude2']  - (slope_lt_2  * grp_lt['magnitude1']  + intercept_lt_2)).std()
+    std_geq = (grp_geq['magnitude2'] - (slope_geq_2 * grp_geq['magnitude1'] + intercept_geq_2)).std()
+
+    ax.plot(x_lt, y_lt, color=palette[1], lw=2, zorder=3)
+    ax.fill_between(x_lt,  y_lt  - std_lt,  y_lt  + std_lt,
+                    color=palette[1], alpha=0.18, zorder=2)
+
+    ax.plot(x_geq, y_geq, color=palette[0], lw=2, zorder=3)
+    ax.fill_between(x_geq, y_geq - std_geq, y_geq + std_geq,
+                    color=palette[0], alpha=0.18, zorder=2)
+
+    # Breakpoint line
+    ax.axvline(x=2, color='grey', lw=1, ls='--', alpha=0.6)
+
+    # Equation annotations — bottom-left corner, stacked, colour-coded
+    ax.text(
+        0.03, 0.03,
+        f'y = {slope_lt_2:.3f}x + {intercept_lt_2:.3f}\n$R^2$ = {R2_lt_2:.3f}',
+        transform=ax.transAxes,
+        fontsize=9, color=palette[1], va='bottom',
+    )
+    ax.text(
+        0.03, 0.17,
+        f'y = {slope_geq_2:.3f}x + {intercept_geq_2:.3f}\n$R^2$ = {R2_geq_2:.3f}',
+        transform=ax.transAxes,
+        fontsize=9, color=palette[0], va='bottom',
+    )
+
+    ax.set_xlabel(f'{parameters.mag_name1}', fontsize=12)
+    ax.set_ylabel(f'{parameters.mag_name2}', fontsize=12)
+    ax.set_title(
+        f'Piecewise ODR regression: {parameters.mag_name1} → {parameters.mag_name2}',
+        fontsize=13, pad=10,
+    )
+    ax.legend(markerscale=2, framealpha=0.6)
+    sns.despine(fig)
+    plt.tight_layout()
+
+    import os
+    os.makedirs(parameters.save_figs, exist_ok=True)
+    out = os.path.join(parameters.save_figs,
+                       f'{parameters.mag_name1}_2_{parameters.mag_name2}.png')
+    plt.savefig(out, dpi=300)
+    plt.close(fig)
+
+
+def _plot_residuals(matched_frame, parameters,
+                    slope_geq_2, intercept_geq_2,
+                    slope_lt_2,  intercept_lt_2,
+                    R2_geq_2, R2_lt_2, BIC):
+    """Save the residuals figure with outlier highlighting and a stats box."""
+    sns.set_theme(style='ticks')
+    palette = sns.color_palette('deep')
+
+    label_geq = f'{parameters.mag_name1} ≥ 2'
+    label_lt  = f'{parameters.mag_name1} < 2'
+    matched_frame['_group'] = matched_frame['magnitude1'].apply(
+        lambda x: label_geq if x >= 2 else label_lt
+    )
+
+    fig, ax = plt.subplots(figsize=(9, 6))
+
+    # Inliers
+    inliers = matched_frame[~matched_frame['is_outlier_iqr']]
+    group_colors = {label_geq: palette[0], label_lt: palette[1]}
+    for label, grp in inliers.groupby('_group'):
+        ax.scatter(grp['magnitude1'], grp['residual'],
+                   s=12, alpha=0.45, color=group_colors[label],
+                   linewidths=0, label=label, zorder=1)
+
+    # Outliers (diamond marker, drawn on top)
+    outliers = matched_frame[matched_frame['is_outlier_iqr']]
+    ax.scatter(outliers['magnitude1'], outliers['residual'],
+               s=35, marker='D', color=palette[3], linewidths=0.4,
+               edgecolors='white', label=f'Outliers (n={len(outliers)})', zorder=3)
+
+    # Zero line
+    ax.axhline(0, color='black', lw=1, ls='--', alpha=0.4, zorder=0)
+
+    # Stats annotation box
+    stats_text = (
+        f'$R^2$ (M≥2) = {R2_geq_2:.3f}\n'
+        f'$R^2$ (M<2) = {R2_lt_2:.3f}\n'
+        f'BIC = {BIC:.1f}\n'
+        f'n = {len(matched_frame)}'
+    )
+    ax.text(0.02, 0.97, stats_text,
+            transform=ax.transAxes, fontsize=9, va='top',
+            bbox=dict(boxstyle='round,pad=0.4', facecolor='white',
+                      edgecolor='lightgrey', alpha=0.85))
+
+    ax.set_xlabel(f'{parameters.mag_name1}', fontsize=12)
+    ax.set_ylabel('Residual (observed − predicted)', fontsize=12)
+    ax.set_title(
+        f'Residuals: {parameters.mag_name1} → {parameters.mag_name2}',
+        fontsize=13, pad=10,
+    )
+    ax.legend(markerscale=2, framealpha=0.6)
+    sns.despine(fig)
+    plt.tight_layout()
+
+    import os
+    out = os.path.join(parameters.save_figs,
+                       f'Residuals_{parameters.mag_name1}_2_{parameters.mag_name2}.png')
+    plt.savefig(out, dpi=300)
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def convert_magnitudes(parameters, save_figs=False):
+    """
+    Build and save a piecewise ODR linear regression magnitude conversion model.
+
+    Parameters
+    ----------
+    parameters : MagModelParams
+        Full configuration (files, magnitude types, thresholds, output paths).
+    save_figs  : bool, optional
+        If True, save scatter and residual figures to parameters.save_figs.
+
+    Returns
+    -------
+    dict or None
+        Summary dict on success (keys: output, n_matched, r2_geq_2, r2_lt_2,
+        slope_geq_2, intercept_geq_2, slope_lt_2, intercept_lt_2), or None if
+        matching or data requirements are not met.
+    """
     print('\n#########')
-    print(f'\nGenerating model for {parameters.magName1} to {parameters.magName2} magnitudes conversion...\n') # opening line
+    print(f'\nGenerating model: {parameters.mag_name1} → {parameters.mag_name2}\n')
 
-    #--- Match events from both catalogs
-    events1 = retrieveEvents_fromFile(parameters.fileName1, parameters.magType1)
-    events2 = retrieveEvents_fromFile(parameters.fileName2, parameters.magType2)
+    # --- Match events from both catalogs ---
+    events1   = _retrieve_events(parameters.file_name1, parameters.mag_type1)
+    events2   = _retrieve_events(parameters.file_name2, parameters.mag_type2)
+    catalog1  = _get_catalog_frame(events1)
+    catalog2  = _get_catalog_frame(events2)
 
-    catalog1 = get_catalogFrame(events1)
-    catalog2 = get_catalogFrame(events2)
+    matched_frame, match_idx1, match_idx2 = _match_events(
+        catalog1, catalog2,
+        dist_thresh=parameters.dist_thresh,
+        time_thresh=parameters.time_thresh,
+    )
 
-    matchedFrame, matchInd1, matchInd2 = matchEvents(catalog1, catalog2, distThresh=parameters.distThresh, timeThresh=parameters.timeThresh)
+    if len(matched_frame) == 0:
+        print('\nNo matched events — check thresholds or input files.')
+        print('#########\n')
+        return None
 
-    #--- Handle no match case
-    if len(matchedFrame) == 0:
-        print("\nNo match found between Catalogs, please check distance/time thresholds or your data files")
-        print('\n#########\n') # closing line
-        return
-    else:
-        print(f"\nEvents from Catalogs successfully matched")
-        print(f"    - matched events: {len(matchedFrame)}")
+    print(f'\n  Matched: {len(matched_frame)} events')
+    print(f'  Unmatched in {parameters.file_name1}: '
+          f'{len(catalog1) - len(match_idx1)}/{len(catalog1)}')
+    print(f'  Unmatched in {parameters.file_name2}: '
+          f'{len(catalog2) - len(match_idx2)}/{len(catalog2)}')
 
-    #--- Show unmatched events
-    all_indices_catalog1 = set(catalog1.index)
-    unmatched_indices_catalog1 = list(all_indices_catalog1 - matchInd1)
-    unmatched_events_catalog1 = catalog1.loc[unmatched_indices_catalog1]
-    print(f"    - unmatched events in Catalog @ {parameters.fileName1}: {len(unmatched_events_catalog1)}/{len(catalog1)}")
+    if len(matched_frame) < 100:
+        print('\nFewer than 100 matched events — cannot build a reliable model.')
+        print('#########\n')
+        return None
 
-    all_indices_catalog2 = set(catalog2.index)
-    unmatched_indices_catalog2 = list(all_indices_catalog2 - matchInd2)
-    unmatched_events_catalog2 = catalog2.loc[unmatched_indices_catalog2]
-    print(f"    - unmatched events in Catalog @ {parameters.fileName2}: {len(unmatched_events_catalog2)}/{len(catalog2)}")
+    # --- Split at M=2 ---
+    label_geq = f'{parameters.mag_name1} ≥ 2'
+    label_lt  = f'{parameters.mag_name1} < 2'
+    matched_frame['magnitude_group'] = matched_frame['magnitude1'].apply(
+        lambda x: label_geq if x >= 2 else label_lt
+    )
+    groups    = matched_frame.groupby('magnitude_group')
+    grp_geq   = groups.get_group(label_geq)
+    grp_lt    = groups.get_group(label_lt)
 
-    #--- If less than 100 events
-    if len(matchedFrame) < 100:
-        print(f"\nNot enough matched events to continue")
-        print('\n#########\n') # closing line
-        return
+    # --- ODR for M >= 2 ---
+    odr_geq = ODR(
+        RealData(grp_geq['magnitude1'].values, grp_geq['magnitude2'].values),
+        Model(_linear_func), beta0=[1., 0.],
+    )
+    out_geq          = odr_geq.run()
+    slope_geq_2, intercept_geq_2 = out_geq.beta
+    y_at_2           = slope_geq_2 * 2 + intercept_geq_2
 
-    #--- Split data into M >= 2 and M < 2
-    matchedFrame['magnitude_group'] = matchedFrame['magnitude1'].apply(lambda x: f'{parameters.magName1} ≥ 2' if x >= 2 else f'{parameters.magName1} < 2')
-    groups = matchedFrame.groupby('magnitude_group')
+    # --- Constrained ODR for M < 2 (continuous at M=2) ---
+    X_lt = grp_lt['magnitude1'].values
+    y_lt = grp_lt['magnitude2'].values
 
-    #--- Train model for M >= 2 using orthogonal regression
-    group_geq_2 = groups.get_group(f'{parameters.magName1} ≥ 2')
-    X_geq_2 = group_geq_2['magnitude1'].values
-    y_geq_2 = group_geq_2['magnitude2'].values
+    def _objective(params):
+        s, b = params
+        return np.sum((y_lt - (b + s * X_lt)) ** 2)
 
-    linear_model_geq_2 = Model(linear_func)
-    data_geq_2 = RealData(X_geq_2, y_geq_2)
-    odr_geq_2 = ODR(data_geq_2, linear_model_geq_2, beta0=[1., 0.])
-    output_geq_2 = odr_geq_2.run()
-    slope_geq_2, intercept_geq_2 = output_geq_2.beta
+    def _continuity(params):
+        s, b = params
+        return b + s * 2 - y_at_2
 
-    # Calculate the predicted value at M=2 for M >= 2 model
-    y_at_2 = slope_geq_2 * 2 + intercept_geq_2
-
-    #--- Train model for M < 2 with continuity constraint using orthogonal regression
-    group_lt_2 = groups.get_group(f'{parameters.magName1} < 2')
-    X_lt_2 = group_lt_2['magnitude1'].values
-    y_lt_2 = group_lt_2['magnitude2'].values
-
-    # Constraint: intercept + slope * 2 = y_at_2
-    def constrained_linear_func(p, x):
-        slope, intercept = p
-        return slope * x + intercept
-
-    def objective(params):
-        slope, intercept = params
-        residuals = y_lt_2 - (intercept + slope * X_lt_2)
-        return np.sum(residuals**2)
-
-    def constraint(params):
-        slope, intercept = params
-        return intercept + slope * 2 - y_at_2
-
-    # Initial guess for slope and intercept
-    initial_guess = [1, 0]
-
-    # Define the constraint as a dictionary
-    cons = {'type': 'eq', 'fun': constraint}
-
-    # Minimize the objective function subject to the constraint
-    result = minimize(objective, initial_guess, constraints=cons, method='SLSQP')
-
-    # Extract the optimized parameters
+    result = minimize(
+        _objective, x0=[1., 0.],
+        constraints={'type': 'eq', 'fun': _continuity},
+        method='SLSQP',
+    )
     slope_lt_2, intercept_lt_2 = result.x
 
-    #--- Store both models
+    # --- Predicted values and residuals ---
+    matched_frame['predicted'] = np.where(
+        matched_frame['magnitude1'] >= 2,
+        slope_geq_2 * matched_frame['magnitude1'] + intercept_geq_2,
+        slope_lt_2  * matched_frame['magnitude1'] + intercept_lt_2,
+    )
+    matched_frame['residual'] = matched_frame['magnitude2'] - matched_frame['predicted']
+
+    # --- Statistics ---
+    R2_geq_2 = r2_score(grp_geq['magnitude2'],
+                        slope_geq_2 * grp_geq['magnitude1'] + intercept_geq_2)
+    R2_lt_2  = r2_score(grp_lt['magnitude2'],
+                        slope_lt_2  * grp_lt['magnitude1']  + intercept_lt_2)
+
+    n        = len(matched_frame)
+    SSR      = np.sum(matched_frame['residual'] ** 2)
+    sigma2   = SSR / n
+    BIC      = 4 * np.log(n) + n * np.log(2 * np.pi * sigma2) + n
+
+    Q1, Q3   = matched_frame['residual'].quantile([0.25, 0.75])
+    IQR      = Q3 - Q1
+    matched_frame['is_outlier_iqr'] = (
+        (matched_frame['residual'] < Q1 - 1.5 * IQR) |
+        (matched_frame['residual'] > Q3 + 1.5 * IQR)
+    )
+    n_outliers = matched_frame['is_outlier_iqr'].sum()
+
+    print(f'\n  R² (M≥2): {R2_geq_2:.3f}')
+    print(f'  R² (M<2): {R2_lt_2:.3f}  (constrained)')
+    print(f'  BIC:      {BIC:.3f}')
+    print(f'  Outliers: {n_outliers}/{n}  (IQR method)')
+
+    # --- Figures ---
+    if save_figs:
+        _plot_regression(
+            matched_frame, parameters,
+            slope_geq_2, intercept_geq_2,
+            slope_lt_2,  intercept_lt_2,
+            R2_geq_2, R2_lt_2,
+        )
+        _plot_residuals(
+            matched_frame, parameters,
+            slope_geq_2, intercept_geq_2,
+            slope_lt_2,  intercept_lt_2,
+            R2_geq_2, R2_lt_2, BIC,
+        )
+
+    # --- Save model ---
     models = {
-        f'{parameters.magName1} ≥ 2': {'slope': slope_geq_2, 'intercept': intercept_geq_2},
-        f'{parameters.magName1} < 2': {'slope': slope_lt_2, 'intercept': intercept_lt_2}
+        label_geq: {'slope': slope_geq_2, 'intercept': intercept_geq_2},
+        label_lt:  {'slope': slope_lt_2,  'intercept': intercept_lt_2},
+    }
+    joblib.dump(models, parameters.save_name)
+
+    print(f'\n  Model saved → {parameters.save_name}')
+    print(f'  {label_geq}: y = {slope_geq_2:.3f}x + {intercept_geq_2:.3f}')
+    print(f'  {label_lt}:  y = {slope_lt_2:.3f}x + {intercept_lt_2:.3f}')
+    print('\n#########\n')
+
+    return {
+        'output':          parameters.save_name,
+        'n_matched':       n,
+        'r2_geq_2':        R2_geq_2,
+        'r2_lt_2':         R2_lt_2,
+        'slope_geq_2':     slope_geq_2,
+        'intercept_geq_2': intercept_geq_2,
+        'slope_lt_2':      slope_lt_2,
+        'intercept_lt_2':  intercept_lt_2,
     }
 
-    #--- Plot both regressions
-    if printFigs:
-        fig, ax = plt.subplots(figsize=(10, 7))
-        sns.scatterplot(data=matchedFrame, x='magnitude1', y='magnitude2', hue='magnitude_group', alpha=0.6, ax=ax)
 
-        # Plot regression lines
-        x_range_lt_2 = np.linspace(matchedFrame['magnitude1'].min(), 2, 50)
-        x_range_geq_2 = np.linspace(2, matchedFrame['magnitude1'].max(), 50)
-        y_lt_2 = slope_lt_2 * x_range_lt_2 + intercept_lt_2
-        y_geq_2 = slope_geq_2 * x_range_geq_2 + intercept_geq_2
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
 
-        ax.plot(x_range_lt_2, y_lt_2, color='blue', label=f'{parameters.magName1} < 2: y = {slope_lt_2:.3f}x + {intercept_lt_2:.3f}')
-        ax.plot(x_range_geq_2, y_geq_2, color='red', label=f'{parameters.magName1} ≥ 2: y = {slope_geq_2:.3f}x + {intercept_geq_2:.3f}')
-        ax.axvline(x=2, color='gray', linestyle='--', label=f'Inflexion at {parameters.magName1} = 2')
+def main():
+    parser = argparse.ArgumentParser(
+        description='Build piecewise ODR magnitude conversion models from two .obs catalogs.'
+    )
+    parser.add_argument('--file1',       required=True,      help='.obs file with source magnitude type')
+    parser.add_argument('--file2',       required=True,      help='.obs file with target magnitude type')
+    parser.add_argument('--mag-type1',   required=True,      help='Magnitude type token in file1 (e.g. MLv)')
+    parser.add_argument('--mag-type2',   required=True,      help='Magnitude type token in file2 (e.g. ML)')
+    parser.add_argument('--mag-name1',   required=True,      help='Human-readable source label (e.g. "MLv RESIF")')
+    parser.add_argument('--mag-name2',   required=True,      help='Human-readable target label (e.g. "ML LDG")')
+    parser.add_argument('--dist-thresh', type=float, default=10.0, help='Max matching distance in km (default: 10)')
+    parser.add_argument('--time-thresh', type=float, default=2.0,  help='Max matching time diff in s (default: 2)')
+    parser.add_argument('--save-name',   required=True,      help='Output joblib model path')
+    parser.add_argument('--save-figs',   default='MAGMODELS/FIGURES/', help='Output figures directory')
+    args = parser.parse_args()
 
-        ax.set_xlabel(f'Magnitude {parameters.magName1}')
-        ax.set_ylabel(f'Magnitude {parameters.magName2}')
-        ax.set_title('Piecewise Linear Regression: Magnitude Conversion (Orthogonal)')
-        ax.legend()
-        ax.grid(True)
-        plt.savefig(parameters.saveFigs + f'{parameters.magName1}_2_{parameters.magName2}.png')
-        plt.close(fig)
+    params = MagModelParams(
+        file_name1  = args.file1,
+        file_name2  = args.file2,
+        mag_type1   = args.mag_type1,
+        mag_type2   = args.mag_type2,
+        mag_name1   = args.mag_name1,
+        mag_name2   = args.mag_name2,
+        dist_thresh = args.dist_thresh,
+        time_thresh = args.time_thresh,
+        save_name   = args.save_name,
+        save_figs   = args.save_figs,
+    )
+    convert_magnitudes(params, save_figs=True)
 
-    #--- Calculate residuals and R² for both models
-    matchedFrame['predicted_magnitude2'] = np.nan
-    for idx, row in matchedFrame.iterrows():
-        if row['magnitude1'] >= 2:
-            matchedFrame.at[idx, 'predicted_magnitude2'] = slope_geq_2 * row['magnitude1'] + intercept_geq_2
-        else:
-            matchedFrame.at[idx, 'predicted_magnitude2'] = slope_lt_2 * row['magnitude1'] + intercept_lt_2
 
-    matchedFrame['residual'] = matchedFrame['magnitude2'] - matchedFrame['predicted_magnitude2']
-
-    # Calculate R²
-    R2_geq_2 = r2_score(group_geq_2['magnitude2'], slope_geq_2 * group_geq_2['magnitude1'] + intercept_geq_2)
-    R2_lt_2 = r2_score(group_lt_2['magnitude2'], slope_lt_2 * group_lt_2['magnitude1'] + intercept_lt_2)
-    print('\nOrthogonal regression models successfully trained')
-    print(f"    - R² for {parameters.magName1} ≥ 2: {R2_geq_2:.3f}")
-    print(f"    - R² for {parameters.magName1} < 2: {R2_lt_2:.3f} (constrained regression)")
-
-    # Calculate BIC
-    n = len(matchedFrame)
-    k_BIC = 4  # 2 slopes + 2 intercepts
-    SSR_BIC = np.sum(matchedFrame['residual']**2)
-    sigma2_BIC = SSR_BIC / n
-    BIC = k_BIC * np.log(n) + n * np.log(2 * np.pi * sigma2_BIC) + n
-    print(f"    - BIC for global model: {BIC:.3f}")
-
-    # Outliers (IQR method)
-    Q1 = matchedFrame['residual'].quantile(0.25)
-    Q3 = matchedFrame['residual'].quantile(0.75)
-    IQR = Q3 - Q1
-    matchedFrame['is_outlier_iqr'] = (matchedFrame['residual'] < (Q1 - 1.5 * IQR)) | (matchedFrame['residual'] > (Q3 + 1.5 * IQR))
-    outliers = matchedFrame[matchedFrame['is_outlier_iqr']]
-    print(f"    - Found {len(outliers)}/{len(matchedFrame)} outliers (IQR method)")
-
-    # Plot residuals
-    if printFigs:
-        figResiduals = plt.figure(figsize=(10, 7))
-        sns.scatterplot(data=matchedFrame, x='magnitude1', y='residual', hue='magnitude_group', alpha=0.4)
-        sns.scatterplot(data=outliers, x='magnitude1', y='residual', color='red', label='Outliers')
-        plt.axhline(y=0, color='black', linestyle='--')
-        plt.xlabel(f'Magnitude (Type {parameters.magName1})')
-        plt.ylabel(f'Residual (Observed - Predicted)\n(Type {parameters.magName2})')
-        plt.title(f'Residuals with IQR Outliers\nM < 2: R² = {R2_lt_2:.3f}, M ≥ 2: R² = {R2_geq_2:.3f}\nBIC: {BIC:.3f}')
-        plt.legend()
-        plt.grid(True)
-        plt.savefig(parameters.saveFigs + f'Residuals_{parameters.magName1}_2_{parameters.magName2}.png')
-        plt.close(figResiduals)
-
-    #--- Save both models
-    joblib.dump(models, parameters.saveName)
-    print(f"\nModels successfully saved @ {parameters.saveName}\n")
-    print(f"Model for {parameters.magName1} ≥ 2: y = {slope_geq_2:.3f} * x + {intercept_geq_2:.3f}")
-    print(f"Model for {parameters.magName1} < 2: y = {slope_lt_2:.3f} * x + {intercept_lt_2:.3f}")
-    print('\n#########\n') # closing line
+if __name__ == '__main__':
+    main()
