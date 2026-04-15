@@ -1,44 +1,92 @@
-'''
-mapGlobalBulletin_obs generates a map of all the events in GLOBAL.obs Bulletin
-'''
+"""
+plot_global_catalog_map.py
+============================
+Generate a PyGMT map of all events in an .obs bulletin, coloured by depth.
 
-import sys
+Usage
+-----
+    python global_obs/plot_global_catalog_map.py \
+        --file-name obs/GLOBAL.obs \
+        --fig-save  obs/MAPS/GLOBAL.pdf
+"""
+
+import argparse
 import os
-script_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(script_dir)
-sys.path.append(parent_dir)
+import sys
 
-from dataclasses import dataclass
-import pygmt as pg
+import matplotlib.pyplot as plt
 import pandas as pd
+import pygmt as pg
+from dataclasses import dataclass
+
+
+# ---------------------------------------------------------------------------
+# Path constants
+# ---------------------------------------------------------------------------
+
+_MODULE_DIR   = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(_MODULE_DIR)
+
+
+# ---------------------------------------------------------------------------
+# Data structures
+# ---------------------------------------------------------------------------
 
 @dataclass
 class MapGlobalParams:
-    fileName: str
-    figSave: str
+    """
+    Configuration for plotting the global catalog map.
 
-# FUNCTION
+    Attributes
+    ----------
+    file_name : str — path to the .obs bulletin file
+    fig_save  : str — path for the output PDF figure
+    """
+    file_name: str
+    fig_save:  str
 
-def genGlobalFigure(parameters):
-    """Generate a PyGMT map of all events in an .obs bulletin, coloured by depth, and save it to a PDF."""
-    #---- Read OBS file
-    with open(parameters.fileName,'r',encoding='utf-8') as f:
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def plot_global_catalog_map(parameters):
+    """
+    Generate a PyGMT map of all events in an .obs bulletin, coloured by depth.
+
+    Parameters
+    ----------
+    parameters : MapGlobalParams
+
+    Returns
+    -------
+    dict with key: output
+    """
+    with open(parameters.file_name, 'r', encoding='utf-8') as f:
         lines = f.readlines()
-    print(f"Catalog succesfully read @ {parameters.fileName}")
+    print(f'Catalog successfully read @ {parameters.file_name}')
 
-    events = [line.lstrip('# ').rstrip('\n').split(' ') for line in lines if (not line.startswith('###') and line.startswith('#'))]
-    events_df = pd.DataFrame(events).drop(columns=[0,1,2,3,4,5,10,11,12,13,14,15,16]).rename(columns={6:'Latitude',7:'Longitude',8:'Depth',9:'Magnitude'}).astype(float)
+    events = [
+        line.lstrip('# ').rstrip('\n').split(' ')
+        for line in lines
+        if not line.startswith('###') and line.startswith('#')
+    ]
+    events_df = (
+        pd.DataFrame(events)
+        .drop(columns=[0, 1, 2, 3, 4, 5, 10, 11, 12, 13, 14, 15, 16])
+        .rename(columns={6: 'Latitude', 7: 'Longitude', 8: 'Depth', 9: 'Magnitude'})
+        .astype(float)
+    )
 
-    #---- Set Pyrenees borders
-    region = [-2.25,3.5,42,44]
+    region = [-2.25, 3.5, 42, 44]
 
     fig = pg.Figure()
     with pg.config(MAP_FRAME_TYPE="fancy+"):
         fig.basemap(region=region, projection="M6i", frame='af')
-    fig.coast(water="skyblue", land='#777777', resolution='i', area_thresh='0/0/1', borders="1/0.75p,black")
+    fig.coast(water="skyblue", land='#777777', resolution='i',
+              area_thresh='0/0/1', borders="1/0.75p,black")
 
-    #---- Plot events
-    pg.makecpt(cmap="viridis", series=[0,15,1], reverse=True)
+    pg.makecpt(cmap="viridis", series=[0, 15, 1], reverse=True)
     fig.plot(
         x=events_df.Longitude,
         y=events_df.Latitude,
@@ -50,15 +98,28 @@ def genGlobalFigure(parameters):
     )
 
     fig.colorbar(frame=['a5f5+lDepth [km] (events above 15 are in black)'])
-    fig.savefig(parameters.figSave, dpi=300)
+    fig.savefig(parameters.fig_save, dpi=300)
+    plt.close('all')
 
-    print(f"Figure succesfully saved @ {parameters.figSave}")
+    print(f'Figure successfully saved @ {parameters.fig_save}')
+    return {'output': parameters.fig_save}
 
-# MAIN
-if __name__ == "__main__":
-    params_figure = MapGlobalParams(
-        fileName = 'obs/GLOBAL.obs',
-        figSave = 'obs/MAPS/GLOBAL.pdf',
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Generate a PyGMT map of all events in an .obs bulletin.'
     )
+    parser.add_argument('--file-name', required=True, help='Input .obs bulletin file')
+    parser.add_argument('--fig-save',  required=True, help='Output PDF figure path')
+    args = parser.parse_args()
 
-    genGlobalFigure(params_figure)
+    params = MapGlobalParams(file_name=args.file_name, fig_save=args.fig_save)
+    plot_global_catalog_map(params)
+
+
+if __name__ == '__main__':
+    main()

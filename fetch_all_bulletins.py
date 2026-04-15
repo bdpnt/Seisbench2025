@@ -17,7 +17,7 @@ params_resif = RESIFParams(
     lat_max     = 44,
     lon_min     = -3,
     lon_max     = 4,
-    mag_min     = 0,
+    mag_min     = -5,
     event_type  = 'earthquake',
     mag_type    = 'MLv',
 )
