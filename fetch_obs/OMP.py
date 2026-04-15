@@ -223,7 +223,7 @@ def write_catalog_to_obs(parameters):
                     continue
 
                 date_s, hours_s, secs_s = _format_arrival_datetime(arrival_s)
-                err_s = ('0.15' if not double_error else '0.30').ljust(9)
+                err_s = ('0.05' if not double_error else '0.10').ljust(9)
 
                 f.write(
                     f"{code} {instrument} {component} {onset} {'S'.ljust(6)} {first_mot} "
