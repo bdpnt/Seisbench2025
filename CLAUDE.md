@@ -14,40 +14,40 @@ The workflow follows 5 main stages:
 
 ### 1. Station Inventory Fusion
 - Source: FDSN XML files + OMP CSV files (in `stations/`)
-- Script: `global_inventory.py` → calls modules in `fetch_inventory/`
+- Script: `build_global_inventory.py` → calls modules in `fetch_inventory/`
 - Output: `stations/GLOBAL_inventory.xml` + `stations/GLOBAL_code_map.txt`
 - Each station gets a unique code; duplicates are removed by distance threshold (20m)
 
 ### 2. Catalog Fetching & Conversion
 - Sources: RESIF (FDSN), ICGC, IGN, LDG, OMP (in `ORGCATALOGS/`)
-- Script: `fetch_bulletins.py` → calls modules in `fetch_obs/`
+- Script: `fetch_all_bulletins.py` → calls modules in `fetch_obs/`
 - Output: individual `.obs` files per source in `obs/`
 
 ### 3. Catalog Harmonization
-- Script: `global_bulletin.py` → calls modules in `global_obs/`
+- Script: `build_global_bulletin.py` → calls modules in `global_obs/`
 - Steps:
-  1. **update_picks.py** — associates picks with unified station codes
-  2. **generate_mag_model.py** — builds regression models to convert all magnitude types to ML
-  3. **use_mag_models.py** — applies the models to all `.obs` files
-  4. **fusion.py** — spatially/temporally merges all catalogs into `obs/GLOBAL.obs`
-  5. **map_global.py** — generates a map of the merged catalog
+  1. **remap_picks_to_unified_codes.py** — associates picks with unified station codes
+  2. **generate_magnitude_models.py** — builds regression models to convert all magnitude types to ML
+  3. **apply_magnitude_models.py** — applies the models to all `.obs` files
+  4. **fuse_bulletins.py** — spatially/temporally merges all catalogs into `obs/GLOBAL.obs`
+  5. **plot_global_catalog_map.py** — generates a map of the merged catalog
 - Matching thresholds: 15 km distance, 2 s time, 1.5 magnitude units, ≥2 picks
 
 ### 4. Earthquake Relocation (NonLinLoc)
 The study area is too large for a single NLL run, so it is split into **6 geographic zones**.
 
-- **`NLL_prerun.py`** — generates one `.obs` file and one `.in` run file per zone, plus GTSRCE station files
+- **`prepare_nll_inputs.py`** — generates one `.obs` file and one `.in` run file per zone, plus GTSRCE station files
 - External (run manually in terminal):
   ```
   Vel2Grid run/<runfile.in>
   Grid2Time run/<runfile.in>
   NLLoc run/<runfile.in>
   ```
-- **`NLL_postrun.py`** — generates second-pass run files using SSST (Static Station Set Travel-time) corrections from the first run
+- **`generate_nll_corrections.py`** — generates second-pass run files using SSST (Static Station Set Travel-time) corrections from the first run
 - Second pass: same external commands repeated
 
 ### 5. Post-relocation Processing
-- **`NLL_final.py`**:
+- **`finalize_nll_catalog.py`**:
   1. Cleans NLL output files
   2. Merges the 6 regional results into `RESULT/FINAL.txt`
   3. Rematches relocated events back to `obs/GLOBAL.obs` to recover metadata not present in NLL output (e.g. magnitude)

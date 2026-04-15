@@ -69,6 +69,7 @@ Seisbench2025/
 │   ├── list_magnitude_types.py
 │   ├── generate_magnitude_models.py
 │   ├── apply_magnitude_models.py
+│   ├── add_temporary_picks.py
 │   ├── filter_events_by_aoi.py
 │   ├── fuse_bulletins.py
 │   └── plot_global_catalog_map.py
@@ -76,6 +77,7 @@ Seisbench2025/
 ├── NLL_run/                  # NonLinLoc workflow modules
 │   ├── generate_regional_runfiles.py
 │   ├── append_ssst_corrections.py
+│   ├── export_locdelay_info.py
 │   ├── parse_nll_output.py
 │   ├── filter_distant_picks.py
 │   ├── match_pre_post_relocation.py
@@ -120,7 +122,7 @@ Seisbench2025/
 ### 1. Station Inventory Fusion
 
 **Script:** `build_global_inventory.py`  
-**Module:** `fetch_inventory/merge_station_inventories.py` → `mergeInventory()`
+**Module:** `fetch_inventory/merge_station_inventories.py` → `merge_inventory()`
 
 Merges all station XML inventories (FDSN networks + OMP) into a single unified inventory. Each station receives a unique code; duplicates within 20 m are removed. OMP CSV data is pre-processed with `_remove_fdsn_duplicates.py`, `_fill_missing_elevations.py`, and `_convert_csv_to_stationxml.py` before fusion.
 
@@ -161,12 +163,12 @@ Runs the following steps in sequence:
 
 | Step | Module | Function | Description |
 |------|--------|----------|-------------|
-| 1 | `remap_picks_to_unified_codes.py` | `associatePicks()` | Associates picks with unified station codes from global inventory |
-| 2 | `generate_magnitude_models.py` | `convertMagnitudes()` | Builds ODR regression models: MLv→ML, mb_Lg→ML, ML(ICGC)→ML |
-| 3 | `apply_magnitude_models.py` | `updateAllFiles()` | Applies magnitude models to all `.obs` files |
-| 4 | `filter_events_by_aoi.py` | — | Removes events outside the area of interest |
-| 5 | `fuse_bulletins.py` | `fusionAll()`, `find_and_merge_doubles()` | Matches and merges all catalogs into `GLOBAL.obs` |
-| 6 | `plot_global_catalog_map.py` | — | Generates a map of the merged catalog |
+| 1 | `remap_picks_to_unified_codes.py` | `remap_picks_to_unified_codes()` | Associates picks with unified station codes from global inventory |
+| 2 | `generate_magnitude_models.py` | `convert_magnitudes()` | Builds ODR regression models: MLv→ML, mb_Lg→ML, ML(ICGC)→ML |
+| 3 | `apply_magnitude_models.py` | `apply_magnitude_models()` | Applies magnitude models to all `.obs` files |
+| 4 | `filter_events_by_aoi.py` | `filter_events_by_aoi()` | Removes events outside the area of interest |
+| 5 | `fuse_bulletins.py` | `fuse_bulletins()`, `find_and_merge_doubles()` | Matches and merges all catalogs into `GLOBAL.obs` |
+| 6 | `plot_global_catalog_map.py` | `plot_global_catalog_map()` | Generates a map of the merged catalog |
 
 **Matching thresholds (fusion):** ≤15 km distance, ≤2 s time, ≤1.5 magnitude units, ≥2 common picks.
 
@@ -207,6 +209,10 @@ Vel2Grid run/run_<N>_PR.in
 Grid2Time run/run_<N>_PR.in
 NLLoc run/run_<N>_PR.in
 ```
+
+#### Diagnostic — `NLL_run/export_locdelay_info.py`
+
+Optional utility that reads the LOCDELAY station corrections from second-pass run files and exports them to a CSV, keeping only entries with |residual| > 0.3 s. Useful for identifying stations with systematically biased travel-time residuals.
 
 ---
 
