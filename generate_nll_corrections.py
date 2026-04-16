@@ -1,9 +1,11 @@
 from NLL_run.parse_nll_output import CleanPostRunParams
 from NLL_run.append_station_delays import SecondRunParams
+from NLL_run.export_locdelay_info import export_locdelay_info
 import NLL_run
 
-# Clean the files post-run
+# For all areas
 for key in range(1,7):
+    # Clean the files post-run
     params_clean = CleanPostRunParams(
         folderLoc = f'loc/GLOBAL_{key}',
         obsFile = f'GLOBAL_{key}.obs',
@@ -12,7 +14,7 @@ for key in range(1,7):
 
     NLL_run.parse_nll_output.write_events(params_clean)
 
-    # Generate the SSST run files (for now, only second normal NLL run)
+    # Generate the second-pass run file
     params_ssst_W = SecondRunParams(
         locFolderName = f'loc/GLOBAL_{key}', # loc folder to use
         fileRunName = f'run/run_{key}.in', # run file to use
@@ -22,3 +24,10 @@ for key in range(1,7):
     )
 
     NLL_run.append_station_delays.append_station_delays(params_ssst_W)
+
+# Export the locdelays
+export_locdelay_info(
+    run_dir      = 'run',
+    codemap_path = 'stations/GLOBAL_code_map.txt',
+    output_path  = 'run/locdelays/locdelay_summary.txt',
+)
