@@ -43,7 +43,7 @@ The study area is too large for a single NLL run, so it is split into **6 geogra
   Grid2Time run/<runfile.in>
   NLLoc run/<runfile.in>
   ```
-- **`generate_nll_corrections.py`** — generates second-pass run files using SSST (Static Station Set Travel-time) corrections from the first run
+- **`generate_nll_corrections.py`** — generates second-pass run files by appending per-station delay corrections derived from first-run arrival-time residuals
 - Second pass: same external commands repeated
 
 ### 5. Post-relocation Processing
