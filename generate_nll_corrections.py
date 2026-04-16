@@ -1,5 +1,5 @@
 from NLL_run.parse_nll_output import CleanPostRunParams
-from NLL_run.append_ssst_corrections import SecondRunParams
+from NLL_run.append_station_delays import SecondRunParams
 import NLL_run
 # from global_obs.add_temporary_picks import RemapStationCodesParams,MergeExternalPicksParams
 # from global_obs.add_temporary_picks import remapStationCodes,mergeExternalPicks
@@ -40,4 +40,4 @@ for key in range(1,7):
         minPhases = 100, # minimal number of phases for the delay to be used
     )
 
-    NLL_run.append_ssst_corrections.append_station_delays(params_ssst_W)
+    NLL_run.append_station_delays.append_station_delays(params_ssst_W)

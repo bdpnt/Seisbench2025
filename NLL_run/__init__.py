@@ -5,7 +5,7 @@ __all__ = [
     "filter_distant_picks",
     "generate_regional_runfiles",
     "parse_nll_output",
-    "append_ssst_corrections",
+    "append_station_delays",
     # "merge_regional_results",
     "match_pre_post_relocation",
 ]

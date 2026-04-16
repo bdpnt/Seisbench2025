@@ -1,5 +1,5 @@
 """
-append_ssst_corrections.py
+append_station_delays.py
 ============================
 Generate a second-pass NLL run file by appending station delay corrections.
 
@@ -9,7 +9,7 @@ appends the qualifying station delays to a copy of the original run file.
 
 Usage
 -----
-    python NLL_run/append_ssst_corrections.py \\
+    python NLL_run/append_station_delays.py \\
         --loc-folder  loc/GLOBAL_1 \\
         --run-file    run/run_1.in \\
         --run-save    run/run_1_PR.in \\
@@ -32,7 +32,7 @@ _MODULE_DIR      = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT    = os.path.dirname(_MODULE_DIR)
 _DEFAULT_LOG_DIR = os.path.join(_MODULE_DIR, 'console_output')
 
-logger = logging.getLogger('append_ssst_corrections')
+logger = logging.getLogger('append_station_delays')
 
 
 # ---------------------------------------------------------------------------
