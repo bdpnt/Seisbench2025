@@ -23,6 +23,7 @@ Usage
 """
 
 import argparse
+import logging
 import math
 import os
 import sys
@@ -32,8 +33,28 @@ from datetime import datetime
 # Module paths
 # ---------------------------------------------------------------------------
 
-_MODULE_DIR   = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_ROOT = os.path.dirname(_MODULE_DIR)
+_MODULE_DIR      = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT    = os.path.dirname(_MODULE_DIR)
+_DEFAULT_LOG_DIR = os.path.join(_MODULE_DIR, 'console_output')
+
+logger = logging.getLogger('merge_regional_results')
+
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
+def _setup_logger(log_dir, output_path):
+    os.makedirs(log_dir, exist_ok=True)
+    basename  = os.path.splitext(os.path.basename(output_path))[0]
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+    handler = logging.FileHandler(log_path, encoding='utf-8')
+    handler.setFormatter(logging.Formatter('%(levelname)s %(message)s'))
+    logger.addHandler(handler)
+    return log_path
 
 
 # ---------------------------------------------------------------------------
@@ -53,7 +74,7 @@ def parse_line(line: str, source_file: str):
 
     parts = line.split()
     if len(parts) < 15:
-        print(f"  [WARN] Skipping malformed line in {source_file!r}: {line!r}", file=sys.stderr)
+        logger.warning(f"Skipping malformed line in {source_file!r}: {line!r}")
         return None
 
     try:
@@ -73,7 +94,7 @@ def parse_line(line: str, source_file: str):
         erv  = float(parts[13])
         gap  = float(parts[14])
     except ValueError as e:
-        print(f"  [WARN] Could not parse line in {source_file!r}: {e}", file=sys.stderr)
+        logger.warning(f"Could not parse line in {source_file!r}: {e}")
         return None
 
     year     = parse_year(yy)
@@ -83,7 +104,7 @@ def parse_line(line: str, source_file: str):
     try:
         dt = datetime(year, mo, dd, hh, mm, sec_int, microsec)
     except ValueError as e:
-        print(f"  [WARN] Invalid datetime in {source_file!r}: {e}", file=sys.stderr)
+        logger.warning(f"Invalid datetime in {source_file!r}: {e}")
         return None
 
     return {
@@ -110,7 +131,7 @@ def load_bulletin(filepath: str):
             ev = parse_line(line, filepath)
             if ev:
                 events.append(ev)
-    print(f"  Loaded {len(events):>5d} events from {filepath!r}")
+    logger.info(f"Loaded {len(events):>5d} events from {filepath!r}")
     return events
 
 
@@ -181,10 +202,10 @@ def find_and_resolve_duplicates(list_a, list_b,
                 else:
                     drop_b.add(j)
                     winner, loser = label_a, label_b
-                print(
-                    f"    DUP #{n_dup:04d}  Δt={dt:.2f}s  Δd={dd:.2f}km  "
+                logger.info(
+                    f"DUP #{n_dup:04d}  Δt={dt:.2f}s  Δd={dd:.2f}km  "
                     f"rms_a={ea['rms']:.4f}  rms_b={eb['rms']:.4f}  "
-                    f"→ keep from {winner}, drop from {loser}"
+                    f"keep from {winner}, drop from {loser}"
                 )
                 # One-to-one matching: once ea is matched, move on to next ea
                 break
@@ -210,7 +231,7 @@ def write_bulletin(events, filepath: str):
     with open(filepath, "w") as fh:
         for ev in events_sorted:
             fh.write(format_event(ev) + "\n")
-    print(f"  Written {len(events_sorted):>5d} events → {filepath!r}")
+    logger.info(f"Written {len(events_sorted):>5d} events → {filepath!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -237,30 +258,28 @@ def main():
         print("ERROR: Please supply at least 2 bulletin files.", file=sys.stderr)
         sys.exit(1)
 
+    _setup_logger(_DEFAULT_LOG_DIR, args.output)
+
     n = len(args.bulletins)
-    print(f"\n{'='*60}")
-    print(f"  NonLinLoc Bulletin Merger")
-    print(f"  Files              : {n}")
-    print(f"  Time threshold     : {args.time} s")
-    print(f"  Distance threshold : {args.dist} km")
-    print(f"{'='*60}\n")
+    logger.info(f"NonLinLoc Bulletin Merger")
+    logger.info(f"Files              : {n}")
+    logger.info(f"Time threshold     : {args.time} s")
+    logger.info(f"Distance threshold : {args.dist} km")
 
     # ── Load all bulletins ────────────────────────────────────────────────────
-    print("[ Loading bulletins ]")
     bulletins = [load_bulletin(f) for f in args.bulletins]
-    print(f"  Total raw events   : {sum(len(b) for b in bulletins)}\n")
+    logger.info(f"Total raw events   : {sum(len(b) for b in bulletins)}")
 
     # ── Deduplicate adjacent pairs in a single loop ───────────────────────────
     # After resolving pair (i, i+1), the cleaned version of list i+1 is reused
     # as the left-hand side when resolving pair (i+1, i+2). This ensures that
     # an event already dropped in a previous pass cannot be re-matched.
-    print("[ Detecting & resolving duplicates ]")
     total_dup = 0
 
     for i in range(n - 1):
         label_a = args.bulletins[i]
         label_b = args.bulletins[i + 1]
-        print(f"  Pass {i+1}/{n-1}: {label_a} ↔ {label_b}")
+        logger.info(f"Pass {i+1}/{n-1}: {label_a} ↔ {label_b}")
         bulletins[i], bulletins[i + 1], nd = find_and_resolve_duplicates(
             bulletins[i], bulletins[i + 1],
             args.time, args.dist,
@@ -269,13 +288,11 @@ def main():
         total_dup += nd
 
     merged = [ev for b in bulletins for ev in b]
-    print(f"\n  Total duplicates removed : {total_dup}")
-    print(f"  Events in merged catalog : {len(merged)}\n")
+    logger.info(f"Total duplicates removed : {total_dup}")
+    logger.info(f"Events in merged catalog : {len(merged)}")
 
     # ── Write output ──────────────────────────────────────────────────────────
-    print("[ Writing merged bulletin ]")
     write_bulletin(merged, args.output)
-    print(f"\nDone. Merged catalog saved to {args.output!r}\n")
 
 
 if __name__ == "__main__":
