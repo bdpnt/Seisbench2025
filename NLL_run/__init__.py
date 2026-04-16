@@ -6,7 +6,7 @@ __all__ = [
     "generate_regional_runfiles",
     "parse_nll_output",
     "append_station_delays",
-    # "merge_regional_results",
+    "merge_regional_results",
     "match_pre_post_relocation",
 ]
 

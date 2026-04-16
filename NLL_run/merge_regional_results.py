@@ -235,6 +235,66 @@ def write_bulletin(events, filepath: str):
 
 
 # ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def merge_bulletins(bulletin_files, output_path,
+                    time_thresh_s=2.0, dist_thresh_km=20.0, log_dir=None):
+    """
+    Load, deduplicate, and merge a list of NLL bulletin files into one.
+
+    Parameters
+    ----------
+    bulletin_files : list[str] — paths to bulletin files, in adjacency order
+    output_path    : str       — path for the merged output file
+    time_thresh_s  : float     — origin-time window for duplicate detection (default: 2 s)
+    dist_thresh_km : float     — 3-D distance threshold for duplicate detection (default: 20 km)
+    log_dir        : str, optional — log directory (default: NLL_run/console_output/)
+
+    Returns
+    -------
+    dict with keys: output, log, n_merged, n_duplicates
+    """
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, output_path)
+
+    n = len(bulletin_files)
+    logger.info(f"Files              : {n}")
+    logger.info(f"Time threshold     : {time_thresh_s} s")
+    logger.info(f"Distance threshold : {dist_thresh_km} km")
+
+    bulletins = [load_bulletin(f) for f in bulletin_files]
+    logger.info(f"Total raw events   : {sum(len(b) for b in bulletins)}")
+
+    # Deduplicate adjacent pairs in a single loop. After resolving pair (i, i+1),
+    # the cleaned version of list i+1 is reused as the left-hand side when
+    # resolving pair (i+1, i+2), so an event already dropped cannot be re-matched.
+    total_dup = 0
+    for i in range(n - 1):
+        label_a = bulletin_files[i]
+        label_b = bulletin_files[i + 1]
+        logger.info(f"Pass {i+1}/{n-1}: {label_a} ↔ {label_b}")
+        bulletins[i], bulletins[i + 1], nd = find_and_resolve_duplicates(
+            bulletins[i], bulletins[i + 1],
+            time_thresh_s, dist_thresh_km,
+            label_a, label_b,
+        )
+        total_dup += nd
+
+    merged = [ev for b in bulletins for ev in b]
+    logger.info(f"Total duplicates removed : {total_dup}")
+    logger.info(f"Events in merged catalog : {len(merged)}")
+
+    write_bulletin(merged, output_path)
+
+    return {
+        'output':       output_path,
+        'log':          log_path,
+        'n_merged':     len(merged),
+        'n_duplicates': total_dup,
+    }
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -258,41 +318,7 @@ def main():
         print("ERROR: Please supply at least 2 bulletin files.", file=sys.stderr)
         sys.exit(1)
 
-    _setup_logger(_DEFAULT_LOG_DIR, args.output)
-
-    n = len(args.bulletins)
-    logger.info(f"NonLinLoc Bulletin Merger")
-    logger.info(f"Files              : {n}")
-    logger.info(f"Time threshold     : {args.time} s")
-    logger.info(f"Distance threshold : {args.dist} km")
-
-    # ── Load all bulletins ────────────────────────────────────────────────────
-    bulletins = [load_bulletin(f) for f in args.bulletins]
-    logger.info(f"Total raw events   : {sum(len(b) for b in bulletins)}")
-
-    # ── Deduplicate adjacent pairs in a single loop ───────────────────────────
-    # After resolving pair (i, i+1), the cleaned version of list i+1 is reused
-    # as the left-hand side when resolving pair (i+1, i+2). This ensures that
-    # an event already dropped in a previous pass cannot be re-matched.
-    total_dup = 0
-
-    for i in range(n - 1):
-        label_a = args.bulletins[i]
-        label_b = args.bulletins[i + 1]
-        logger.info(f"Pass {i+1}/{n-1}: {label_a} ↔ {label_b}")
-        bulletins[i], bulletins[i + 1], nd = find_and_resolve_duplicates(
-            bulletins[i], bulletins[i + 1],
-            args.time, args.dist,
-            label_a, label_b,
-        )
-        total_dup += nd
-
-    merged = [ev for b in bulletins for ev in b]
-    logger.info(f"Total duplicates removed : {total_dup}")
-    logger.info(f"Events in merged catalog : {len(merged)}")
-
-    # ── Write output ──────────────────────────────────────────────────────────
-    write_bulletin(merged, args.output)
+    merge_bulletins(args.bulletins, args.output, args.time, args.dist)
 
 
 if __name__ == "__main__":
