@@ -1,92 +1,202 @@
-'''
-removeFarPicks_obs removes the picks from stations too far to the event 
-'''
+"""
+filter_distant_picks.py
+============================
+Remove picks from stations too far from their associated event.
 
-from dataclasses import dataclass
+Reads a GLOBAL.obs bulletin, computes the epicentral distance between each
+pick's station and its event, and drops picks beyond a configurable threshold.
+The bulletin is overwritten in place.
+
+Usage
+-----
+    python NLL_run/filter_distant_picks.py \\
+        --bulletin   obs/GLOBAL.obs \\
+        --inventory  stations/GLOBAL_inventory.xml \\
+        --max-dist   80
+"""
+
+import argparse
+import logging
 import math
-from obspy import read_inventory
+import os
+from dataclasses import dataclass
+from datetime import datetime
+
 import pandas as pd
+from obspy import read_inventory
+
+# ---------------------------------------------------------------------------
+# Module paths
+# ---------------------------------------------------------------------------
+
+_MODULE_DIR      = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT    = os.path.dirname(_MODULE_DIR)
+_DEFAULT_LOG_DIR = os.path.join(_MODULE_DIR, 'console_output')
+
+logger = logging.getLogger('filter_distant_picks')
+
+
+# ---------------------------------------------------------------------------
+# Data structures
+# ---------------------------------------------------------------------------
 
 @dataclass
 class RemoveFarPicksParams:
-    fileBulletin: str
+    fileBulletin:  str
     fileInventory: str
-    maxDistance: float  # in km
+    maxDistance:   float  # km
 
-# FUNCTION
-def haversine(lat1, lon1, lat2, lon2):
-    """Distance in km between two geographical points"""
-    R = 6371.0
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
+def _setup_logger(log_dir, input_path):
+    os.makedirs(log_dir, exist_ok=True)
+    basename  = os.path.splitext(os.path.basename(input_path))[0]
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+    handler = logging.FileHandler(log_path, encoding='utf-8')
+    handler.setFormatter(logging.Formatter('%(levelname)s %(message)s'))
+    logger.addHandler(handler)
+    return log_path
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _haversine(lat1, lon1, lat2, lon2):
+    """Return the epicentral distance in km between two lat/lon points."""
+    R    = 6371.0
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
-    a = (math.sin(dlat/2)**2 +
-         math.cos(math.radians(lat1)) *
-         math.cos(math.radians(lat2)) *
-         math.sin(dlon/2)**2)
+    a    = (math.sin(dlat / 2) ** 2 +
+            math.cos(math.radians(lat1)) *
+            math.cos(math.radians(lat2)) *
+            math.sin(dlon / 2) ** 2)
     return 2 * R * math.asin(math.sqrt(a))
 
-def getStationsCoords(parameters):
-    """Build a DataFrame of all station alternate codes and coordinates from the inventory."""
-    inventory = read_inventory(parameters.fileInventory, format='STATIONXML')
 
-    staData = []
-    for net in inventory.networks:
+def _get_station_coords(inventory_path):
+    """
+    Build a DataFrame of station alternate codes and coordinates.
+
+    Parameters
+    ----------
+    inventory_path : str — path to the StationXML inventory
+
+    Returns
+    -------
+    pd.DataFrame with columns: AlternateCode, Latitude, Longitude
+    """
+    inv     = read_inventory(inventory_path, format='STATIONXML')
+    records = []
+    for net in inv.networks:
         for sta in net.stations:
-            staData.append({
+            records.append({
                 'AlternateCode': sta.alternate_code,
-                'Latitude': sta.latitude,
-                'Longitude': sta.longitude,
+                'Latitude':      sta.latitude,
+                'Longitude':     sta.longitude,
             })
+    df = pd.DataFrame(records)
+    return df.drop_duplicates(subset='AlternateCode', keep='first')
 
-    staCoords = pd.DataFrame(staData)
-    staCoords = staCoords.drop_duplicates(subset='AlternateCode', keep='first')
 
-    return staCoords
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
-def removeFarPicks(parameters):
-    """Remove picks from stations beyond maxDistance km from their associated event and overwrite the bulletin."""
-    #---- Retrieve stations coordinates
-    staCoords = getStationsCoords(parameters)
+def remove_far_picks(parameters, log_dir=None):
+    """
+    Remove picks from stations beyond maxDistance from their event and
+    overwrite the bulletin file.
 
-    #---- Retrieve Bulletin
+    Parameters
+    ----------
+    parameters : RemoveFarPicksParams
+    log_dir    : str, optional — log directory (default: NLL_run/console_output/)
+
+    Returns
+    -------
+    dict with keys: output, log, n_picks_total, n_picks_removed
+    """
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, parameters.fileBulletin)
+    logger.info(f"Bulletin    : {parameters.fileBulletin}")
+    logger.info(f"Inventory   : {parameters.fileInventory}")
+    logger.info(f"Max distance: {parameters.maxDistance} km")
+
+    sta_coords = _get_station_coords(parameters.fileInventory)
+    logger.info(f"  {len(sta_coords)} stations loaded.")
+
     with open(parameters.fileBulletin, 'r') as f:
         lines = f.readlines()
-    
-    #---- Check lines for picks whose station are too far
-    pickCount = 0
-    removeID = set()
-    for ID,line in enumerate(lines):
+
+    n_picks   = 0
+    remove_id = set()
+    event_lat = event_lon = None
+
+    for i, line in enumerate(lines):
         if line.startswith('# '):
-            event_coords = (float(line.split()[7]), float(line.split()[8]))
+            parts     = line.split()
+            event_lat = float(parts[7])
+            event_lon = float(parts[8])
+        elif event_lat is not None and line.strip() and not line.startswith('#'):
+            n_picks  += 1
+            alt_code  = line.split()[0]
+            sta_row   = sta_coords[sta_coords.AlternateCode == alt_code]
+            if sta_row.empty:
+                continue
+            dist = _haversine(
+                sta_row.Latitude.iloc[0], sta_row.Longitude.iloc[0],
+                event_lat, event_lon,
+            )
+            if dist > parameters.maxDistance:
+                remove_id.add(i)
 
-            pickID = ID
-            endPicks = False
-            while not endPicks:
-                pickID += 1
-                pick = lines[pickID]
-
-                if pick.startswith('\n'):
-                    endPicks = True
-                    continue
-
-                pick_altCode = pick[:7].strip()
-                pickLat = staCoords[staCoords.AlternateCode == pick_altCode].Latitude.iloc[0]
-                pickLon = staCoords[staCoords.AlternateCode == pick_altCode].Longitude.iloc[0]
-
-                distToEvent = haversine(pickLat,pickLon,event_coords[0],event_coords[1])
-
-                if distToEvent > parameters.maxDistance:
-                    removeID.add(pickID)
-
-                # Update pick count
-                pickCount += 1
-    
-    #---- Remove picks from stations too far
-    lines = [line for ID,line in enumerate(lines) if ID not in removeID]
-
-    #---- Save the new OBS
+    lines = [l for i, l in enumerate(lines) if i not in remove_id]
     with open(parameters.fileBulletin, 'w') as f:
         f.writelines(lines)
 
-    print(f'\nSuccesfully saved the updated Bulletin @ {parameters.fileBulletin}')
-    print(f'    - removed {len(removeID)} / {pickCount} picks')
+    logger.info(f"Picks total  : {n_picks}")
+    logger.info(f"Picks removed: {len(remove_id)}")
+    logger.info(f"Output       : {parameters.fileBulletin}")
+
+    return {
+        'output':          parameters.fileBulletin,
+        'log':             log_path,
+        'n_picks_total':   n_picks,
+        'n_picks_removed': len(remove_id),
+    }
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Remove picks from stations too far from their event.'
+    )
+    parser.add_argument('--bulletin',  required=True, help='GLOBAL.obs bulletin file (modified in place)')
+    parser.add_argument('--inventory', required=True, help='StationXML inventory file')
+    parser.add_argument('--max-dist',  type=float, default=80.0,
+                        help='Maximum station-event distance in km (default: 80)')
+    parser.add_argument('--log-dir',   default=None,
+                        help='Log directory (default: NLL_run/console_output/)')
+    args = parser.parse_args()
+
+    remove_far_picks(
+        RemoveFarPicksParams(
+            fileBulletin  = args.bulletin,
+            fileInventory = args.inventory,
+            maxDistance   = args.max_dist,
+        ),
+        log_dir = args.log_dir,
+    )
+
+
+if __name__ == '__main__':
+    main()

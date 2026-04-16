@@ -1,12 +1,12 @@
-#!/usr/bin/env python3
 """
-----------------------
-Merges any number of NonLinLoc relocated bulletin files.
-Duplicate events (shared between overlapping adjacent zones) are detected
-using time and distance thresholds, and only the best-RMS solution is kept.
+merge_regional_results.py
+============================
+Merge any number of NonLinLoc relocated bulletin files into one.
 
-Overlaps are assumed to be only between adjacent files:
-  file1↔file2, file2↔file3, file3↔file4, ...
+Duplicate events shared between overlapping adjacent zones are detected using
+time and distance thresholds. Only the solution with the lower RMS is kept.
+Overlaps are resolved pairwise in adjacency order:
+  file1↔file2, file2↔file3, file3↔file4, …
 
 Bulletin format (space-separated columns):
   YY  MM  DD  HH  MM  SS.ss  lat  lon  depth  mag  rms  npha  erh  erv  gap
@@ -14,17 +14,31 @@ Bulletin format (space-separated columns):
 Year convention:
   YY < 75  →  2000 + YY
   YY >= 75 →  1900 + YY
+
+Usage
+-----
+    python NLL_run/merge_regional_results.py \\
+        RESULT/GLOBAL_1.txt RESULT/GLOBAL_2.txt ... \\
+        -o RESULT/FINAL.txt
 """
 
-import sys
-import math
 import argparse
+import math
+import os
+import sys
 from datetime import datetime
 
+# ---------------------------------------------------------------------------
+# Module paths
+# ---------------------------------------------------------------------------
 
-# ─────────────────────────────────────────────────────────────────────────────
+_MODULE_DIR   = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(_MODULE_DIR)
+
+
+# ---------------------------------------------------------------------------
 # Parsing
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 
 def parse_year(yy: int) -> int:
     """Convert a two-digit year to a four-digit year using the 75-year cutoff convention."""
@@ -100,9 +114,9 @@ def load_bulletin(filepath: str):
     return events
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 # Distance / time helpers
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 
 def haversine_km(lat1, lon1, lat2, lon2) -> float:
     """Great-circle surface distance in km."""
@@ -126,9 +140,9 @@ def time_diff_seconds(ev1, ev2) -> float:
     return abs((ev1["datetime"] - ev2["datetime"]).total_seconds())
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 # Duplicate detection between exactly two lists
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 
 def find_and_resolve_duplicates(list_a, list_b,
                                 time_thresh_s: float,
@@ -180,9 +194,9 @@ def find_and_resolve_duplicates(list_a, list_b,
     return keep_a, keep_b, n_dup
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 # Output
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 
 def format_event(ev) -> str:
     """Reconstruct the original bulletin line (raw copy)."""
@@ -199,9 +213,9 @@ def write_bulletin(events, filepath: str):
     print(f"  Written {len(events_sorted):>5d} events → {filepath!r}")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Main
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
 
 def main():
     """Parse CLI arguments, load bulletins, deduplicate adjacent zone pairs, and write the merged output."""

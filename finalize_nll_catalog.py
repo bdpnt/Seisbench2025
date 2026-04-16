@@ -11,7 +11,7 @@ for key in range(1,7):
         fileBulletin = f'RESULT/GLOBAL_{key}_PR.txt',
     )
 
-    NLL_run.parse_nll_output.writeEvents(params_clean)
+    NLL_run.parse_nll_output.write_events(params_clean)
 
 # Generate the FINAL.txt file
 result_files = [f"RESULT/GLOBAL_{key}_PR.txt" for key in range(1, 7)]
