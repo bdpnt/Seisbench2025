@@ -1,11 +1,11 @@
 """
 append_ssst_corrections.py
 ============================
-Generate a second-pass NLL run file by appending SSST static corrections.
+Generate a second-pass NLL run file by appending station delay corrections.
 
-Reads the station static corrections (LOCDELAY entries) from the first NLL
+Reads the per-station average residuals (LOCDELAY entries) from the first NLL
 run's last.stat_totcorr file, filters them by minimum phase count, and
-appends the qualifying corrections to a copy of the original run file.
+appends the qualifying station delays to a copy of the original run file.
 
 Usage
 -----
@@ -68,13 +68,14 @@ def _setup_logger(log_dir, input_path):
 # Public API
 # ---------------------------------------------------------------------------
 
-def generate_second_run(parameters, log_dir=None):
+def append_station_delays(parameters, log_dir=None):
     """
-    Append qualifying SSST station corrections to the run file and write the
-    second-pass run file.
+    Append qualifying per-station delay corrections to the run file and write
+    the second-pass run file.
 
-    Corrections are taken from last.stat_totcorr in the loc folder. Only
-    entries with PhaseNum >= minPhases and StdDev >= 0 are included.
+    Corrections are the per-station average residuals (LOCDELAY entries) from
+    last.stat_totcorr in the loc folder. Only entries with
+    PhaseNum >= minPhases and StdDev >= 0 are included.
 
     Parameters
     ----------
@@ -154,7 +155,7 @@ def main():
                         help='Log directory (default: NLL_run/console_output/)')
     args = parser.parse_args()
 
-    generate_second_run(
+    append_station_delays(
         SecondRunParams(
             locFolderName = args.loc_folder,
             fileRunName   = args.run_file,

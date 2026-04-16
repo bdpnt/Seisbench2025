@@ -40,4 +40,4 @@ for key in range(1,7):
         minPhases = 100, # minimal number of phases for the delay to be used
     )
 
-    NLL_run.append_ssst_corrections.generate_second_run(params_ssst_W)
+    NLL_run.append_ssst_corrections.append_station_delays(params_ssst_W)
