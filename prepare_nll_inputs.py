@@ -9,7 +9,7 @@ params_farpicks = RemoveFarPicksParams(
     maxDistance = 80, # max distance between event and station, in kilometers
 )
 
-# NLL_run.filter_distant_picks.remove_far_picks(params_farpicks)
+NLL_run.filter_distant_picks.remove_far_picks(params_farpicks)
 
 # Generate run files
 all_runs = {

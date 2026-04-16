@@ -1,25 +1,6 @@
 from NLL_run.parse_nll_output import CleanPostRunParams
 from NLL_run.append_station_delays import SecondRunParams
 import NLL_run
-# from global_obs.add_temporary_picks import RemapStationCodesParams,MergeExternalPicksParams
-# from global_obs.add_temporary_picks import remapStationCodes,mergeExternalPicks
-
-# # Add phase picks from temporary networks
-# params_remap = RemapStationCodesParams(
-#     inputPath='obs/viehla_picks.obs',
-#     outputPath='obs/viehla_picks_updated.obs',
-#     inventoryPath='stations/GLOBAL_inventory.xml'
-# )
-
-# remapStationCodes(params_remap)
-
-# params_merge = MergeExternalPicksParams(
-#     globalPath='obs/GLOBAL.obs',
-#     temporaryPath='obs/viehla_picks_updated.obs',
-#     outputPath='obs/GLOBAL_&temporary.obs'
-# )
-
-# mergeExternalPicks(params_merge)
 
 # Clean the files post-run
 for key in range(1,7):
