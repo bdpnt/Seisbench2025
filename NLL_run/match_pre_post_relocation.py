@@ -18,8 +18,10 @@ Usage
 """
 
 import argparse
+import logging
 import os
 from dataclasses import dataclass
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -30,8 +32,28 @@ from scipy.spatial import cKDTree
 # Module paths
 # ---------------------------------------------------------------------------
 
-_MODULE_DIR   = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_ROOT = os.path.dirname(_MODULE_DIR)
+_MODULE_DIR      = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT    = os.path.dirname(_MODULE_DIR)
+_DEFAULT_LOG_DIR = os.path.join(_MODULE_DIR, 'console_output')
+
+logger = logging.getLogger('match_pre_post_relocation')
+
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
+def _setup_logger(log_dir, output_path):
+    os.makedirs(log_dir, exist_ok=True)
+    basename  = os.path.splitext(os.path.basename(output_path))[0]
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+    handler = logging.FileHandler(log_path, encoding='utf-8')
+    handler.setFormatter(logging.Formatter('%(levelname)s %(message)s'))
+    logger.addHandler(handler)
+    return log_path
 
 
 # ---------------------------------------------------------------------------
@@ -383,6 +405,7 @@ def match_catalogues(
                 f"  DROPPED (duplicate): df1 event at {row1['Time']} "
                 f"(flagged as double of the event at index {i - 1})."
             )
+            logger.info(f"DROPPED (duplicate): df1 event at {row1['Time']}  index={i}")
             continue
 
         t1_ns = row1['Time'].value
@@ -515,6 +538,7 @@ def match_catalogues(
 
                 if choice == 's':
                     print('  → Skipped.\n')
+                    logger.info(f"SKIPPED: df1 event at {row1['Time']}")
                     continue
 
                 if choice == 'sd':
@@ -524,11 +548,21 @@ def match_catalogues(
                         f"Unique phases from BulletinID={pending_extra_bid} "
                         f"will be merged into the next matched event.\n"
                     )
+                    logger.info(
+                        f"SKIPPED as duplicate: df1 event at {row1['Time']}  "
+                        f"BulletinID={pending_extra_bid}"
+                    )
                     continue
 
                 drop_next_as_double = choice.endswith('d')
                 chosen_idx          = int(choice[0]) - 1
                 valid_pos           = [valid_pos[chosen_idx]]
+
+                logger.info(
+                    f"AMBIGUOUS resolved: choice={choice!r}  "
+                    f"df1_time={row1['Time']}  "
+                    f"candidate_time={d2.iloc[valid_pos[0]]['Time']}"
+                )
 
                 if drop_next_as_double:
                     kept_bid = row1['BulletinID'] if 'BulletinID' in row1.index else None
@@ -537,6 +571,10 @@ def match_catalogues(
                         f"  → Assigned Candidate {choice[0]}  +  "
                         f"next df1 event (index {next_i}, Time: {nxt['Time']}) "
                         f"flagged as duplicate.\n"
+                    )
+                    logger.info(
+                        f"DROPPED next event as duplicate: df1 index={next_i}  "
+                        f"time={nxt['Time']}"
                     )
                 else:
                     print(f"  → Assigned Candidate {choice}.\n")
@@ -567,6 +605,10 @@ def match_catalogues(
                     f"(BulletinID={pending_extra_bid}) merged into "
                     f"event BulletinID={kept_bid}."
                 )
+                logger.info(
+                    f"MERGED: {len(extra)} phase(s) from BulletinID={pending_extra_bid} "
+                    f"into BulletinID={kept_bid}"
+                )
             pending_extra_bid = None
 
         elif drop_next_as_double and phase_index:
@@ -593,6 +635,10 @@ def match_catalogues(
                     f"(BulletinID={dropped_bid}) merged into "
                     f"event BulletinID={kept_bid}."
                 )
+                logger.info(
+                    f"MERGED: {len(extra)} phase(s) from BulletinID={dropped_bid} "
+                    f"into BulletinID={kept_bid}"
+                )
 
     if not match_records:
         out_cols = [c for c in d1.columns if c not in update_cols] + update_cols
@@ -608,7 +654,7 @@ def match_catalogues(
     return result
 
 
-def save_bulletin(parameters):
+def save_bulletin(parameters, log_dir=None):
     """
     Match the pre-NLL .obs bulletin to the NLL result file and write the
     updated bulletin to disk.
@@ -616,11 +662,17 @@ def save_bulletin(parameters):
     Parameters
     ----------
     parameters : MatchCatalogsParams
+    log_dir    : str, optional — log directory (default: NLL_run/console_output/)
 
     Returns
     -------
-    dict with keys: output, n_matched
+    dict with keys: output, log, n_matched
     """
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, parameters.save_file)
+    logger.info(f"Obs file     : {parameters.file_obs}")
+    logger.info(f"Final file   : {parameters.file_final}")
+    logger.info(f"Output       : {parameters.save_file}")
+
     obs_df, lines = _read_obs(parameters.file_obs)
     final_df      = _read_final(parameters.file_final)
 
@@ -636,10 +688,11 @@ def save_bulletin(parameters):
     with open(parameters.save_file, 'w') as f:
         f.writelines(updated_bulletin)
 
-    print(f'Successfully saved bulletin @ {parameters.save_file}')
+    logger.info(f"Matched      : {len(matched)} events")
 
     return {
         'output':    parameters.save_file,
+        'log':       log_path,
         'n_matched': len(matched),
     }
 
