@@ -105,7 +105,7 @@ def generate_figure(parameters):
     cumulative_count = [len(bull_df[bull_df.Mag >= mag]) for mag in sorted_mags]
 
     fig = plt.figure(figsize=(5, 6))
-    sns.scatterplot(x=sorted_mags, y=cumulative_count)
+    sns.scatterplot(x=sorted_mags, y=cumulative_count,linewidth=0)
     plt.yscale('log')
     plt.xlabel(f'Magnitude {parameters.mag_type}')
     plt.ylabel('N')
