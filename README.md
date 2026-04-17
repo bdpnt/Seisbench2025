@@ -212,7 +212,7 @@ NLLoc run/run_<N>_PR.in
 
 #### Diagnostic — `NLL_run/export_locdelay_info.py`
 
-Optional utility that reads the LOCDELAY station corrections from second-pass run files and exports them to a CSV, keeping only entries with |residual| > 0.3 s. Useful for identifying stations with systematically biased travel-time residuals.
+Called automatically by `generate_nll_corrections.py` at the end of the second-pass run. Reads the LOCDELAY station corrections from all second-pass run files and exports them to `run/locdelays/locdelay_summary.txt`, keeping only entries with |residual| > 0.3 s. Useful for identifying stations with systematically biased travel-time residuals.
 
 ---
 
