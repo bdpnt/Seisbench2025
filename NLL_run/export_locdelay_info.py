@@ -24,19 +24,41 @@ Usage
 
 import argparse
 import glob
+import logging
 import os
 import re
+from datetime import datetime
 
 # ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
 
-_MODULE_DIR   = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_ROOT = os.path.dirname(_MODULE_DIR)
+_MODULE_DIR      = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT    = os.path.dirname(_MODULE_DIR)
+_DEFAULT_LOG_DIR = os.path.join(_MODULE_DIR, 'console_output')
 
 _DEFAULT_RUN_DIR = os.path.join(_PROJECT_ROOT, 'run')
 _DEFAULT_CODEMAP = os.path.join(_PROJECT_ROOT, 'stations', 'GLOBAL_code_map.txt')
 _DEFAULT_OUTPUT  = os.path.join(_PROJECT_ROOT, 'run', 'locdelays', 'locdelay_summary.txt')
+
+logger = logging.getLogger('export_locdelay_info')
+
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
+def _setup_logger(log_dir, output_path):
+    os.makedirs(log_dir, exist_ok=True)
+    basename  = os.path.splitext(os.path.basename(output_path))[0]
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+    handler = logging.FileHandler(log_path, encoding='utf-8')
+    handler.setFormatter(logging.Formatter('%(levelname)s %(message)s'))
+    logger.addHandler(handler)
+    return log_path
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +146,7 @@ def load_locdelay(path, min_abs_residual=0.3):
 # Public API
 # ---------------------------------------------------------------------------
 
-def export_locdelay_info(run_dir, codemap_path, output_path):
+def export_locdelay_info(run_dir, codemap_path, output_path, log_dir=None):
     """
     Build the annotated LOCDELAY summary and write it to output_path.
 
@@ -133,11 +155,17 @@ def export_locdelay_info(run_dir, codemap_path, output_path):
     run_dir      : str — directory containing run_<N>_PR.in files
     codemap_path : str — path to GLOBAL_code_map.txt
     output_path  : str — path for the output text file
+    log_dir      : str, optional — log directory (default: NLL_run/console_output/)
 
     Returns
     -------
-    dict with keys: output, n_zones, n_stations_total, n_missing
+    dict with keys: output, log, n_zones, n_stations_total, n_missing
     """
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, output_path)
+    logger.info(f"Run dir      : {run_dir}")
+    logger.info(f"Code map     : {codemap_path}")
+    logger.info(f"Output       : {output_path}")
+
     # --- Load code map ---
     code_map = load_code_map(codemap_path)
 
@@ -189,8 +217,13 @@ def export_locdelay_info(run_dir, codemap_path, output_path):
     with open(output_path, 'w') as f:
         f.writelines(output_lines)
 
+    logger.info(f"Zones        : {len(run_files)}")
+    logger.info(f"Station entries : {n_stations_total}")
+    logger.info(f"Missing in codemap : {n_missing}")
+
     return {
         'output':            output_path,
+        'log':               log_path,
         'n_zones':           len(run_files),
         'n_stations_total':  n_stations_total,
         'n_missing':         n_missing,
@@ -213,11 +246,7 @@ def main():
                         help='Output text file path (default: run/locdelays/locdelay_summary.txt)')
     args = parser.parse_args()
 
-    result = export_locdelay_info(args.run_dir, args.codemap, args.output)
-    print(f"Zones processed    : {result['n_zones']}")
-    print(f"Station entries    : {result['n_stations_total']}")
-    print(f"Missing in codemap : {result['n_missing']}")
-    print(f"Output written to  : {result['output']}")
+    export_locdelay_info(args.run_dir, args.codemap, args.output)
 
 
 if __name__ == '__main__':

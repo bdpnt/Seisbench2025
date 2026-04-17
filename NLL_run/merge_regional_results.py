@@ -1,12 +1,12 @@
-#!/usr/bin/env python3
 """
-----------------------
-Merges any number of NonLinLoc relocated bulletin files.
-Duplicate events (shared between overlapping adjacent zones) are detected
-using time and distance thresholds, and only the best-RMS solution is kept.
+merge_regional_results.py
+============================
+Merge any number of NonLinLoc relocated bulletin files into one.
 
-Overlaps are assumed to be only between adjacent files:
-  file1↔file2, file2↔file3, file3↔file4, ...
+Duplicate events shared between overlapping adjacent zones are detected using
+time and distance thresholds. Only the solution with the lower RMS is kept.
+Overlaps are resolved pairwise in adjacency order:
+  file1↔file2, file2↔file3, file3↔file4, …
 
 Bulletin format (space-separated columns):
   YY  MM  DD  HH  MM  SS.ss  lat  lon  depth  mag  rms  npha  erh  erv  gap
@@ -14,17 +14,52 @@ Bulletin format (space-separated columns):
 Year convention:
   YY < 75  →  2000 + YY
   YY >= 75 →  1900 + YY
+
+Usage
+-----
+    python NLL_run/merge_regional_results.py \\
+        RESULT/GLOBAL_1.txt RESULT/GLOBAL_2.txt ... \\
+        -o RESULT/FINAL.txt
 """
 
-import sys
-import math
 import argparse
+import logging
+import math
+import os
+import sys
 from datetime import datetime
 
+# ---------------------------------------------------------------------------
+# Module paths
+# ---------------------------------------------------------------------------
 
-# ─────────────────────────────────────────────────────────────────────────────
+_MODULE_DIR      = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT    = os.path.dirname(_MODULE_DIR)
+_DEFAULT_LOG_DIR = os.path.join(_MODULE_DIR, 'console_output')
+
+logger = logging.getLogger('merge_regional_results')
+
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
+def _setup_logger(log_dir, output_path):
+    os.makedirs(log_dir, exist_ok=True)
+    basename  = os.path.splitext(os.path.basename(output_path))[0]
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+    handler = logging.FileHandler(log_path, encoding='utf-8')
+    handler.setFormatter(logging.Formatter('%(levelname)s %(message)s'))
+    logger.addHandler(handler)
+    return log_path
+
+
+# ---------------------------------------------------------------------------
 # Parsing
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 
 def parse_year(yy: int) -> int:
     """Convert a two-digit year to a four-digit year using the 75-year cutoff convention."""
@@ -39,7 +74,7 @@ def parse_line(line: str, source_file: str):
 
     parts = line.split()
     if len(parts) < 15:
-        print(f"  [WARN] Skipping malformed line in {source_file!r}: {line!r}", file=sys.stderr)
+        logger.warning(f"Skipping malformed line in {source_file!r}: {line!r}")
         return None
 
     try:
@@ -59,7 +94,7 @@ def parse_line(line: str, source_file: str):
         erv  = float(parts[13])
         gap  = float(parts[14])
     except ValueError as e:
-        print(f"  [WARN] Could not parse line in {source_file!r}: {e}", file=sys.stderr)
+        logger.warning(f"Could not parse line in {source_file!r}: {e}")
         return None
 
     year     = parse_year(yy)
@@ -69,7 +104,7 @@ def parse_line(line: str, source_file: str):
     try:
         dt = datetime(year, mo, dd, hh, mm, sec_int, microsec)
     except ValueError as e:
-        print(f"  [WARN] Invalid datetime in {source_file!r}: {e}", file=sys.stderr)
+        logger.warning(f"Invalid datetime in {source_file!r}: {e}")
         return None
 
     return {
@@ -96,13 +131,13 @@ def load_bulletin(filepath: str):
             ev = parse_line(line, filepath)
             if ev:
                 events.append(ev)
-    print(f"  Loaded {len(events):>5d} events from {filepath!r}")
+    logger.info(f"Loaded {len(events):>5d} events from {filepath!r}")
     return events
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 # Distance / time helpers
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 
 def haversine_km(lat1, lon1, lat2, lon2) -> float:
     """Great-circle surface distance in km."""
@@ -126,9 +161,9 @@ def time_diff_seconds(ev1, ev2) -> float:
     return abs((ev1["datetime"] - ev2["datetime"]).total_seconds())
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 # Duplicate detection between exactly two lists
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 
 def find_and_resolve_duplicates(list_a, list_b,
                                 time_thresh_s: float,
@@ -167,10 +202,10 @@ def find_and_resolve_duplicates(list_a, list_b,
                 else:
                     drop_b.add(j)
                     winner, loser = label_a, label_b
-                print(
-                    f"    DUP #{n_dup:04d}  Δt={dt:.2f}s  Δd={dd:.2f}km  "
+                logger.info(
+                    f"DUP #{n_dup:04d}  Δt={dt:.2f}s  Δd={dd:.2f}km  "
                     f"rms_a={ea['rms']:.4f}  rms_b={eb['rms']:.4f}  "
-                    f"→ keep from {winner}, drop from {loser}"
+                    f"keep from {winner}, drop from {loser}"
                 )
                 # One-to-one matching: once ea is matched, move on to next ea
                 break
@@ -180,9 +215,9 @@ def find_and_resolve_duplicates(list_a, list_b,
     return keep_a, keep_b, n_dup
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 # Output
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 
 def format_event(ev) -> str:
     """Reconstruct the original bulletin line (raw copy)."""
@@ -196,12 +231,72 @@ def write_bulletin(events, filepath: str):
     with open(filepath, "w") as fh:
         for ev in events_sorted:
             fh.write(format_event(ev) + "\n")
-    print(f"  Written {len(events_sorted):>5d} events → {filepath!r}")
+    logger.info(f"Written {len(events_sorted):>5d} events → {filepath!r}")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Main
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def merge_bulletins(bulletin_files, output_path,
+                    time_thresh_s=2.0, dist_thresh_km=20.0, log_dir=None):
+    """
+    Load, deduplicate, and merge a list of NLL bulletin files into one.
+
+    Parameters
+    ----------
+    bulletin_files : list[str] — paths to bulletin files, in adjacency order
+    output_path    : str       — path for the merged output file
+    time_thresh_s  : float     — origin-time window for duplicate detection (default: 2 s)
+    dist_thresh_km : float     — 3-D distance threshold for duplicate detection (default: 20 km)
+    log_dir        : str, optional — log directory (default: NLL_run/console_output/)
+
+    Returns
+    -------
+    dict with keys: output, log, n_merged, n_duplicates
+    """
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, output_path)
+
+    n = len(bulletin_files)
+    logger.info(f"Files              : {n}")
+    logger.info(f"Time threshold     : {time_thresh_s} s")
+    logger.info(f"Distance threshold : {dist_thresh_km} km")
+
+    bulletins = [load_bulletin(f) for f in bulletin_files]
+    logger.info(f"Total raw events   : {sum(len(b) for b in bulletins)}")
+
+    # Deduplicate adjacent pairs in a single loop. After resolving pair (i, i+1),
+    # the cleaned version of list i+1 is reused as the left-hand side when
+    # resolving pair (i+1, i+2), so an event already dropped cannot be re-matched.
+    total_dup = 0
+    for i in range(n - 1):
+        label_a = bulletin_files[i]
+        label_b = bulletin_files[i + 1]
+        logger.info(f"Pass {i+1}/{n-1}: {label_a} ↔ {label_b}")
+        bulletins[i], bulletins[i + 1], nd = find_and_resolve_duplicates(
+            bulletins[i], bulletins[i + 1],
+            time_thresh_s, dist_thresh_km,
+            label_a, label_b,
+        )
+        total_dup += nd
+
+    merged = [ev for b in bulletins for ev in b]
+    logger.info(f"Total duplicates removed : {total_dup}")
+    logger.info(f"Events in merged catalog : {len(merged)}")
+
+    write_bulletin(merged, output_path)
+
+    return {
+        'output':       output_path,
+        'log':          log_path,
+        'n_merged':     len(merged),
+        'n_duplicates': total_dup,
+    }
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
 
 def main():
     """Parse CLI arguments, load bulletins, deduplicate adjacent zone pairs, and write the merged output."""
@@ -223,45 +318,7 @@ def main():
         print("ERROR: Please supply at least 2 bulletin files.", file=sys.stderr)
         sys.exit(1)
 
-    n = len(args.bulletins)
-    print(f"\n{'='*60}")
-    print(f"  NonLinLoc Bulletin Merger")
-    print(f"  Files              : {n}")
-    print(f"  Time threshold     : {args.time} s")
-    print(f"  Distance threshold : {args.dist} km")
-    print(f"{'='*60}\n")
-
-    # ── Load all bulletins ────────────────────────────────────────────────────
-    print("[ Loading bulletins ]")
-    bulletins = [load_bulletin(f) for f in args.bulletins]
-    print(f"  Total raw events   : {sum(len(b) for b in bulletins)}\n")
-
-    # ── Deduplicate adjacent pairs in a single loop ───────────────────────────
-    # After resolving pair (i, i+1), the cleaned version of list i+1 is reused
-    # as the left-hand side when resolving pair (i+1, i+2). This ensures that
-    # an event already dropped in a previous pass cannot be re-matched.
-    print("[ Detecting & resolving duplicates ]")
-    total_dup = 0
-
-    for i in range(n - 1):
-        label_a = args.bulletins[i]
-        label_b = args.bulletins[i + 1]
-        print(f"  Pass {i+1}/{n-1}: {label_a} ↔ {label_b}")
-        bulletins[i], bulletins[i + 1], nd = find_and_resolve_duplicates(
-            bulletins[i], bulletins[i + 1],
-            args.time, args.dist,
-            label_a, label_b,
-        )
-        total_dup += nd
-
-    merged = [ev for b in bulletins for ev in b]
-    print(f"\n  Total duplicates removed : {total_dup}")
-    print(f"  Events in merged catalog : {len(merged)}\n")
-
-    # ── Write output ──────────────────────────────────────────────────────────
-    print("[ Writing merged bulletin ]")
-    write_bulletin(merged, args.output)
-    print(f"\nDone. Merged catalog saved to {args.output!r}\n")
+    merge_bulletins(args.bulletins, args.output, args.time, args.dist)
 
 
 if __name__ == "__main__":

@@ -161,3 +161,16 @@ Use `@dataclass` for structured data containers. List fields use `field(default_
 ## Figures
 
 Use `seaborn` to style figures — apply a theme and palette at the top of the plotting function. Always call `plt.close(fig)` after saving to avoid memory leaks.
+
+---
+
+## Scope when applying these conventions
+
+These conventions cover **structure and style only**: module layout, import order, path constants, logger setup, section separators, public API shape, and return dicts.
+
+They do **not** authorise silently changing:
+- Data transformation logic (column indices, filters, arithmetic)
+- Algorithm or matching logic
+- Any existing behaviour that is already correct
+
+When applying PATTERNS.md to an existing script, reformat and restructure. If something in the existing logic looks wrong or improvable, **ask the user before changing it** — do not alter it silently. The user can then verify and confirm or reject the change.

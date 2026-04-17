@@ -7,7 +7,8 @@ For each pick in the input file, this script:
   1. Finds all bulletin events whose origin time falls within 60 s before the pick.
   2. For each candidate, computes the epicentral distance and checks whether the
      observed travel time is consistent with the theoretical bounds from the
-     travel-time table (±0.1 s for P, ±0.3 s for S).
+     travel-time table (±0.1 s for P, ±0.3 s for S), plus ±2.5 s to absorb
+     possible origin-time (t0) error.
   3. If exactly one event passes, checks for duplicates and — if new — appends
      the pick line to that event and updates its PhaseCount.
 
@@ -48,6 +49,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from temp_picks.sort_picks import sort_picks
 
 logger = logging.getLogger('match_picks')
+
+T0_TOL = 2.5   # seconds — extra window to absorb origin-time (t0) error
 
 
 # ---------------------------------------------------------------------------
@@ -368,7 +371,7 @@ def match_picks(pick_file, bulletin_file, inventory_file, tables_file,
                     continue  # station too far from event for this table
                 t_low, t_high = tt
                 obs_tt = (arrival_dt - event.event_dt).total_seconds()
-                if t_low - tol <= obs_tt <= t_high + tol:
+                if t_low - tol - T0_TOL <= obs_tt <= t_high + tol + T0_TOL:
                     passing.append(event)
 
             if len(passing) == 0:

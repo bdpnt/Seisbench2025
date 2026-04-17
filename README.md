@@ -76,7 +76,7 @@ Seisbench2025/
 │
 ├── NLL_run/                  # NonLinLoc workflow modules
 │   ├── generate_regional_runfiles.py
-│   ├── append_ssst_corrections.py
+│   ├── append_station_delays.py
 │   ├── export_locdelay_info.py
 │   ├── parse_nll_output.py
 │   ├── filter_distant_picks.py
@@ -185,7 +185,7 @@ The study area is too large for a single NLL run, so it is divided into **6 geog
 
 #### Pre-run — `prepare_nll_inputs.py`
 
-Calls `NLL_run/generate_regional_runfiles.py` → `genRun()` for each zone:
+Calls `NLL_run/generate_regional_runfiles.py` → `generate_run()` for each zone:
 - Generates `obs/GLOBAL_1.obs` … `obs/GLOBAL_6.obs` (regional subsets, with far picks removed)
 - Generates `stations/GTSRCE_1.txt` … `stations/GTSRCE_6.txt` (station lists)
 - Generates `run/run_1.in` … `run/run_6.in` (NLL configuration files)
@@ -198,9 +198,9 @@ Grid2Time run/run_<N>.in
 NLLoc run/run_<N>.in
 ```
 
-#### Second pass (SSST) — `generate_nll_corrections.py`
+#### Second pass — `generate_nll_corrections.py`
 
-Uses arrival-time residuals from the first run to compute station corrections (SSST), then generates second-pass run files `run/run_<N>_PR.in`.
+Reads per-station average residuals (LOCDELAY entries) from the first run and appends qualifying station delay corrections to generate second-pass run files `run/run_<N>_PR.in`.
 
 Run NLL again:
 

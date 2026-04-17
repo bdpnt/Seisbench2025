@@ -1,37 +1,20 @@
 from NLL_run.parse_nll_output import CleanPostRunParams
-from NLL_run.append_ssst_corrections import SecondRunParams
+from NLL_run.append_station_delays import SecondRunParams
+from NLL_run.export_locdelay_info import export_locdelay_info
 import NLL_run
-# from global_obs.add_temporary_picks import RemapStationCodesParams,MergeExternalPicksParams
-# from global_obs.add_temporary_picks import remapStationCodes,mergeExternalPicks
 
-# # Add phase picks from temporary networks
-# params_remap = RemapStationCodesParams(
-#     inputPath='obs/viehla_picks.obs',
-#     outputPath='obs/viehla_picks_updated.obs',
-#     inventoryPath='stations/GLOBAL_inventory.xml'
-# )
-
-# remapStationCodes(params_remap)
-
-# params_merge = MergeExternalPicksParams(
-#     globalPath='obs/GLOBAL.obs',
-#     temporaryPath='obs/viehla_picks_updated.obs',
-#     outputPath='obs/GLOBAL_&temporary.obs'
-# )
-
-# mergeExternalPicks(params_merge)
-
-# Clean the files post-run
+# For all areas
 for key in range(1,7):
+    # Clean the files post-run
     params_clean = CleanPostRunParams(
         folderLoc = f'loc/GLOBAL_{key}',
         obsFile = f'GLOBAL_{key}.obs',
         fileBulletin = f'RESULT/GLOBAL_{key}.txt',
     )
 
-    NLL_run.parse_nll_output.writeEvents(params_clean)
+    NLL_run.parse_nll_output.write_events(params_clean)
 
-    # Generate the SSST run files (for now, only second normal NLL run)
+    # Generate the second-pass run file
     params_ssst_W = SecondRunParams(
         locFolderName = f'loc/GLOBAL_{key}', # loc folder to use
         fileRunName = f'run/run_{key}.in', # run file to use
@@ -40,4 +23,11 @@ for key in range(1,7):
         minPhases = 100, # minimal number of phases for the delay to be used
     )
 
-    NLL_run.append_ssst_corrections.genRun(params_ssst_W)
+    NLL_run.append_station_delays.append_station_delays(params_ssst_W)
+
+# Export the locdelays
+export_locdelay_info(
+    run_dir      = 'run',
+    codemap_path = 'stations/GLOBAL_code_map.txt',
+    output_path  = 'run/locdelays/locdelay_summary.txt',
+)

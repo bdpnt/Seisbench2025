@@ -43,7 +43,7 @@ The study area is too large for a single NLL run, so it is split into **6 geogra
   Grid2Time run/<runfile.in>
   NLLoc run/<runfile.in>
   ```
-- **`generate_nll_corrections.py`** — generates second-pass run files using SSST (Static Station Set Travel-time) corrections from the first run
+- **`generate_nll_corrections.py`** — generates second-pass run files by appending per-station delay corrections derived from first-run arrival-time residuals
 - Second pass: same external commands repeated
 
 ### 5. Post-relocation Processing
@@ -76,7 +76,7 @@ A self-contained sub-pipeline for ingesting picks from external sources into `GL
 |--------|------|
 | `build_theoretical_tables.py` | Runs Pyrocko's `cake` CLI to compute P/S travel-time envelopes (±5% velocity, 0–100 km) → `temp_picks/tables_Pyr.csv` |
 | `convert_picks.py` | Converts external pick files to `.obs` pick line format; maps station names to internal codes via `GLOBAL_code_map.txt`. Format `TEMP_OBS` is currently supported; new formats are registered in `FORMAT_HANDLERS`. |
-| `match_picks.py` | Matches converted picks to bulletin events: 60 s time window + residual filter (±0.1 s P, ±0.3 s S); appends new picks and updates `PhaseCount`; auto-sorts output via `sort_picks`. |
+| `match_picks.py` | Matches converted picks to bulletin events: 60 s time window + residual filter (±0.1 s P, ±0.3 s S, plus ±2.5 s t0-error margin); appends new picks and updates `PhaseCount`; auto-sorts output via `sort_picks`. |
 | `sort_picks.py` | Sorts pick lines within each event block by ascending arrival time. |
 | `plot_travel_times.py` | QC figure: scatter of observed (distance, travel time) picks over theoretical P/S bands. |
 
