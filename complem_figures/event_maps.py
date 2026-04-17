@@ -9,9 +9,18 @@ station positions and zone-boundary rectangles.
 
 Usage
 -----
+    # .obs bulletin (no zone boxes)
     python complem_figures/event_maps.py \\
         --bulletin  obs/FINAL.obs \\
         --output    complem_figures/event_maps/FINAL.pdf
+
+    # .txt result with stations and zone boxes
+    python complem_figures/event_maps.py \\
+        --bulletin   RESULT/GLOBAL_1_PR.txt \\
+        --output     complem_figures/event_maps/GLOBAL_1_PR.pdf \\
+        --stations   loc/GLOBAL_1/last.stations \\
+        --region-in  42.50 -2.00 43.50 -0.75 \\
+        --region-out 41.60 -3.22 44.40  0.46
 """
 
 import argparse
@@ -38,9 +47,9 @@ _PROJECT_ROOT = os.path.dirname(_MODULE_DIR)
 class EventMapsParams:
     fileBulletin: str
     figSave:      str
-    fileStations: Optional[str]  = None
-    region_in:    Optional[list] = None
-    region_out:   Optional[list] = None
+    fileStations: Optional[str]   = None
+    region_in:    Optional[tuple] = None  # ((lat_min, lon_min), (lat_max, lon_max))
+    region_out:   Optional[tuple] = None  # ((lat_min, lon_min), (lat_max, lon_max))
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +88,7 @@ def generate_figure(parameters):
         with open(parameters.fileBulletin, 'r', encoding='utf-8') as f:
             lines = f.readlines()
         print(f"Catalog read @ {parameters.fileBulletin}")
-        events = [line.split() for line in lines]
+        events = [event.split() for event in lines]
         events_df = (
             pd.DataFrame(events)
             .drop(columns=[0, 1, 2, 3, 4, 5, 11])
@@ -167,20 +176,52 @@ def main():
     parser = argparse.ArgumentParser(
         description='Generate a PyGMT depth-coloured event map.'
     )
-    parser.add_argument('--bulletin',  required=True,
+    parser.add_argument('--bulletin',   required=True,
                         help='Input bulletin file (.txt NLL result or .obs)')
-    parser.add_argument('--output',    required=True,
+    parser.add_argument('--output',     required=True,
                         help='Output figure path (PDF or PNG)')
-    parser.add_argument('--stations',  default=None,
+    parser.add_argument('--stations',   default=None,
                         help='Optional last.stations file to overlay station positions')
+    parser.add_argument('--region-in',  nargs=4, type=float,
+                        metavar=('LAT_MIN', 'LON_MIN', 'LAT_MAX', 'LON_MAX'),
+                        default=None,
+                        help='Inner zone box corners: lat_min lon_min lat_max lon_max')
+    parser.add_argument('--region-out', nargs=4, type=float,
+                        metavar=('LAT_MIN', 'LON_MIN', 'LAT_MAX', 'LON_MAX'),
+                        default=None,
+                        help='Outer zone box corners: lat_min lon_min lat_max lon_max')
     args = parser.parse_args()
+
+    ri = args.region_in
+    ro = args.region_out
 
     generate_figure(EventMapsParams(
         fileBulletin = args.bulletin,
         figSave      = args.output,
         fileStations = args.stations,
+        region_in    = ((ri[0], ri[1]), (ri[2], ri[3])) if ri else None,
+        region_out   = ((ro[0], ro[1]), (ro[2], ro[3])) if ro else None,
     ))
 
 
 if __name__ == '__main__':
     main()
+
+    ''' ALL OPTIONS TO USE
+    all_runs = {
+        "1": ("RESULT/GLOBAL_1.txt", "loc/GLOBAL_1/last.stations", "complem_figures/event_maps/GLOBAL_1.pdf",
+              ((42.50, -2.00), (43.50, -0.75)), ((41.60, -3.22), (44.40, 0.46))),
+        "2": ("RESULT/GLOBAL_2.txt", "loc/GLOBAL_2/last.stations", "complem_figures/event_maps/GLOBAL_2.pdf",
+              ((42.50, -1.00), (43.25, 0.50)), ((41.60, -2.22), (44.15, 1.71))),
+        "3": ("RESULT/GLOBAL_3.txt", "loc/GLOBAL_3/last.stations", "complem_figures/event_maps/GLOBAL_3.pdf",
+              ((42.00, 0.25), (43.25, 1.00)), ((41.10, -0.96), (44.15, 2.20))),
+        "4": ("RESULT/GLOBAL_4.txt", "loc/GLOBAL_4/last.stations", "complem_figures/event_maps/GLOBAL_4.pdf",
+              ((42.00, 0.75), (43.00, 2.25)), ((41.10, -0.46), (43.90, 3.45))),
+        "5": ("RESULT/GLOBAL_5.txt", "loc/GLOBAL_5/last.stations", "complem_figures/event_maps/GLOBAL_5.pdf",
+              ((42.00, 2.00), (43.00, 3.50)), ((41.10, 0.79), (43.90, 4.70))),
+        "6": ("RESULT/GLOBAL_6.txt", "loc/GLOBAL_6/last.stations", "complem_figures/event_maps/GLOBAL_6.pdf",
+              ((42.75, 2.25), (43.75, 3.50)), ((41.85, 1.03), (44.65, 4.75))),
+        "Final": ("obs/FINAL.obs", None, "complem_figures/event_maps/FINAL.pdf",
+                  None, None),
+    }
+    '''
