@@ -32,6 +32,7 @@ Adding a new format
 import argparse
 import logging
 import os
+from collections import Counter
 from datetime import datetime, timezone
 
 logger = logging.getLogger('convert_picks')
@@ -226,7 +227,7 @@ def convert_temp_obs(line, code_map, skipped_stations=None):
     internal_code = resolve_station(short_name, date, code_map)
     if internal_code is None:
         if skipped_stations is not None:
-            skipped_stations.add(short_name)
+            skipped_stations[short_name] += 1
         return None
 
     return _format_pick_line(internal_code, phase, date, hhmm, seconds_str, error_str, 'TEMP_OBS')
@@ -272,7 +273,7 @@ def convert_temp_rsb(line, code_map, skipped_stations=None):
     internal_code = resolve_station(short_name, date, code_map)
     if internal_code is None:
         if skipped_stations is not None:
-            skipped_stations.add(short_name)
+            skipped_stations[short_name] += 1
         return None
 
     return _format_pick_line(internal_code, phase, date, hhmm, seconds_str, error_str, 'TEMP_RSB')
@@ -371,7 +372,7 @@ def convert_file(input_path, fmt, output_path=None, codemap_path=None, log_dir=N
 
     fmt_handler      = FORMAT_HANDLERS[fmt]
     converted        = []
-    skipped_stations = set()
+    skipped_stations = Counter()
     n_input          = 0
     n_skipped        = 0
 
@@ -396,7 +397,8 @@ def convert_file(input_path, fmt, output_path=None, codemap_path=None, log_dir=N
     logger.info(f"Skipped          : {n_skipped}")
     logger.info(f"Output           : {output_path}")
     if skipped_stations:
-        logger.warning(f"Stations not found in code map ({len(skipped_stations)}): {', '.join(sorted(skipped_stations))}")
+        summary = ', '.join(f"{s} ({n})" for s, n in sorted(skipped_stations.items()))
+        logger.warning(f"Stations not found in code map ({len(skipped_stations)} unique): {summary}")
 
     return {
         'output':      output_path,
