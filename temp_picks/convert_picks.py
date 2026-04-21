@@ -203,7 +203,7 @@ def _format_pick_line(internal_code, phase, date, hhmm, seconds_str, error_str, 
 # Format handlers
 # ---------------------------------------------------------------------------
 
-def convert_temp_obs(line, code_map):
+def convert_temp_obs(line, code_map, skipped_stations=None):
     """
     Convert a single pick line from TEMP_OBS format to GLOBAL.obs format.
 
@@ -225,13 +225,14 @@ def convert_temp_obs(line, code_map):
 
     internal_code = resolve_station(short_name, date, code_map)
     if internal_code is None:
-        logger.warning(f"Station '{short_name}' not found in code map. Skipping.")
+        if skipped_stations is not None:
+            skipped_stations.add(short_name)
         return None
 
     return _format_pick_line(internal_code, phase, date, hhmm, seconds_str, error_str, 'TEMP_OBS')
 
 
-def convert_temp_rsb(line, code_map):
+def convert_temp_rsb(line, code_map, skipped_stations=None):
     """
     Convert a single pick line from RaspberryShake/PhaseNet format to GLOBAL.obs format.
 
@@ -270,7 +271,8 @@ def convert_temp_rsb(line, code_map):
 
     internal_code = resolve_station(short_name, date, code_map)
     if internal_code is None:
-        logger.warning(f"Station '{short_name}' not found in code map. Skipping.")
+        if skipped_stations is not None:
+            skipped_stations.add(short_name)
         return None
 
     return _format_pick_line(internal_code, phase, date, hhmm, seconds_str, error_str, 'TEMP_RSB')
@@ -367,10 +369,11 @@ def convert_file(input_path, fmt, output_path=None, codemap_path=None, log_dir=N
     code_map = load_code_map(codemap_path)
     logger.info(f"{sum(len(v) for v in code_map.values())} entries for {len(code_map)} unique station names.")
 
-    fmt_handler = FORMAT_HANDLERS[fmt]
-    converted   = []
-    n_input     = 0
-    n_skipped   = 0
+    fmt_handler      = FORMAT_HANDLERS[fmt]
+    converted        = []
+    skipped_stations = set()
+    n_input          = 0
+    n_skipped        = 0
 
     with open(input_path, 'r') as f:
         for raw_line in f:
@@ -378,7 +381,7 @@ def convert_file(input_path, fmt, output_path=None, codemap_path=None, log_dir=N
             if not line.strip() or line.lstrip().startswith('#'):
                 continue
             n_input += 1
-            result = fmt_handler(line, code_map)
+            result = fmt_handler(line, code_map, skipped_stations)
             if result is not None:
                 converted.append(result)
             else:
@@ -392,6 +395,8 @@ def convert_file(input_path, fmt, output_path=None, codemap_path=None, log_dir=N
     logger.info(f"Converted        : {len(converted)}")
     logger.info(f"Skipped          : {n_skipped}")
     logger.info(f"Output           : {output_path}")
+    if skipped_stations:
+        logger.warning(f"Stations not found in code map ({len(skipped_stations)}): {', '.join(sorted(skipped_stations))}")
 
     return {
         'output':      output_path,
