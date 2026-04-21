@@ -3,8 +3,8 @@ merge_pyrenees_picks.py
 ============================
 Merge RaspberryShake/PhaseNet pick files into two consolidated text files.
 
-Reads all .txt pick files from picks_stations_pyrenees/ and
-picks_stations_pyrenees2/ and concatenates them into two merged output files,
+Reads all .txt pick files from picks_station_pyrenees/ and
+picks_station_pyrenees2/ and concatenates them into two merged output files,
 one per source directory. No format conversion is done here; use
 convert_picks.py with --format TEMP_RSB to convert the merged files to
 GLOBAL.obs format.
@@ -26,14 +26,14 @@ _MODULE_DIR   = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.dirname(_MODULE_DIR)
 
 _DEFAULT_INPUT_DIR  = os.path.join(_MODULE_DIR, 'all_picks', 'PICKS_PHASENET_TOUS')
-_DEFAULT_OUTPUT_DIR = os.path.join(_MODULE_DIR, 'all_picks')
+_DEFAULT_OUTPUT_DIR = os.path.join(_MODULE_DIR, 'pick_files')
 _DEFAULT_LOG_DIR    = os.path.join(_MODULE_DIR, 'console_output')
 
 logger = logging.getLogger('merge_pyrenees_picks')
 
 _SOURCE_DIRS = [
-    ('picks_stations_pyrenees',  'merged_pyrenees.txt'),
-    ('picks_stations_pyrenees2', 'merged_pyrenees2.txt'),
+    ('picks_station_pyrenees',  'merged_pyrenees.txt'),
+    ('picks_station_pyrenees2', 'merged_pyrenees2.txt'),
 ]
 
 
@@ -87,7 +87,7 @@ def merge_all(input_dir=None, output_dir=None, log_dir=None):
     """
     Merge all RaspberryShake/PhaseNet pick files into two consolidated files.
 
-    Processes picks_stations_pyrenees/ and picks_stations_pyrenees2/ separately,
+    Processes picks_station_pyrenees/ and picks_station_pyrenees2/ separately,
     writing one merged .txt file per source directory.
 
     Parameters
@@ -150,7 +150,7 @@ def main():
     )
     parser.add_argument(
         '--input-dir', default=None,
-        help='Base directory containing picks_stations_pyrenees/ and picks_stations_pyrenees2/.'
+        help='Base directory containing picks_station_pyrenees/ and picks_station_pyrenees2/.'
     )
     parser.add_argument(
         '--output-dir', default=None,
