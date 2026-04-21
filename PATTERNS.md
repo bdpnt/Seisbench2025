@@ -79,11 +79,19 @@ Pure utility or visualization scripts that do not need persistent logs use plain
 
 ## Section separators
 
+Use section separators to group related code whenever a script has distinct logical blocks:
+
 ```python
 # ---------------------------------------------------------------------------
 # Section name
 # ---------------------------------------------------------------------------
 ```
+
+Two sections are **mandatory** in every script:
+- `# Public API` — contains the callable function(s) exposed to other modules
+- `# CLI entry point` — contains `main()` and the `if __name__` guard
+
+Other sections (e.g. `# Internal helpers`, `# Constants`, `# Format handlers`) are used as needed when the script is large enough to benefit from them.
 
 ---
 
@@ -93,8 +101,6 @@ Every script exposes:
 1. A named public function — the real implementation.
 2. A thin `main()` that parses `argparse` and calls it.
 3. `if __name__ == '__main__': main()` at the bottom.
-
-The public function(s) must live under a `# Public API` section separator so they are immediately discoverable when reading or importing the module. Internal helpers go under `# Internal helpers` (prefixed with `_`). The CLI entry point goes under `# CLI entry point`.
 
 ```python
 def do_thing(input_path, output_path=None, log_dir=None):
