@@ -32,7 +32,7 @@ _DEFAULT_LOG_DIR   = os.path.join(_MODULE_DIR, 'console_output')
 STATIONS_TO_DROP = {'SMC'}
 
 # Add years (as strings) here to exclude them from the merged output (permanent exclusions)
-YEARS_TO_DROP = set('2026')
+YEARS_TO_DROP = set()
 
 logger = logging.getLogger('merge_omp_picks')
 

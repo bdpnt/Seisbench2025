@@ -73,37 +73,45 @@ def load_code_map(codemap_path):
     with open(codemap_path, 'r') as f:
         lines = f.readlines()
 
+    def _save(internal_code, canonical_code, start_dt, end_dt):
+        if not canonical_code:
+            return
+        short_name = canonical_code.split('.')[-1]
+        code_map.setdefault(short_name, []).append({
+            'internal_code': internal_code,
+            'start':         start_dt,
+            'end':           end_dt,
+        })
+
     i = 0
     while i < len(lines):
         line = lines[i].strip()
-        if line.startswith('Alternate Code:'):
-            internal_code  = line.split(':', 1)[1].strip()
-            canonical_code = None
-            start_dt       = None
-            end_dt         = None
+        if not line.startswith('Alternate Code:'):
+            i += 1
+            continue
 
-            for j in range(1, 4):
-                if i + j >= len(lines):
-                    break
-                sub = lines[i + j].strip()
-                if sub.startswith('Station Code:'):
-                    canonical_code = sub.split(':', 1)[1].strip()
-                elif sub.startswith('Start Date:'):
-                    start_dt = _parse_map_date(sub.split(':', 1)[1].strip())
-                elif sub.startswith('End Date:'):
-                    end_dt = _parse_map_date(sub.split(':', 1)[1].strip())
-
-            if canonical_code:
-                short_name = canonical_code.split('.')[-1]
-                if short_name not in code_map:
-                    code_map[short_name] = []
-                code_map[short_name].append({
-                    'internal_code': internal_code,
-                    'start':         start_dt,
-                    'end':           end_dt,
-                })
-
+        internal_code  = line.split(':', 1)[1].strip()
+        canonical_code = None
+        start_dt       = None
+        end_dt         = None
         i += 1
+
+        while i < len(lines):
+            sub = lines[i].strip()
+            if sub.startswith('Alternate Code:'):
+                break
+            if sub.startswith('Station Code:'):
+                _save(internal_code, canonical_code, start_dt, end_dt)
+                canonical_code = sub.split(':', 1)[1].strip()
+                start_dt = None
+                end_dt   = None
+            elif sub.startswith('Start Date:'):
+                start_dt = _parse_map_date(sub.split(':', 1)[1].strip())
+            elif sub.startswith('End Date:'):
+                end_dt = _parse_map_date(sub.split(':', 1)[1].strip())
+            i += 1
+
+        _save(internal_code, canonical_code, start_dt, end_dt)
 
     return code_map
 
