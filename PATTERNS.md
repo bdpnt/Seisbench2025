@@ -79,11 +79,19 @@ Pure utility or visualization scripts that do not need persistent logs use plain
 
 ## Section separators
 
+Use section separators to group related code whenever a script has distinct logical blocks:
+
 ```python
 # ---------------------------------------------------------------------------
 # Section name
 # ---------------------------------------------------------------------------
 ```
+
+Two sections are **mandatory** in every script:
+- `# Public API` — contains the callable function(s) exposed to other modules
+- `# CLI entry point` — contains `main()` and the `if __name__` guard
+
+Other sections (e.g. `# Internal helpers`, `# Constants`, `# Format handlers`) are used as needed when the script is large enough to benefit from them.
 
 ---
 

@@ -11,12 +11,18 @@ pick line format.
 Usage
 -----
     python temp_picks/convert_picks.py --input temp_picks/pick_files/viehla_final.obs --format TEMP_OBS
+    python temp_picks/convert_picks.py --input temp_picks/pick_files/merged_pyrenees.txt --format TEMP_RSB
+    python temp_picks/convert_picks.py --input temp_picks/pick_files/merged_omp.csv --format TEMP_OMP
 
 Supported formats
 -----------------
     TEMP_OBS : OBS-style .obs file with short station names and floating-point
                year/month/day fields in event headers. Used by Viehla and similar
                generated pick files.
+    TEMP_RSB : RaspberryShake/PhaseNet pick files. One pick per line with format:
+               NETWORK.STATION.LOCATION PHASE ISO8601_TIMESTAMP prob=PROBABILITY
+    TEMP_OMP : OMP/PhaseNet CSV files produced by merge_omp_picks.py. Columns used:
+               station_id (fields 0-3), phase_time, phase_type.
 
 Adding a new format
 -------------------
@@ -29,6 +35,7 @@ Adding a new format
 import argparse
 import logging
 import os
+from collections import Counter
 from datetime import datetime, timezone
 
 logger = logging.getLogger('convert_picks')
@@ -66,37 +73,45 @@ def load_code_map(codemap_path):
     with open(codemap_path, 'r') as f:
         lines = f.readlines()
 
+    def _save(internal_code, canonical_code, start_dt, end_dt):
+        if not canonical_code:
+            return
+        short_name = canonical_code.split('.')[-1]
+        code_map.setdefault(short_name, []).append({
+            'internal_code': internal_code,
+            'start':         start_dt,
+            'end':           end_dt,
+        })
+
     i = 0
     while i < len(lines):
         line = lines[i].strip()
-        if line.startswith('Alternate Code:'):
-            internal_code  = line.split(':', 1)[1].strip()
-            canonical_code = None
-            start_dt       = None
-            end_dt         = None
+        if not line.startswith('Alternate Code:'):
+            i += 1
+            continue
 
-            for j in range(1, 4):
-                if i + j >= len(lines):
-                    break
-                sub = lines[i + j].strip()
-                if sub.startswith('Station Code:'):
-                    canonical_code = sub.split(':', 1)[1].strip()
-                elif sub.startswith('Start Date:'):
-                    start_dt = _parse_map_date(sub.split(':', 1)[1].strip())
-                elif sub.startswith('End Date:'):
-                    end_dt = _parse_map_date(sub.split(':', 1)[1].strip())
-
-            if canonical_code:
-                short_name = canonical_code.split('.')[-1]
-                if short_name not in code_map:
-                    code_map[short_name] = []
-                code_map[short_name].append({
-                    'internal_code': internal_code,
-                    'start':         start_dt,
-                    'end':           end_dt,
-                })
-
+        internal_code  = line.split(':', 1)[1].strip()
+        canonical_code = None
+        start_dt       = None
+        end_dt         = None
         i += 1
+
+        while i < len(lines):
+            sub = lines[i].strip()
+            if sub.startswith('Alternate Code:'):
+                break
+            if sub.startswith('Station Code:'):
+                _save(internal_code, canonical_code, start_dt, end_dt)
+                canonical_code = sub.split(':', 1)[1].strip()
+                start_dt = None
+                end_dt   = None
+            elif sub.startswith('Start Date:'):
+                start_dt = _parse_map_date(sub.split(':', 1)[1].strip())
+            elif sub.startswith('End Date:'):
+                end_dt = _parse_map_date(sub.split(':', 1)[1].strip())
+            i += 1
+
+        _save(internal_code, canonical_code, start_dt, end_dt)
 
     return code_map
 
@@ -109,13 +124,13 @@ def _parse_map_date(date_str):
         return None
 
 
-def resolve_station(short_name, pick_date_str, code_map):
+def resolve_station(short_name, pick_date_str, code_map, fallback_counter=None):
     """
     Return the project internal station code for a short station name.
 
     Uses the pick date to select the correct entry when multiple time windows
-    exist for the same station. Falls back to the last entry with a warning
-    if no date-matched entry is found.
+    exist for the same station. Falls back to the last entry if no date-matched
+    entry is found; increments fallback_counter[short_name] when provided.
 
     Parameters
     ----------
@@ -125,6 +140,9 @@ def resolve_station(short_name, pick_date_str, code_map):
         Pick date in YYYYMMDD format (e.g. '20201204').
     code_map : dict
         Lookup dict from load_code_map().
+    fallback_counter : Counter, optional
+        If provided, incremented when the date-window match fails and the
+        most-recent-entry fallback is used. Caller logs the summary.
 
     Returns
     -------
@@ -147,8 +165,8 @@ def resolve_station(short_name, pick_date_str, code_map):
             if start and end and start <= pick_dt <= end:
                 return entry['internal_code']
 
-    # Fallback: most recent entry
-    logger.warning(f"No date-matched entry for '{short_name}' on {pick_date_str}. Using most recent.")
+    if fallback_counter is not None:
+        fallback_counter[short_name] += 1
     return entries[-1]['internal_code']
 
 
@@ -200,7 +218,7 @@ def _format_pick_line(internal_code, phase, date, hhmm, seconds_str, error_str, 
 # Format handlers
 # ---------------------------------------------------------------------------
 
-def convert_temp_obs(line, code_map):
+def convert_temp_obs(line, code_map, skipped_stations=None, fallback_counter=None):
     """
     Convert a single pick line from TEMP_OBS format to GLOBAL.obs format.
 
@@ -220,12 +238,109 @@ def convert_temp_obs(line, code_map):
     seconds_str = parts[8]   # SS.SSSS
     error_str   = parts[10]  # E.EEe+EE (e.g. 0.05e+00)
 
-    internal_code = resolve_station(short_name, date, code_map)
+    internal_code = resolve_station(short_name, date, code_map, fallback_counter)
     if internal_code is None:
-        logger.warning(f"Station '{short_name}' not found in code map. Skipping.")
+        if skipped_stations is not None:
+            skipped_stations[short_name] += 1
         return None
 
     return _format_pick_line(internal_code, phase, date, hhmm, seconds_str, error_str, 'TEMP_OBS')
+
+
+def convert_temp_rsb(line, code_map, skipped_stations=None, fallback_counter=None):
+    """
+    Convert a single pick line from RaspberryShake/PhaseNet format to GLOBAL.obs format.
+
+    TEMP_RSB source format (space-delimited):
+        NETWORK.STATION.LOCATION PHASE ISO8601_TIMESTAMP prob=PROBABILITY
+
+    Pick uncertainty: 0.05 s for P, 0.15 s for S (PhaseNet probability
+    is a detection confidence, not a timing error estimate).
+    """
+    parts = line.split()
+    if len(parts) < 3:
+        return None
+
+    station_field = parts[0]
+    phase         = parts[1]
+    timestamp     = parts[2]
+
+    station_parts = station_field.split('.')
+    if len(station_parts) < 2:
+        return None
+    short_name = station_parts[1]
+
+    try:
+        dt = datetime.strptime(timestamp, '%Y-%m-%dT%H:%M:%S.%f')
+    except ValueError:
+        try:
+            dt = datetime.strptime(timestamp, '%Y-%m-%dT%H:%M:%S')
+        except ValueError:
+            logger.warning(f"Cannot parse timestamp '{timestamp}'. Skipping.")
+            return None
+
+    date        = dt.strftime('%Y%m%d')
+    hhmm        = dt.strftime('%H%M')
+    seconds_str = f"{dt.second + dt.microsecond / 1e6:.3f}"
+    error_str   = '0.05' if phase == 'P' else '0.15'
+
+    internal_code = resolve_station(short_name, date, code_map, fallback_counter)
+    if internal_code is None:
+        if skipped_stations is not None:
+            skipped_stations[short_name] += 1
+        return None
+
+    return _format_pick_line(internal_code, phase, date, hhmm, seconds_str, error_str, 'TEMP_RSB')
+
+
+def convert_temp_omp(line, code_map, skipped_stations=None, fallback_counter=None):
+    """
+    Convert a single pick line from OMP/PhaseNet CSV format to GLOBAL.obs format.
+
+    TEMP_OMP source format (CSV columns):
+        file_name, begin_time, station_id, phase_index, phase_time,
+        phase_score, phase_ampl, phase_type
+
+    Station short name is field [1] of station_id (e.g. 'ARBS' from
+    'CA.ARBS.00.HHX.D.2017.100'). Pick uncertainty: 0.05 s for P, 0.15 s for S.
+    """
+    if line.startswith('file_name,'):
+        return None
+
+    parts = line.split(',')
+    if len(parts) < 8:
+        return None
+
+    station_id = parts[2]
+    phase_time = parts[4]
+    phase_type = parts[7].strip()
+
+    station_parts = station_id.split('.')
+    if len(station_parts) < 2:
+        return None
+    short_name = station_parts[1]
+
+    try:
+        dt = datetime.strptime(phase_time, '%Y-%m-%dT%H:%M:%S.%f')
+    except ValueError:
+        try:
+            dt = datetime.strptime(phase_time, '%Y-%m-%dT%H:%M:%S')
+        except ValueError:
+            logger.warning(f"Cannot parse timestamp '{phase_time}'. Skipping.")
+            return None
+
+    date        = dt.strftime('%Y%m%d')
+    hhmm        = dt.strftime('%H%M')
+    seconds_str = f"{dt.second + dt.microsecond / 1e6:.3f}"
+    error_str   = '0.05' if phase_type == 'P' else '0.15'
+
+    internal_code = resolve_station(short_name, date, code_map, fallback_counter)
+    if internal_code is None:
+        if skipped_stations is not None:
+            skipped_stations[short_name] += 1
+        return None
+
+    return _format_pick_line(internal_code, phase_type, date, hhmm, seconds_str, error_str, 'TEMP_OMP')
 
 
 # ---------------------------------------------------------------------------
@@ -234,6 +349,8 @@ def convert_temp_obs(line, code_map):
 
 FORMAT_HANDLERS = {
     'TEMP_OBS': convert_temp_obs,
+    'TEMP_RSB': convert_temp_rsb,
+    'TEMP_OMP': convert_temp_omp,
 }
 
 
@@ -316,12 +433,15 @@ def convert_file(input_path, fmt, output_path=None, codemap_path=None, log_dir=N
 
     logger.info(f"Loading station code map: {codemap_path}")
     code_map = load_code_map(codemap_path)
-    logger.info(f"{sum(len(v) for v in code_map.values())} entries for {len(code_map)} unique station names.")
+    n_windows = sum(len(v) for v in code_map.values())
+    logger.info(f"Code map loaded: {len(code_map)} station names, {n_windows} validity windows.")
 
-    fmt_handler = FORMAT_HANDLERS[fmt]
-    converted   = []
-    n_input     = 0
-    n_skipped   = 0
+    fmt_handler      = FORMAT_HANDLERS[fmt]
+    converted        = []
+    skipped_stations = Counter()
+    fallback_counter = Counter()
+    n_input          = 0
+    n_skipped        = 0
 
     with open(input_path, 'r') as f:
         for raw_line in f:
@@ -329,7 +449,7 @@ def convert_file(input_path, fmt, output_path=None, codemap_path=None, log_dir=N
             if not line.strip() or line.lstrip().startswith('#'):
                 continue
             n_input += 1
-            result = fmt_handler(line, code_map)
+            result = fmt_handler(line, code_map, skipped_stations, fallback_counter)
             if result is not None:
                 converted.append(result)
             else:
@@ -343,6 +463,12 @@ def convert_file(input_path, fmt, output_path=None, codemap_path=None, log_dir=N
     logger.info(f"Converted        : {len(converted)}")
     logger.info(f"Skipped          : {n_skipped}")
     logger.info(f"Output           : {output_path}")
+    if skipped_stations:
+        summary = ', '.join(f"{s} ({n})" for s, n in sorted(skipped_stations.items()))
+        logger.warning(f"Stations not found in code map ({len(skipped_stations)} unique): {summary}")
+    if fallback_counter:
+        summary = ', '.join(f"{s} ({n})" for s, n in sorted(fallback_counter.items()))
+        logger.warning(f"Stations resolved with date fallback ({len(fallback_counter)} unique): {summary}")
 
     return {
         'output':      output_path,
