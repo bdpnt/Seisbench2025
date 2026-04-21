@@ -28,11 +28,11 @@ _DEFAULT_INPUT_DIR = os.path.join(_MODULE_DIR, 'all_picks', 'PICKS_PHASENET_TOUS
 _DEFAULT_OUTPUT    = os.path.join(_MODULE_DIR, 'pick_files', 'merged_omp.csv')
 _DEFAULT_LOG_DIR   = os.path.join(_MODULE_DIR, 'console_output')
 
-# Add station codes here to exclude them from the merged output
+# Add station codes here to exclude them from the merged output (permanent exclusions)
 STATIONS_TO_DROP = {'SMC'}
 
-# Add years (as strings) here to exclude them from the merged output
-YEARS_TO_DROP = set()
+# Add years (as strings) here to exclude them from the merged output (permanent exclusions)
+YEARS_TO_DROP = set('2026')
 
 logger = logging.getLogger('merge_omp_picks')
 
