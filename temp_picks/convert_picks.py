@@ -11,12 +11,15 @@ pick line format.
 Usage
 -----
     python temp_picks/convert_picks.py --input temp_picks/pick_files/viehla_final.obs --format TEMP_OBS
+    python temp_picks/convert_picks.py --input temp_picks/all_picks/merged_pyrenees.txt --format TEMP_RSB
 
 Supported formats
 -----------------
     TEMP_OBS : OBS-style .obs file with short station names and floating-point
                year/month/day fields in event headers. Used by Viehla and similar
                generated pick files.
+    TEMP_RSB : RaspberryShake/PhaseNet pick files. One pick per line with format:
+               NETWORK.STATION.LOCATION PHASE ISO8601_TIMESTAMP prob=PROBABILITY
 
 Adding a new format
 -------------------
@@ -228,12 +231,58 @@ def convert_temp_obs(line, code_map):
     return _format_pick_line(internal_code, phase, date, hhmm, seconds_str, error_str, 'TEMP_OBS')
 
 
+def convert_temp_rsb(line, code_map):
+    """
+    Convert a single pick line from RaspberryShake/PhaseNet format to GLOBAL.obs format.
+
+    TEMP_RSB source format (space-delimited):
+        NETWORK.STATION.LOCATION PHASE ISO8601_TIMESTAMP prob=PROBABILITY
+
+    Pick uncertainty: 0.05 s for P, 0.15 s for S (PhaseNet probability
+    is a detection confidence, not a timing error estimate).
+    """
+    parts = line.split()
+    if len(parts) < 3:
+        return None
+
+    station_field = parts[0]
+    phase         = parts[1]
+    timestamp     = parts[2]
+
+    station_parts = station_field.split('.')
+    if len(station_parts) < 2:
+        return None
+    short_name = station_parts[1]
+
+    try:
+        dt = datetime.strptime(timestamp, '%Y-%m-%dT%H:%M:%S.%f')
+    except ValueError:
+        try:
+            dt = datetime.strptime(timestamp, '%Y-%m-%dT%H:%M:%S')
+        except ValueError:
+            logger.warning(f"Cannot parse timestamp '{timestamp}'. Skipping.")
+            return None
+
+    date        = dt.strftime('%Y%m%d')
+    hhmm        = dt.strftime('%H%M')
+    seconds_str = f"{dt.second + dt.microsecond / 1e6:.3f}"
+    error_str   = '0.05' if phase == 'P' else '0.15'
+
+    internal_code = resolve_station(short_name, date, code_map)
+    if internal_code is None:
+        logger.warning(f"Station '{short_name}' not found in code map. Skipping.")
+        return None
+
+    return _format_pick_line(internal_code, phase, date, hhmm, seconds_str, error_str, 'TEMP_RSB')
+
+
 # ---------------------------------------------------------------------------
 # Format dispatch table — register new format handlers here
 # ---------------------------------------------------------------------------
 
 FORMAT_HANDLERS = {
     'TEMP_OBS': convert_temp_obs,
+    'TEMP_RSB': convert_temp_rsb,
 }
 
 
