@@ -11,7 +11,8 @@ pick line format.
 Usage
 -----
     python temp_picks/convert_picks.py --input temp_picks/pick_files/viehla_final.obs --format TEMP_OBS
-    python temp_picks/convert_picks.py --input temp_picks/all_picks/merged_pyrenees.txt --format TEMP_RSB
+    python temp_picks/convert_picks.py --input temp_picks/pick_files/merged_pyrenees.txt --format TEMP_RSB
+    python temp_picks/convert_picks.py --input temp_picks/pick_files/merged_omp.csv --format TEMP_OMP
 
 Supported formats
 -----------------
@@ -20,6 +21,8 @@ Supported formats
                generated pick files.
     TEMP_RSB : RaspberryShake/PhaseNet pick files. One pick per line with format:
                NETWORK.STATION.LOCATION PHASE ISO8601_TIMESTAMP prob=PROBABILITY
+    TEMP_OMP : OMP/PhaseNet CSV files produced by merge_omp_picks.py. Columns used:
+               station_id (fields 0-3), phase_time, phase_type.
 
 Adding a new format
 -------------------
@@ -279,6 +282,56 @@ def convert_temp_rsb(line, code_map, skipped_stations=None):
     return _format_pick_line(internal_code, phase, date, hhmm, seconds_str, error_str, 'TEMP_RSB')
 
 
+def convert_temp_omp(line, code_map, skipped_stations=None):
+    """
+    Convert a single pick line from OMP/PhaseNet CSV format to GLOBAL.obs format.
+
+    TEMP_OMP source format (CSV columns):
+        file_name, begin_time, station_id, phase_index, phase_time,
+        phase_score, phase_ampl, phase_type
+
+    Station short name is field [1] of station_id (e.g. 'ARBS' from
+    'CA.ARBS.00.HHX.D.2017.100'). Pick uncertainty: 0.05 s for P, 0.15 s for S.
+    """
+    if line.startswith('file_name,'):
+        return None
+
+    parts = line.split(',')
+    if len(parts) < 8:
+        return None
+
+    station_id = parts[2]
+    phase_time = parts[4]
+    phase_type = parts[7].strip()
+
+    station_parts = station_id.split('.')
+    if len(station_parts) < 2:
+        return None
+    short_name = station_parts[1]
+
+    try:
+        dt = datetime.strptime(phase_time, '%Y-%m-%dT%H:%M:%S.%f')
+    except ValueError:
+        try:
+            dt = datetime.strptime(phase_time, '%Y-%m-%dT%H:%M:%S')
+        except ValueError:
+            logger.warning(f"Cannot parse timestamp '{phase_time}'. Skipping.")
+            return None
+
+    date        = dt.strftime('%Y%m%d')
+    hhmm        = dt.strftime('%H%M')
+    seconds_str = f"{dt.second + dt.microsecond / 1e6:.3f}"
+    error_str   = '0.05' if phase_type == 'P' else '0.15'
+
+    internal_code = resolve_station(short_name, date, code_map)
+    if internal_code is None:
+        if skipped_stations is not None:
+            skipped_stations[short_name] += 1
+        return None
+
+    return _format_pick_line(internal_code, phase_type, date, hhmm, seconds_str, error_str, 'TEMP_OMP')
+
+
 # ---------------------------------------------------------------------------
 # Format dispatch table — register new format handlers here
 # ---------------------------------------------------------------------------
@@ -286,6 +339,7 @@ def convert_temp_rsb(line, code_map, skipped_stations=None):
 FORMAT_HANDLERS = {
     'TEMP_OBS': convert_temp_obs,
     'TEMP_RSB': convert_temp_rsb,
+    'TEMP_OMP': convert_temp_omp,
 }
 
 
