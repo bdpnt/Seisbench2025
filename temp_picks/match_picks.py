@@ -63,7 +63,8 @@ class Event:
     event_dt:    datetime     # parsed origin time (UTC, timezone-aware)
     lat:         float
     lon:         float
-    picks:       list = field(default_factory=list)  # list of pick line strings
+    picks:       list = field(default_factory=list)   # list of pick line strings
+    pick_keys:   set  = field(default_factory=set)    # (station_code, phase) pairs for O(1) dup check
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +105,11 @@ def load_bulletin(path):
             event = _parse_event_header(line)
             i += 1
             while i < len(lines) and lines[i].strip() != '':
-                event.picks.append(lines[i].rstrip('\n'))
+                pick = lines[i].rstrip('\n')
+                event.picks.append(pick)
+                parts = pick.split()
+                if len(parts) >= 5:
+                    event.pick_keys.add((parts[0].strip(), parts[4].strip()))
                 i += 1
             events.append(event)
         i += 1  # advance past blank line (or unrecognised line)
@@ -388,18 +393,13 @@ def match_picks(pick_file, bulletin_file, inventory_file, tables_file,
 
             # 4. Single match — check for duplicate
             matched = passing[0]
-            existing = {
-                (p.split()[0].strip(), p.split()[4].strip())
-                for p in matched.picks
-                if len(p.split()) >= 5
-            }
-
-            if (station_code, phase) in existing:
+            if (station_code, phase) in matched.pick_keys:
                 n_skipped_dup += 1
                 continue
 
             # 5. Add pick and update PhaseCount
             matched.picks.append(line)
+            matched.pick_keys.add((station_code, phase))
             matched.header_line = _update_phase_count(matched.header_line, len(matched.picks))
             n_added += 1
 
