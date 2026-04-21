@@ -124,13 +124,13 @@ def _parse_map_date(date_str):
         return None
 
 
-def resolve_station(short_name, pick_date_str, code_map):
+def resolve_station(short_name, pick_date_str, code_map, fallback_counter=None):
     """
     Return the project internal station code for a short station name.
 
     Uses the pick date to select the correct entry when multiple time windows
-    exist for the same station. Falls back to the last entry with a warning
-    if no date-matched entry is found.
+    exist for the same station. Falls back to the last entry if no date-matched
+    entry is found; increments fallback_counter[short_name] when provided.
 
     Parameters
     ----------
@@ -140,6 +140,9 @@ def resolve_station(short_name, pick_date_str, code_map):
         Pick date in YYYYMMDD format (e.g. '20201204').
     code_map : dict
         Lookup dict from load_code_map().
+    fallback_counter : Counter, optional
+        If provided, incremented when the date-window match fails and the
+        most-recent-entry fallback is used. Caller logs the summary.
 
     Returns
     -------
@@ -162,8 +165,8 @@ def resolve_station(short_name, pick_date_str, code_map):
             if start and end and start <= pick_dt <= end:
                 return entry['internal_code']
 
-    # Fallback: most recent entry
-    logger.warning(f"No date-matched entry for '{short_name}' on {pick_date_str}. Using most recent.")
+    if fallback_counter is not None:
+        fallback_counter[short_name] += 1
     return entries[-1]['internal_code']
 
 
@@ -215,7 +218,7 @@ def _format_pick_line(internal_code, phase, date, hhmm, seconds_str, error_str, 
 # Format handlers
 # ---------------------------------------------------------------------------
 
-def convert_temp_obs(line, code_map, skipped_stations=None):
+def convert_temp_obs(line, code_map, skipped_stations=None, fallback_counter=None):
     """
     Convert a single pick line from TEMP_OBS format to GLOBAL.obs format.
 
@@ -235,7 +238,7 @@ def convert_temp_obs(line, code_map, skipped_stations=None):
     seconds_str = parts[8]   # SS.SSSS
     error_str   = parts[10]  # E.EEe+EE (e.g. 0.05e+00)
 
-    internal_code = resolve_station(short_name, date, code_map)
+    internal_code = resolve_station(short_name, date, code_map, fallback_counter)
     if internal_code is None:
         if skipped_stations is not None:
             skipped_stations[short_name] += 1
@@ -244,7 +247,7 @@ def convert_temp_obs(line, code_map, skipped_stations=None):
     return _format_pick_line(internal_code, phase, date, hhmm, seconds_str, error_str, 'TEMP_OBS')
 
 
-def convert_temp_rsb(line, code_map, skipped_stations=None):
+def convert_temp_rsb(line, code_map, skipped_stations=None, fallback_counter=None):
     """
     Convert a single pick line from RaspberryShake/PhaseNet format to GLOBAL.obs format.
 
@@ -281,7 +284,7 @@ def convert_temp_rsb(line, code_map, skipped_stations=None):
     seconds_str = f"{dt.second + dt.microsecond / 1e6:.3f}"
     error_str   = '0.05' if phase == 'P' else '0.15'
 
-    internal_code = resolve_station(short_name, date, code_map)
+    internal_code = resolve_station(short_name, date, code_map, fallback_counter)
     if internal_code is None:
         if skipped_stations is not None:
             skipped_stations[short_name] += 1
@@ -290,7 +293,7 @@ def convert_temp_rsb(line, code_map, skipped_stations=None):
     return _format_pick_line(internal_code, phase, date, hhmm, seconds_str, error_str, 'TEMP_RSB')
 
 
-def convert_temp_omp(line, code_map, skipped_stations=None):
+def convert_temp_omp(line, code_map, skipped_stations=None, fallback_counter=None):
     """
     Convert a single pick line from OMP/PhaseNet CSV format to GLOBAL.obs format.
 
@@ -331,7 +334,7 @@ def convert_temp_omp(line, code_map, skipped_stations=None):
     seconds_str = f"{dt.second + dt.microsecond / 1e6:.3f}"
     error_str   = '0.05' if phase_type == 'P' else '0.15'
 
-    internal_code = resolve_station(short_name, date, code_map)
+    internal_code = resolve_station(short_name, date, code_map, fallback_counter)
     if internal_code is None:
         if skipped_stations is not None:
             skipped_stations[short_name] += 1
@@ -435,6 +438,7 @@ def convert_file(input_path, fmt, output_path=None, codemap_path=None, log_dir=N
     fmt_handler      = FORMAT_HANDLERS[fmt]
     converted        = []
     skipped_stations = Counter()
+    fallback_counter = Counter()
     n_input          = 0
     n_skipped        = 0
 
@@ -444,7 +448,7 @@ def convert_file(input_path, fmt, output_path=None, codemap_path=None, log_dir=N
             if not line.strip() or line.lstrip().startswith('#'):
                 continue
             n_input += 1
-            result = fmt_handler(line, code_map, skipped_stations)
+            result = fmt_handler(line, code_map, skipped_stations, fallback_counter)
             if result is not None:
                 converted.append(result)
             else:
@@ -461,6 +465,9 @@ def convert_file(input_path, fmt, output_path=None, codemap_path=None, log_dir=N
     if skipped_stations:
         summary = ', '.join(f"{s} ({n})" for s, n in sorted(skipped_stations.items()))
         logger.warning(f"Stations not found in code map ({len(skipped_stations)} unique): {summary}")
+    if fallback_counter:
+        summary = ', '.join(f"{s} ({n})" for s, n in sorted(fallback_counter.items()))
+        logger.warning(f"Stations resolved with date fallback ({len(fallback_counter)} unique): {summary}")
 
     return {
         'output':      output_path,
