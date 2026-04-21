@@ -37,6 +37,10 @@ _SOURCE_DIRS = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
 def _setup_logger(log_dir):
     os.makedirs(log_dir, exist_ok=True)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -49,14 +53,10 @@ def _setup_logger(log_dir):
     handler.setFormatter(logging.Formatter('%(levelname)s %(message)s'))
     logger.addHandler(handler)
 
-    console = logging.StreamHandler()
-    console.setFormatter(logging.Formatter('%(levelname)s %(message)s'))
-    logger.addHandler(console)
-
     return log_path
 
 
-def merge_directory(src_dir, output_path):
+def _merge_directory(src_dir, output_path):
     """
     Concatenate all .txt files in src_dir into output_path.
 
@@ -79,12 +79,47 @@ def merge_directory(src_dir, output_path):
     return n_files, n_lines
 
 
-def merge_all(input_dir, output_dir, log_dir):
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def merge_all(input_dir=None, output_dir=None, log_dir=None):
+    """
+    Merge all RaspberryShake/PhaseNet pick files into two consolidated files.
+
+    Processes picks_stations_pyrenees/ and picks_stations_pyrenees2/ separately,
+    writing one merged .txt file per source directory.
+
+    Parameters
+    ----------
+    input_dir : str, optional
+        Base directory containing the two source subdirectories.
+        Defaults to temp_picks/all_picks/PICKS_PHASENET_TOUS/.
+    output_dir : str, optional
+        Directory where merged .txt files are written.
+        Defaults to temp_picks/all_picks/.
+    log_dir : str, optional
+        Directory for the log file. Defaults to temp_picks/console_output/.
+
+    Returns
+    -------
+    dict
+        Summary with keys: 'log', 'outputs' (list of output paths),
+        and per-directory counts under 'stats' (list of dicts with
+        'subdir', 'n_files', 'n_lines', 'output').
+    """
+    input_dir  = input_dir  or _DEFAULT_INPUT_DIR
+    output_dir = output_dir or _DEFAULT_OUTPUT_DIR
+    log_dir    = log_dir    or _DEFAULT_LOG_DIR
+
     log_path = _setup_logger(log_dir)
     os.makedirs(output_dir, exist_ok=True)
 
     logger.info(f"Input base : {input_dir}")
     logger.info(f"Output dir : {output_dir}")
+
+    outputs = []
+    stats   = []
 
     for subdir_name, output_name in _SOURCE_DIRS:
         src_dir     = os.path.join(input_dir, subdir_name)
@@ -94,26 +129,35 @@ def merge_all(input_dir, output_dir, log_dir):
             logger.warning(f"Source directory not found, skipping: {src_dir}")
             continue
 
-        n_files, n_lines = merge_directory(src_dir, output_path)
+        n_files, n_lines = _merge_directory(src_dir, output_path)
         logger.info(f"{subdir_name}: {n_files} files, {n_lines} lines → {output_path}")
+
+        outputs.append(output_path)
+        stats.append({'subdir': subdir_name, 'n_files': n_files, 'n_lines': n_lines, 'output': output_path})
 
     logger.info(f"Log: {log_path}")
 
+    return {'log': log_path, 'outputs': outputs, 'stats': stats}
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(
         description='Merge RaspberryShake/PhaseNet .txt pick files into two consolidated files.'
     )
     parser.add_argument(
-        '--input-dir', default=_DEFAULT_INPUT_DIR,
+        '--input-dir', default=None,
         help='Base directory containing picks_stations_pyrenees/ and picks_stations_pyrenees2/.'
     )
     parser.add_argument(
-        '--output-dir', default=_DEFAULT_OUTPUT_DIR,
+        '--output-dir', default=None,
         help='Directory where merged .txt files are written.'
     )
     parser.add_argument(
-        '--log-dir', default=_DEFAULT_LOG_DIR,
+        '--log-dir', default=None,
         help='Directory for log files.'
     )
     args = parser.parse_args()

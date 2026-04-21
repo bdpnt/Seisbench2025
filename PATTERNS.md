@@ -94,6 +94,8 @@ Every script exposes:
 2. A thin `main()` that parses `argparse` and calls it.
 3. `if __name__ == '__main__': main()` at the bottom.
 
+The public function(s) must live under a `# Public API` section separator so they are immediately discoverable when reading or importing the module. Internal helpers go under `# Internal helpers` (prefixed with `_`). The CLI entry point goes under `# CLI entry point`.
+
 ```python
 def do_thing(input_path, output_path=None, log_dir=None):
     """NumPy-style docstring."""
