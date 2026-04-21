@@ -13,7 +13,8 @@ Usage
     python temp_picks/merge_omp_picks.py
 
     # Override defaults
-    python temp_picks/merge_omp_picks.py --input-dir temp_picks/all_picks/PICKS_PHASENET_TOUS/picks_OMP --output temp_picks/pick_files/merged_omp.csv
+    python temp_picks/merge_omp_picks.py --input-dir temp_picks/all_picks/PICKS_PHASENET_TOUS/picks_OMP 
+        --output temp_picks/pick_files/merged_omp.csv --drop-years 2026 2027
 """
 
 import argparse
