@@ -433,7 +433,8 @@ def convert_file(input_path, fmt, output_path=None, codemap_path=None, log_dir=N
 
     logger.info(f"Loading station code map: {codemap_path}")
     code_map = load_code_map(codemap_path)
-    logger.info(f"{sum(len(v) for v in code_map.values())} entries for {len(code_map)} unique station names.")
+    n_windows = sum(len(v) for v in code_map.values())
+    logger.info(f"Code map loaded: {len(code_map)} station names, {n_windows} validity windows.")
 
     fmt_handler      = FORMAT_HANDLERS[fmt]
     converted        = []
