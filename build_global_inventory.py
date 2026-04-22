@@ -34,7 +34,7 @@ def run_pipeline():
     params_merge = MergeInventoryParams(
         folder_path         = os.path.join(_STATIONS, '*', '*.xml'),
         file_save_inventory = os.path.join(_STATIONS, 'GLOBAL_inventory.xml'),
-        file_save_mapping   = os.path.join(_STATIONS, 'GLOBAL_code_mapping.txt'),
+        file_save_mapping   = os.path.join(_STATIONS, 'GLOBAL_code_map.txt'),
         accepted_distance   = 20,  # in metres
     )
 
