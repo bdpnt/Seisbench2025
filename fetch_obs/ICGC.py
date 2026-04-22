@@ -383,7 +383,7 @@ def main():
     parser.add_argument('--start-month', type=int, required=True)
     parser.add_argument('--end-year',    type=int, required=True)
     parser.add_argument('--end-month',   type=int, required=True)
-    parser.add_argument('--mag-min',     type=float, default=0)
+    parser.add_argument('--mag-min',     type=float, default=-5)
     args = parser.parse_args()
 
     params = ICGCParams(

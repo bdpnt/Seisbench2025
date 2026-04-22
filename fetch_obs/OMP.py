@@ -141,7 +141,7 @@ def write_catalog_to_obs(parameters, log_dir=None):
             rms        = float(event_info[45:50])
             magnitude  = float(event_info[51:54])
 
-            if magnitude < 0:
+            if magnitude < -5:
                 n_skipped_neg += 1
                 continue
 
