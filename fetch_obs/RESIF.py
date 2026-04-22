@@ -21,10 +21,31 @@ Usage
 """
 
 import argparse
+import logging
+import os
 from dataclasses import dataclass
+from datetime import datetime as dt
 
 from obspy import UTCDateTime, read_events
 from obspy.clients.fdsn import Client
+
+
+logger = logging.getLogger('fetch_obs.RESIF')
+
+_DEFAULT_LOG_DIR = 'fetch_obs/console_output/'
+
+
+def _setup_logger(log_dir, input_path):
+    os.makedirs(log_dir, exist_ok=True)
+    basename  = os.path.splitext(os.path.basename(input_path))[0]
+    timestamp = dt.now().strftime('%Y%m%d_%H%M%S')
+    log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+    handler = logging.FileHandler(log_path, encoding='utf-8')
+    handler.setFormatter(logging.Formatter('%(levelname)s %(message)s'))
+    logger.addHandler(handler)
+    return log_path
 
 
 # ---------------------------------------------------------------------------
@@ -126,19 +147,27 @@ def _fetch_catalog(parameters):
 # Public API
 # ---------------------------------------------------------------------------
 
-def generate_catalog(parameters):
+def generate_catalog(parameters, log_dir=None):
     """
     Query FDSN year by year, write the QuakeML file, and return the catalog.
 
     Parameters
     ----------
     parameters : RESIFParams
+    log_dir    : str, optional — log directory; default: fetch_obs/console_output/
 
     Returns
     -------
     obspy.core.event.Catalog
     """
-    print('\n')
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, parameters.save_name)
+    logger.info(f"Log file    : {log_path}")
+    logger.info(f"FDSN client : {parameters.client_name}")
+    logger.info(f"Time range  : {parameters.t1} → {parameters.t2}")
+    logger.info(f"Area        : lat [{parameters.lat_min}, {parameters.lat_max}]  "
+                f"lon [{parameters.lon_min}, {parameters.lon_max}]")
+    logger.info(f"mag_min     : {parameters.mag_min}  mag_type: {parameters.mag_type}")
+
     client   = Client(parameters.client_name)
     catalog  = None
     t1, t2   = parameters.t1, parameters.t2
@@ -151,7 +180,7 @@ def generate_catalog(parameters):
         yr_end   = min(UTCDateTime(f'{current_year + 1}-01-01T00:00:00'), t2)
         year_cat = _fetch_year_slice(client, parameters, yr_start, yr_end)
         catalog  = year_cat if catalog is None else catalog + year_cat
-        print(f'Events from {yr_start} to {yr_end} written in Catalog')
+        logger.info(f"Fetched {len(year_cat)} event(s) from {yr_start} to {yr_end}")
         current_year += 1
 
     while current_year < end_year:
@@ -159,20 +188,22 @@ def generate_catalog(parameters):
         yr_end   = UTCDateTime(f'{current_year + 1}-01-01T00:00:00')
         year_cat = _fetch_year_slice(client, parameters, yr_start, yr_end)
         catalog  = year_cat if catalog is None else catalog + year_cat
-        print(f'Events from {current_year} written in Catalog')
+        logger.info(f"Fetched {len(year_cat)} event(s) for year {current_year}")
         current_year += 1
 
     if t2.month != 1 or t2.day != 1 or t2.hour != 0 or t2.minute != 0 or t2.second != 0:
         yr_start = UTCDateTime(f'{end_year}-01-01T00:00:00')
         year_cat = _fetch_year_slice(client, parameters, yr_start, t2)
         catalog  = year_cat if catalog is None else catalog + year_cat
-        print(f'Events from {yr_start} to {t2} written in Catalog')
+        logger.info(f"Fetched {len(year_cat)} event(s) from {yr_start} to {t2}")
 
+    logger.info(f"Total events fetched: {len(catalog)}")
     catalog.write(parameters.file_name, format='QUAKEML')
+    logger.info(f"QuakeML written: {parameters.file_name}")
     return catalog
 
 
-def write_catalog_to_obs(parameters):
+def write_catalog_to_obs(parameters, log_dir=None):
     """
     Convert a QuakeML catalog to the .obs bulletin format.
 
@@ -181,13 +212,24 @@ def write_catalog_to_obs(parameters):
     Parameters
     ----------
     parameters : RESIFParams
+    log_dir    : str, optional — log directory; default: fetch_obs/console_output/
 
     Returns
     -------
     dict with key: output
     """
+    if not logger.handlers:
+        log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, parameters.save_name)
+        logger.info(f"Log file   : {log_path}")
+
     catalog = _fetch_catalog(parameters)
-    print(f'\nEvents from {parameters.file_name!r} successfully retrieved')
+    logger.info(f"Catalog loaded: {parameters.file_name} ({len(catalog)} events)")
+
+    n_events            = 0
+    n_skipped_mag       = 0
+    n_picks             = 0
+    n_picks_skip_phase  = 0
+    n_picks_skip_manual = 0
 
     with open(parameters.save_name, 'w') as f:
         f.write(f'### Catalog generated on the {UTCDateTime()}\n')
@@ -217,6 +259,7 @@ def write_catalog_to_obs(parameters):
                 else:
                     raise ValueError()
             except Exception:
+                n_skipped_mag += 1
                 continue
 
             qual          = getattr(origin, 'quality', None)
@@ -233,12 +276,15 @@ def write_catalog_to_obs(parameters):
                 f'{magnitude_type} {mag_author} {phases_count} '
                 f'{h_uncertainty} {v_uncertainty} {az_gap} {rms}\n'
             )
+            n_events += 1
 
             for pick in event.picks:
                 if (not pick.phase_hint.lower().startswith('p') and
                         not pick.phase_hint.lower().startswith('s')):
+                    n_picks_skip_phase += 1
                     continue
                 if getattr(pick, 'evaluation_mode', None) != 'manual':
+                    n_picks_skip_manual += 1
                     continue
 
                 network   = str(pick.waveform_id.network_code)
@@ -267,12 +313,18 @@ def write_catalog_to_obs(parameters):
                     f"{'-1.00e+00'.ljust(9)} {'-1.00e+00'.ljust(9)} {'-1.00e+00'.ljust(9)}"
                     f" # {real_phase} {channel} {'FDSN'.ljust(9)} {'None'.ljust(4)}\n"
                 )
+                n_picks += 1
 
             f.write('\n')
 
-    print(f'Catalog written → {parameters.save_name}\n')
+    logger.info(f"Events written                        : {n_events}")
+    logger.info(f"Events skipped (no matching magnitude): {n_skipped_mag}")
+    logger.info(f"Picks written                         : {n_picks}")
+    logger.info(f"Picks skipped (wrong phase)           : {n_picks_skip_phase}")
+    logger.info(f"Picks skipped (non-manual)            : {n_picks_skip_manual}")
+    logger.info(f"Output: {parameters.save_name}")
     catalog.write(parameters.file_name, format='QUAKEML')
-    print(f'QuakeML written → {parameters.file_name}\n')
+    logger.info(f"QuakeML re-saved: {parameters.file_name}")
 
     return {'output': parameters.save_name}
 

@@ -13,12 +13,32 @@ Usage
 
 import argparse
 import glob
+import logging
 import os
 import sys
 from dataclasses import dataclass
+from datetime import datetime as dt
 
 import joblib
 import pandas as pd
+
+
+logger = logging.getLogger('global_obs.apply_magnitude_models')
+
+_DEFAULT_LOG_DIR = 'global_obs/console_output/'
+
+
+def _setup_logger(log_dir, input_path):
+    os.makedirs(log_dir, exist_ok=True)
+    basename  = os.path.splitext(os.path.basename(input_path))[0]
+    timestamp = dt.now().strftime('%Y%m%d_%H%M%S')
+    log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+    handler = logging.FileHandler(log_path, encoding='utf-8')
+    handler.setFormatter(logging.Formatter('%(levelname)s %(message)s'))
+    logger.addHandler(handler)
+    return log_path
 
 
 # ---------------------------------------------------------------------------
@@ -110,20 +130,21 @@ def _save_magnitudes(lines, file):
                 line += '\n'
             f.write(line)
 
-    print(f'\n    - Catalog successfully saved @ {file}')
+    logger.info(f"Saved: {file}")
 
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
-def apply_magnitude_models(parameters):
+def apply_magnitude_models(parameters, log_dir=None):
     """
     Apply all saved magnitude conversion models to every .obs file matching the folder pattern.
 
     Parameters
     ----------
     parameters : UpdateMagFilesParams
+    log_dir    : str, optional — log directory; default: global_obs/console_output/
 
     Returns
     -------
@@ -132,7 +153,9 @@ def apply_magnitude_models(parameters):
         'n_converted' — total number of magnitudes converted
         'n_total'     — total number of events processed
     """
-    print('\n#########')
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, 'apply_magnitude_models')
+    logger.info(f"Log file       : {log_path}")
+    logger.info(f"Bulletin glob  : {parameters.folder_path}")
 
     total_converted = 0
     total_events    = 0
@@ -153,7 +176,7 @@ def apply_magnitude_models(parameters):
         n_total     = len(org_mag)
         n_converted = 0
 
-        print(f'\nAnalysing events @ {folder_file}:')
+        logger.info(f"File: {folder_file}  ({n_total} events)")
         for mag_type in org_mag.MagType.unique():
             current_ids     = org_mag[org_mag.MagType == mag_type].index
             model_name_stem = f'{mag_type} {folder_author}'
@@ -163,9 +186,9 @@ def apply_magnitude_models(parameters):
                 models      = joblib.load(file_model)
                 model_ge_2  = list(models.values())[0]
                 model_lt_2  = list(models.values())[1]
-                print(f'    - {model_name_stem} found @ {file_model}')
+                logger.info(f"  Model found   : {model_name_stem} ({file_model})")
             except Exception:
-                print(f'    - {model_name_stem} not accessible @ {file_model}, trying next model...')
+                logger.warning(f"  Model missing : {model_name_stem} ({file_model}) — skipped")
                 continue
 
             mask_ge_2 = org_mag.index.isin(current_ids) & (org_mag['Mag'] >= 2)
@@ -178,19 +201,19 @@ def apply_magnitude_models(parameters):
             )
 
             n_converted += len(current_ids)
-            print(f'    - {model_name_stem}: magnitudes converted to ML LDG')
+            logger.info(f"  Converted     : {len(current_ids)} {mag_type} magnitude(s) → ML LDG")
 
         if not org_mag['ldgMag'].isna().all():
             lines = _update_magnitudes(lines, org_mag)
             _save_magnitudes(lines, folder_file)
-            print(f'    - Magnitudes converted: {n_converted}/{n_total}')
+            logger.info(f"  Total converted: {n_converted}/{n_total}")
         else:
-            print('\n    - No magnitudes converted')
+            logger.warning(f"  No magnitudes converted for {folder_file}")
 
         total_converted += n_converted
         total_events    += n_total
 
-    print('\n#########\n')
+    logger.info(f"Overall: {total_converted}/{total_events} magnitudes converted across all files")
     return {
         'output':      parameters.folder_path,
         'n_converted': total_converted,

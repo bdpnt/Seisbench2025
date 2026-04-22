@@ -15,10 +15,14 @@ Usage
 """
 
 import argparse
+import logging
 
 import pandas as pd
 from obspy import Inventory
 from obspy.core.inventory import Network, Station
+
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -49,6 +53,8 @@ def csv_to_stationxml(file, file_save, network_description='ADDITIONAL'):
         date_format='%Y:%m:%dT%H:%M:%S',
     )
 
+    logger.info(f"Loaded {len(df)} station(s) from {file}")
+
     inventory = Inventory(source='Additional')
 
     for net_code in df.network.unique():
@@ -59,6 +65,7 @@ def csv_to_stationxml(file, file_save, network_description='ADDITIONAL'):
             total_number_of_stations=len(net_df),
             description=network_description,
         )
+        logger.info(f"Network {net_code}: {len(net_df)} station(s)")
 
         for _, row in net_df.iterrows():
             station = Station(
@@ -73,7 +80,9 @@ def csv_to_stationxml(file, file_save, network_description='ADDITIONAL'):
 
         inventory.networks.append(network)
 
+    n_total = sum(len(net.stations) for net in inventory.networks)
     inventory.write(file_save, format='STATIONXML')
+    logger.info(f"StationXML written: {file_save} ({len(inventory.networks)} network(s), {n_total} station(s))")
     return {'output': file_save}
 
 

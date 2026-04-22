@@ -29,10 +29,12 @@ Usage
 
 import argparse
 import glob
+import logging
 import math
 import os
 import sys
 from dataclasses import dataclass
+from datetime import datetime as dt
 from numpy import mean
 
 import matplotlib.pyplot as plt
@@ -41,6 +43,24 @@ import pandas as pd
 import seaborn as sns
 from scipy.spatial import KDTree
 from scipy.stats import pearsonr, spearmanr
+
+
+logger = logging.getLogger('global_obs.fuse_bulletins')
+
+_DEFAULT_LOG_DIR = 'global_obs/console_output/'
+
+
+def _setup_logger(log_dir, input_path):
+    os.makedirs(log_dir, exist_ok=True)
+    basename  = os.path.splitext(os.path.basename(input_path))[0]
+    timestamp = dt.now().strftime('%Y%m%d_%H%M%S')
+    log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+    handler = logging.FileHandler(log_path, encoding='utf-8')
+    handler.setFormatter(logging.Formatter('%(levelname)s %(message)s'))
+    logger.addHandler(handler)
+    return log_path
 
 
 # ---------------------------------------------------------------------------
@@ -131,7 +151,7 @@ def _generate_global(parameters):
         lines = f.readlines()
 
     event_count = sum(1 for line in lines if line.startswith('# '))
-    print(f'\n#######\n\n{event_count} events from Catalog @ {parameters.main_bulletin_path} successfully retrieved')
+    logger.info(f"Main bulletin loaded: {parameters.main_bulletin_path} ({event_count} events)")
     return lines
 
 
@@ -178,7 +198,7 @@ def retrieve_events_from_file(file_name):
             event_lines.append(line.rstrip('\n').lstrip('# '))
             event_line_ids.append(idx)
 
-    print(f'{len(event_lines)} events from Catalog @ {file_name} successfully retrieved')
+    logger.info(f"Secondary bulletin loaded: {file_name} ({len(event_lines)} events)")
     return event_lines, event_line_ids, cat_lines
 
 
@@ -426,7 +446,7 @@ def find_match_events(
     unmatched_catalog2 = [item for item in catalog2.index if item not in matched_id2]
     possible_match     = [m for m in possible_match if m['catalog2_idx'] not in matched_id2]
 
-    print(f'{len(matched_pairs)} ({len(possible_match)}) events strict match found')
+    logger.info(f"Strict matches: {len(matched_pairs)}  Possible matches: {len(possible_match)}")
     return pd.DataFrame(matched_pairs), pd.DataFrame(possible_match), unmatched_catalog2
 
 
@@ -589,7 +609,8 @@ def _concatenate_bulletin(
 
     strict_match = pd.concat([strict_match, possible_match.iloc[found_possible]]).reset_index(drop=True)
     possible_match = possible_match.drop(found_possible)
-    print(f'Found {len(found_possible)} ({len(possible_match)}) event matches during P-phase picks matching process')
+    logger.info(f"P-phase pick matching: {len(found_possible)} additional matches "
+                f"({len(possible_match)} remaining unmatched)")
 
     new_lines = _sort_events_chrono(new_lines)
     return new_lines, strict_match, possible_match, main_bulletin, secondary_bulletin
@@ -645,7 +666,7 @@ def _replace_mean_magnitudes(lines):
             parts[10]  = f'{mean(mags):.2f}'
             parts[-1] += '\n'
             lines[idx] = ' '.join(parts)
-    print('Magnitudes successfully replaced by mean magnitudes')
+    logger.info("Magnitudes replaced by per-event mean across sources")
     return lines
 
 
@@ -679,7 +700,7 @@ def _remove_duplicate_picks(lines):
                 i += 1
 
     new_lines = [line for idx, line in enumerate(lines) if idx not in to_remove]
-    print(f'Successfully removed {len(to_remove)} duplicate picks from the Bulletin')
+    logger.info(f"Duplicate picks removed: {len(to_remove)}")
     return new_lines
 
 
@@ -698,7 +719,7 @@ def _remove_magnitudes_under_1(lines):
                     i += 1
 
     new_lines = [line for idx, line in enumerate(lines) if idx not in to_remove]
-    print(f'Successfully removed {n_removed} events with magnitudes under ML 1')
+    logger.info(f"Events removed (magnitude < 1.0): {n_removed}")
     return new_lines
 
 
@@ -710,7 +731,7 @@ def _save_bulletin(lines, parameters):
         1 for line in lines
         if line.startswith('#') and not line.startswith('###')
     )
-    print(f'{n_eq} events successfully saved in Catalog @ {parameters.global_bulletin_path}\n\n#######\n')
+    logger.info(f"Final bulletin saved: {parameters.global_bulletin_path} ({n_eq} events)")
 
 
 # ---------------------------------------------------------------------------
@@ -883,7 +904,7 @@ def _get_statistics(main_lines, parameters, file_path, file_no):
 # Public API
 # ---------------------------------------------------------------------------
 
-def fuse_bulletins(parameters):
+def fuse_bulletins(parameters, log_dir=None):
     """
     Merge all source .obs bulletins into a single GLOBAL.obs file.
 
@@ -894,20 +915,33 @@ def fuse_bulletins(parameters):
     Parameters
     ----------
     parameters : FusionParams
+    log_dir    : str, optional — log directory; default: global_obs/console_output/
 
     Returns
     -------
     dict with key: output
     """
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, parameters.global_bulletin_path)
+    logger.info(f"Log file        : {log_path}")
+    logger.info(f"Main bulletin   : {parameters.main_bulletin_path}")
+    logger.info(f"Source glob     : {parameters.folder_path}")
+    logger.info(f"Output          : {parameters.global_bulletin_path}")
+    logger.info(
+        f"Thresholds — strict: dist={parameters.dist_thresh} km  time={parameters.time_thresh} s  "
+        f"loose: dist={parameters.loose_dist_thresh} km  time={parameters.loose_time_thresh} s  "
+        f"mag={parameters.mag_thresh}  sim_picks={parameters.sim_pick_thresh}"
+    )
+
     all_paths  = [
         p for p in glob.glob(parameters.folder_path)
         if p != parameters.main_bulletin_path and 'GLOBAL' not in p
     ]
+    logger.info(f"Secondary bulletins to merge: {len(all_paths)}")
 
     main_lines = _generate_global(parameters)
 
     for file_no, file_path in enumerate(all_paths):
-        print('\n#######\n')
+        logger.info(f"--- Merging [{file_no + 1}/{len(all_paths)}]: {file_path}")
         main_lines, _, _, _, _ = _concatenate_bulletin(
             parameters, main_lines, file_path,
             parameters.dist_thresh, parameters.loose_dist_thresh,
@@ -916,12 +950,8 @@ def fuse_bulletins(parameters):
             file_no + 1,
         )
 
-    print('\n#######\n')
-
     for file_no, file_path in enumerate(all_paths):
         _get_statistics(main_lines, parameters, file_path, file_no + 1)
-
-    print('\n#######\n')
 
     main_lines = _replace_mean_magnitudes(main_lines)
     main_lines = _remove_stats_values(main_lines)
@@ -932,7 +962,7 @@ def fuse_bulletins(parameters):
     return {'output': parameters.global_bulletin_path}
 
 
-def find_and_merge_doubles(parameters):
+def find_and_merge_doubles(parameters, log_dir=None):
     """
     Scan a bulletin for suspiciously close event pairs and let the user resolve them interactively.
 
@@ -949,11 +979,17 @@ def find_and_merge_doubles(parameters):
     Parameters
     ----------
     parameters : MergeDoublesParams
+    log_dir    : str, optional — log directory; default: global_obs/console_output/
 
     Returns
     -------
     dict with key: output
     """
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, parameters.global_bulletin_path)
+    logger.info(f"Log file        : {log_path}")
+    logger.info(f"Bulletin        : {parameters.global_bulletin_path}")
+    logger.info(f"Thresholds      : max_dt={parameters.max_dt_seconds} s  max_dist={parameters.max_dist_km} km")
+
     with open(parameters.global_bulletin_path, 'r') as f:
         bulletin_lines = f.readlines()
 
@@ -1128,6 +1164,8 @@ def find_and_merge_doubles(parameters):
     n_merged  = sum(len(v) for v in merge_map.values())
     print(f'  Done.  {n_dropped} event(s) removed, '
           f'{n_merged} phase(s) merged across {len(merge_map)} event(s).')
+    logger.info(f"Doubles resolved: {n_dropped} event(s) removed, "
+                f"{n_merged} phase(s) merged across {len(merge_map)} event(s)")
 
     _save_bulletin(updated, parameters)
     return {'output': parameters.global_bulletin_path}

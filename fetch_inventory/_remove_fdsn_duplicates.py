@@ -13,10 +13,14 @@ Usage
 """
 
 import argparse
+import logging
 
 import glob
 import pandas as pd
 from obspy import read_inventory
+
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -39,6 +43,7 @@ def check_networks(file, folder, file_save):
     """
     df           = pd.read_csv(file, usecols=['station', 'latitude', 'longitude', 'elevation'])
     station_list = df.station.to_list()
+    logger.info(f"Loaded {len(station_list)} station(s) from {file}")
 
     found = set()
     for folder_file in glob.glob(folder):
@@ -48,10 +53,13 @@ def check_networks(file, folder, file_save):
                 if station.code in station_list:
                     found.add(station.code)
 
+    logger.info(f"Found {len(found)} station(s) already present in FDSN inventories: {sorted(found)}")
+
     df = df[~df['station'].isin(found)]
     df.insert(0, 'network', 'XX')
     df.to_csv(file_save, index=False)
 
+    logger.info(f"Removed {len(found)} duplicate(s); {len(df)} station(s) written to {file_save}")
     return {'output': file_save}
 
 

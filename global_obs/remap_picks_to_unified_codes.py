@@ -13,12 +13,32 @@ Usage
 
 import argparse
 import glob
+import logging
 import os
 import sys
+from datetime import datetime as dt
 
 from obspy import read_inventory, UTCDateTime
 import pandas as pd
 from dataclasses import dataclass
+
+
+logger = logging.getLogger('global_obs.remap_picks')
+
+_DEFAULT_LOG_DIR = 'global_obs/console_output/'
+
+
+def _setup_logger(log_dir, input_path):
+    os.makedirs(log_dir, exist_ok=True)
+    basename  = os.path.splitext(os.path.basename(input_path))[0]
+    timestamp = dt.now().strftime('%Y%m%d_%H%M%S')
+    log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+    handler = logging.FileHandler(log_path, encoding='utf-8')
+    handler.setFormatter(logging.Formatter('%(levelname)s %(message)s'))
+    logger.addHandler(handler)
+    return log_path
 
 
 # ---------------------------------------------------------------------------
@@ -142,7 +162,7 @@ def _find_code(line, unique_sta):
 # Public API
 # ---------------------------------------------------------------------------
 
-def remap_picks_to_unified_codes(parameters):
+def remap_picks_to_unified_codes(parameters, log_dir=None):
     """
     Update all bulletin files so every pick references its unified alternate station code.
 
@@ -151,6 +171,7 @@ def remap_picks_to_unified_codes(parameters):
     Parameters
     ----------
     parameters : AssociatePicksParams
+    log_dir    : str, optional — log directory; default: global_obs/console_output/
 
     Returns
     -------
@@ -159,10 +180,14 @@ def remap_picks_to_unified_codes(parameters):
         'n_removed' — total picks removed across all files
         'n_total'   — total picks seen across all files
     """
-    print('\n#########')
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, parameters.file_inventory)
+    logger.info(f"Log file         : {log_path}")
+    logger.info(f"Inventory        : {parameters.file_inventory}")
+    logger.info(f"Bulletin pattern : {parameters.folder_bulletin}")
 
     inventory = read_inventory(parameters.file_inventory, format='STATIONXML')
-    print(f'\nStations from Inventory @ {parameters.file_inventory} successfully retrieved')
+    n_stations = sum(len(net.stations) for net in inventory.networks)
+    logger.info(f"Inventory loaded : {n_stations} station(s) across {len(inventory.networks)} network(s)")
 
     unique_sta = find_unique_stations(inventory)
 
@@ -172,7 +197,6 @@ def remap_picks_to_unified_codes(parameters):
     for file_bulletin in glob.glob(parameters.folder_bulletin):
         with open(file_bulletin, 'r', encoding='utf-8') as f:
             lines_bulletin = f.readlines()
-        print(f'\nPicks from Bulletin @ {file_bulletin} successfully retrieved:')
 
         org_length = 0
         new_length = 0
@@ -193,14 +217,18 @@ def remap_picks_to_unified_codes(parameters):
         total_removed        += picks_removed
         total_picks          += org_length
 
-        print(f'    - picks removed: {picks_removed}/{org_length} ({picks_removed_percent:.3f} %)')
+        logger.info(
+            f"{os.path.basename(file_bulletin)}: "
+            f"removed {picks_removed}/{org_length} picks ({picks_removed_percent:.2f}%)"
+        )
 
         with open(file_bulletin, 'w') as f:
             f.writelines(new_bulletin)
 
-        print(f'    - bulletin successfully saved @ {file_bulletin}')
-
-    print('\n#########\n')
+    total_percent = total_removed / total_picks * 100 if total_picks else 0.0
+    logger.info(
+        f"Total: removed {total_removed}/{total_picks} picks ({total_percent:.2f}%) across all bulletins"
+    )
     return {
         'output':    parameters.folder_bulletin,
         'n_removed': total_removed,

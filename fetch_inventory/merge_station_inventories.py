@@ -19,12 +19,33 @@ Usage
 
 import argparse
 import datetime
+import logging
 import math
+import os
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from datetime import datetime as dt
 
 from obspy import UTCDateTime, read_inventory
 from obspy.core.inventory import Inventory
+
+
+logger = logging.getLogger('fetch_inventory')
+
+_DEFAULT_LOG_DIR = 'fetch_inventory/console_output/'
+
+
+def _setup_logger(log_dir, input_path):
+    os.makedirs(log_dir, exist_ok=True)
+    basename  = os.path.splitext(os.path.basename(input_path))[0]
+    timestamp = dt.now().strftime('%Y%m%d_%H%M%S')
+    log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+    handler = logging.FileHandler(log_path, encoding='utf-8')
+    handler.setFormatter(logging.Formatter('%(levelname)s %(message)s'))
+    logger.addHandler(handler)
+    return log_path
 
 
 # ---------------------------------------------------------------------------
@@ -177,14 +198,12 @@ def _create_alternate_code_mapping(inventory, parameters):
                 f.write(f"  End Date: {sta['end_date']}\n")
             f.write('\n')
 
-    print(f'Mapping file created: {parameters.file_save_mapping}')
-
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
-def merge_inventory(parameters):
+def merge_inventory(parameters, log_dir=None):
     """
     Merge all station XML inventories into a single unified inventory.
 
@@ -196,6 +215,7 @@ def merge_inventory(parameters):
     Parameters
     ----------
     parameters : MergeInventoryParams
+    log_dir    : str, optional — log directory; default: fetch_inventory/console_output/
 
     Returns
     -------
@@ -203,24 +223,38 @@ def merge_inventory(parameters):
     """
     import glob
 
-    inventory = Inventory()
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, parameters.file_save_inventory)
+    logger.info(f"Log file             : {log_path}")
+    logger.info(f"Input glob           : {parameters.folder_path}")
+    logger.info(f"Co-location threshold: {parameters.accepted_distance} m")
 
-    for folder_file in glob.glob(parameters.folder_path):
+    inventory    = Inventory()
+    loaded_files = glob.glob(parameters.folder_path)
+    for folder_file in loaded_files:
         inventory.extend(read_inventory(folder_file, format='STATIONXML'))
+
+    logger.info(f"Inventory files loaded: {len(loaded_files)}")
+    logger.info(f"Networks before merge : {len(inventory.networks)}")
 
     # --- Merge duplicate networks ---
     all_networks       = [net.code for net in inventory.networks]
     duplicate_networks = [code for code, count in Counter(all_networks).items() if count > 1]
 
+    if duplicate_networks:
+        logger.info(f"Duplicate networks to merge: {duplicate_networks}")
     for net_code in duplicate_networks:
         found = [net for net in inventory.networks if net.code == net_code]
         main  = found[0]
+        n_merged = 0
         for sub in found[1:]:
             for station in sub:
                 main.stations.append(station)
+                n_merged += 1
             inventory.networks.remove(sub)
+        logger.info(f"  Network {net_code}: merged {n_merged} station(s) from {len(found) - 1} duplicate(s)")
 
     # --- Merge duplicate stations within each network ---
+    total_stations_dropped = 0
     for network in inventory.networks:
         station_groups = defaultdict(list)
         for sta in network.stations:
@@ -273,6 +307,11 @@ def merge_inventory(parameters):
 
                 to_remove = [s for i, s in enumerate(cluster) if i != main_index]
 
+                logger.info(
+                    f"  {network.code}.{main_sta.code}: merged cluster of {len(cluster)}, "
+                    f"dropped {len(to_remove)} duplicate(s)"
+                )
+
                 for sta in to_remove:
                     if (main_sta.elevation == 0 or main_sta.elevation is None) and sta.elevation:
                         main_sta.elevation = sta.elevation
@@ -293,16 +332,22 @@ def merge_inventory(parameters):
                 for sta in to_remove:
                     if sta in network.stations:
                         network.stations.remove(sta)
+                total_stations_dropped += len(to_remove)
+
+    logger.info(f"Station deduplication: {total_stations_dropped} station(s) dropped total")
 
     inventory = check_inventory(inventory)
     inventory = _add_alternate_code(inventory)
     inventory = _combine_close_stations(inventory, parameters)
 
+    n_total_stations = sum(len(net.stations) for net in inventory.networks)
     inventory.write(parameters.file_save_inventory, format='STATIONXML')
-    print(f'\nInventory saved → {parameters.file_save_inventory}')
+    logger.info(f"Inventory saved: {parameters.file_save_inventory}")
+    logger.info(f"  Networks : {len(inventory.networks)}")
+    logger.info(f"  Stations : {n_total_stations}")
 
     _create_alternate_code_mapping(inventory, parameters)
-    print(f'Alternate code mapping saved → {parameters.file_save_mapping}\n')
+    logger.info(f"Alternate code mapping saved: {parameters.file_save_mapping}")
 
     return {
         'output':  parameters.file_save_inventory,
