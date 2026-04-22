@@ -18,10 +18,10 @@ Usage
 -----
     python temp_picks/match_picks.py \\
         --picks      temp_picks/pick_files/viehla_final_converted.obs \\
-        --bulletin   obs/GLOBAL.obs \\
+        --bulletin   obs/FINAL.obs \\
         --inventory  stations/GLOBAL_inventory.xml \\
         --tables     temp_picks/tables_Pyr.csv \\
-        --output     obs/GLOBAL_augmented.obs
+        --output     obs/FINAL_augmented.obs
 
 Adding support for a new input pick format
 ------------------------------------------
@@ -414,13 +414,13 @@ def match_picks(pick_file, bulletin_file, inventory_file, tables_file,
                 f.write(pick + '\n')
             f.write('\n')
 
-    logger.info(f"Input picks          : {n_picks}")
-    logger.info(f"Added                : {n_added}")
-    logger.info(f"Skipped - no event   : {n_skipped_no_event}")
-    logger.info(f"Skipped - no station : {n_skipped_no_sta}")
-    logger.info(f"Skipped - no residual: {n_skipped_no_res}")
-    logger.info(f"Skipped - multi-match: {n_skipped_multi}")
-    logger.info(f"Skipped - duplicate  : {n_skipped_dup}")
+    logger.info(f"Input picks                                    : {n_picks}")
+    logger.info(f"Added                                          : {n_added}")
+    logger.info(f"Skipped - no bulletin event in 60 s window     : {n_skipped_no_event}")
+    logger.info(f"Skipped - station not in inventory             : {n_skipped_no_sta}")
+    logger.info(f"Skipped - travel time outside theoretical band : {n_skipped_no_res}")
+    logger.info(f"Skipped - ambiguous (multiple events matched)  : {n_skipped_multi}")
+    logger.info(f"Skipped - duplicate station+phase in event     : {n_skipped_dup}")
     logger.info(f"Output               : {output_file}")
 
     # Sort picks by arrival time within each event

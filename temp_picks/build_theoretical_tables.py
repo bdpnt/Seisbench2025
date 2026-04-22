@@ -17,46 +17,46 @@ Outputs
 Requirements
 ------------
 - Pyrocko must be installed and `cake` must be available on the system PATH.
-- Velocity model files (.nd format) must exist at the paths given in models.
+- Velocity model files (.nd format) must exist under temp_picks/models/.
+
+Usage
+-----
+    python temp_picks/build_theoretical_tables.py
+
+    # Override output paths
+    python temp_picks/build_theoretical_tables.py \\
+        --output temp_picks/tables_Pyr.csv \\
+        --figure-output temp_picks/figures/tables_Pyr.png
 """
 
-from dataclasses import dataclass
-import numpy as np
+import argparse
+import os
 import subprocess
-import pandas as pd
+
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import seaborn as sns
 
+_MODULE_DIR     = os.path.dirname(os.path.abspath(__file__))
+_DEFAULT_OUTPUT = os.path.join(_MODULE_DIR, 'tables_Pyr.csv')
+_DEFAULT_FIGURE = os.path.join(_MODULE_DIR, 'figures', 'tables_Pyr.png')
 
-@dataclass
-class BuildTablesParams:
-    """
-    Configuration for building theoretical travel-time tables.
-
-    Attributes
-    ----------
-    models : dict
-        Mapping of model role to .nd file path. Must contain at least the
-        keys "min" and "plu" (used to build the arrival-time envelope).
-        The "ref" key (nominal model) is stored here for reference but is
-        not used in the current computation.
-    depths : list[float]
-        Source depths in km. The envelope spans all provided depths.
-    distances : list[float]
-        Epicentral distances in km at which arrivals are computed.
-    output : str
-        Path for the output CSV file.
-    figure_output : str
-        Path for the output PNG figure.
-    """
-    models: dict
-    depths: list[float]
-    distances: list[float]
-    output: str
-    figure_output: str
+_MODELS = {
+    # "ref" is the nominal model (100% velocities); stored for reference, not used in envelope.
+    'ref': os.path.join(_MODULE_DIR, 'models', 'model_Pyr_100.nd'),
+    'min': os.path.join(_MODULE_DIR, 'models', 'model_Pyr_95.nd'),
+    'plu': os.path.join(_MODULE_DIR, 'models', 'model_Pyr_105.nd'),
+}
+_DEPTHS    = [0.0, 30.0]
+_DISTANCES = list(np.arange(0, 100.5, 0.5))
 
 
-def get_arrivals(model, depth, distance):
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _get_arrivals(model, depth, distance):
     """
     Query `cake arrivals` for the first P and S arrival times.
 
@@ -65,19 +65,14 @@ def get_arrivals(model, depth, distance):
 
     Parameters
     ----------
-    model : str
-        Path to the velocity model file (.nd format).
-    depth : float
-        Source depth in km.
-    distance : float
-        Epicentral distance in km.
+    model    : str   — path to the velocity model file (.nd format)
+    depth    : float — source depth in km
+    distance : float — epicentral distance in km
 
     Returns
     -------
-    arrP : float
-        First P-wave arrival time in seconds, or np.nan if not found.
-    arrS : float
-        First S-wave arrival time in seconds, or np.nan if not found.
+    arrP : float — first P-wave arrival time in seconds, or np.nan if not found.
+    arrS : float — first S-wave arrival time in seconds, or np.nan if not found.
 
     Notes
     -----
@@ -97,7 +92,6 @@ def get_arrivals(model, depth, distance):
 
     result = subprocess.run(cmd, capture_output=True, text=True)
 
-    # Warn if cake returned a non-zero exit code (e.g. model file not found)
     if result.returncode != 0:
         print(f"Warning: cake exited with code {result.returncode} "
               f"(model={model}, depth={depth}, dist={distance})")
@@ -106,25 +100,16 @@ def get_arrivals(model, depth, distance):
     arrS = np.nan
 
     for line in result.stdout.splitlines():
-
-        # Skip header lines and short lines that don't contain arrival data
         if len(line) < 50:
             continue
-
-        # Column 41 holds the phase code character (fixed-width cake format)
         phase_char = line[41].lower()
-
         try:
-            # Columns 14–20 hold the arrival time in seconds
             arrival_time = float(line[14:21])
         except (ValueError, IndexError):
             continue
-
-        # Keep only the earliest arrival for each phase type
         if phase_char == 'p':
             if np.isnan(arrP) or arrival_time < arrP:
                 arrP = arrival_time
-
         elif phase_char == 's':
             if np.isnan(arrS) or arrival_time < arrS:
                 arrS = arrival_time
@@ -132,25 +117,20 @@ def get_arrivals(model, depth, distance):
     return arrP, arrS
 
 
-def get_times(models, depths, distances):
+def _get_times(models, depths, distances):
     """
     Compute P- and S-wave arrival times for all model/depth/distance combinations.
 
     Parameters
     ----------
-    models : dict
-        Mapping of model key to .nd file path (e.g. {"min": "...", "plu": "..."}).
-    depths : list[float]
-        Source depths in km.
-    distances : list[float]
-        Epicentral distances in km.
+    models    : dict         — mapping of model key to .nd file path
+    depths    : list[float]  — source depths in km
+    distances : list[float]  — epicentral distances in km
 
     Returns
     -------
-    TP : dict
-        Nested dict of P-wave times: TP[model_key][depth] = np.array of times.
-    TS : dict
-        Nested dict of S-wave times: TS[model_key][depth] = np.array of times.
+    TP : dict — nested dict of P-wave times: TP[model_key][depth] = np.array
+    TS : dict — nested dict of S-wave times: TS[model_key][depth] = np.array
     """
     TP = {m: {} for m in models}
     TS = {m: {} for m in models}
@@ -159,143 +139,149 @@ def get_times(models, depths, distances):
         for depth in depths:
             tp = []
             ts = []
-
             print(f"  Computing arrivals — model: {m:>4s}  depth: {depth:>5.1f} km")
-
             for dist in distances:
-                p, s = get_arrivals(models[m], depth, dist)
+                p, s = _get_arrivals(models[m], depth, dist)
                 tp.append(p)
                 ts.append(s)
-
             TP[m][depth] = np.array(tp)
             TS[m][depth] = np.array(ts)
 
     return TP, TS
 
 
-def compute_min_max_times(models, depths, distances):
+def _compute_envelopes(distances):
     """
     Build a DataFrame of P/S arrival-time envelopes across all models and depths.
 
     The envelope (low/high bounds) is the element-wise minimum and maximum of
     the "min" and "plu" model arrivals, taken across all provided depths.
 
-    Note: The "min" and "plu" keys must be present in the models dict. Any
-    additional keys (e.g. "ref") are computed by get_times but not used here.
-
     Parameters
     ----------
-    models : dict
-        Must contain at least "min" and "plu" keys (see BuildTablesParams).
-    depths : list[float]
-        Source depths in km.
-    distances : list[float]
-        Epicentral distances in km.
+    distances : list[float] — epicentral distances in km
 
     Returns
     -------
     pd.DataFrame
         Columns: distance, tp_low, tp_high, ts_low, ts_high.
     """
-    TP, TS = get_times(models, depths, distances)
+    TP, TS = _get_times(_MODELS, _DEPTHS, distances)
 
-    # Initialize envelopes using the first depth
-    tp_low  = np.minimum(TP["min"][depths[0]], TP["plu"][depths[0]])
-    tp_high = np.maximum(TP["min"][depths[0]], TP["plu"][depths[0]])
-    ts_low  = np.minimum(TS["min"][depths[0]], TS["plu"][depths[0]])
-    ts_high = np.maximum(TS["min"][depths[0]], TS["plu"][depths[0]])
+    tp_low  = np.minimum(TP['min'][_DEPTHS[0]], TP['plu'][_DEPTHS[0]])
+    tp_high = np.maximum(TP['min'][_DEPTHS[0]], TP['plu'][_DEPTHS[0]])
+    ts_low  = np.minimum(TS['min'][_DEPTHS[0]], TS['plu'][_DEPTHS[0]])
+    ts_high = np.maximum(TS['min'][_DEPTHS[0]], TS['plu'][_DEPTHS[0]])
 
-    # Expand envelopes across remaining depths
-    for depth in depths[1:]:
-        tp_low  = np.minimum(tp_low,  TP["min"][depth])
-        tp_high = np.maximum(tp_high, TP["plu"][depth])
-        ts_low  = np.minimum(ts_low,  TS["min"][depth])
-        ts_high = np.maximum(ts_high, TS["plu"][depth])
+    for depth in _DEPTHS[1:]:
+        tp_low  = np.minimum(tp_low,  TP['min'][depth])
+        tp_high = np.maximum(tp_high, TP['plu'][depth])
+        ts_low  = np.minimum(ts_low,  TS['min'][depth])
+        ts_high = np.maximum(ts_high, TS['plu'][depth])
 
     return pd.DataFrame({
-        "distance": distances,
-        "tp_low":   tp_low,
-        "tp_high":  tp_high,
-        "ts_low":   ts_low,
-        "ts_high":  ts_high,
+        'distance': distances,
+        'tp_low':   tp_low,
+        'tp_high':  tp_high,
+        'ts_low':   ts_low,
+        'ts_high':  ts_high,
     })
 
 
-def build_figure(time_tables, output):
+def _build_figure(time_tables, output):
     """
     Save a two-panel figure showing P-wave and S-wave travel-time bands.
 
-    The shaded band represents the range of arrival times across the min/plu
-    velocity models and all source depths (±5% velocity variation).
-
     Parameters
     ----------
-    time_tables : pd.DataFrame
-        Output of compute_min_max_times(); must contain columns:
-        distance, tp_low, tp_high, ts_low, ts_high.
-    output : str
-        File path for the saved PNG figure.
+    time_tables : pd.DataFrame — output of _compute_envelopes()
+    output      : str          — file path for the saved PNG figure
     """
-    sns.set_theme(style="whitegrid")
-    palette = sns.color_palette("tab10")
+    sns.set_theme(style='whitegrid')
+    palette = sns.color_palette('tab10')
 
     fig, (ax_p, ax_s) = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
 
-    # --- Top panel: P-wave arrivals ---
     ax_p.fill_between(
         time_tables.distance, time_tables.tp_low, time_tables.tp_high,
-        color=palette[0], alpha=0.4, label="P-wave band"
+        color=palette[0], alpha=0.4, label='P-wave band'
     )
-    ax_p.set_ylim(0,30)
-    ax_p.set_ylabel("Arrival Time (s)")
-    ax_p.set_title("P-wave arrivals — ±5% velocity variation")
+    ax_p.set_ylim(0, 30)
+    ax_p.set_ylabel('Arrival Time (s)')
+    ax_p.set_title('P-wave arrivals — ±5% velocity variation')
 
-    # --- Bottom panel: S-wave arrivals ---
     ax_s.fill_between(
         time_tables.distance, time_tables.ts_low, time_tables.ts_high,
-        color=palette[1], alpha=0.4, label="S-wave band"
+        color=palette[1], alpha=0.4, label='S-wave band'
     )
-    ax_p.set_ylim(0,30)
-    ax_s.set_xlabel("Distance (km)")
-    ax_s.set_ylabel("Arrival Time (s)")
-    ax_s.set_title("S-wave arrivals — ±5% velocity variation")
+    ax_s.set_ylim(0, 30)
+    ax_s.set_xlabel('Distance (km)')
+    ax_s.set_ylabel('Arrival Time (s)')
+    ax_s.set_title('S-wave arrivals — ±5% velocity variation')
 
     plt.tight_layout()
     plt.savefig(output, dpi=150)
     plt.close(fig)
 
 
-def save_theoretical_tables(parameters):
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def save_theoretical_tables(output=None, figure_output=None):
     """
-    Main entry point: compute travel-time tables, save CSV, and generate figure.
+    Compute P/S travel-time envelopes, save CSV and figure.
+
+    Uses the Pyrenees velocity models (±5% variation) and source depths
+    0–30 km, at 0.5 km distance steps up to 100 km.
 
     Parameters
     ----------
-    parameters : BuildTablesParams
-        Full configuration (models, depths, distances, output paths).
+    output : str, optional
+        Path for the output CSV. Defaults to temp_picks/tables_Pyr.csv.
+    figure_output : str, optional
+        Path for the output PNG. Defaults to temp_picks/figures/tables_Pyr.png.
+
+    Returns
+    -------
+    dict
+        Summary with keys: 'output', 'figure'.
     """
-    time_tables = compute_min_max_times(
-        parameters.models, parameters.depths, parameters.distances
+    output        = output        or _DEFAULT_OUTPUT
+    figure_output = figure_output or _DEFAULT_FIGURE
+
+    os.makedirs(os.path.dirname(output),        exist_ok=True)
+    os.makedirs(os.path.dirname(figure_output), exist_ok=True)
+
+    time_tables = _compute_envelopes(_DISTANCES)
+    _build_figure(time_tables, figure_output)
+    time_tables.to_csv(output, index=False)
+
+    print(f"Tables saved to : {output}")
+    print(f"Figure saved to : {figure_output}")
+
+    return {'output': output, 'figure': figure_output}
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Compute theoretical P/S travel-time tables using Pyrocko cake.'
     )
-    build_figure(time_tables, parameters.figure_output)
-    time_tables.to_csv(parameters.output, index=False)
-
-
-if __name__ == "__main__":
-    params = BuildTablesParams(
-        models={
-            # "ref" is the nominal velocity model (100% of reference velocities).
-            # It is stored here for future use (e.g. plotting a reference curve)
-            # but is not currently used in the envelope computation.
-            "ref": "models/model_Pyr_100.nd",
-            # "min" and "plu" bound the ±5% velocity uncertainty range
-            "min": "models/model_Pyr_95.nd",
-            "plu": "models/model_Pyr_105.nd",
-        },
-        distances=list(np.arange(0, 100.5, 0.5)),
-        depths=[0.0, 30.0],
-        output="tables_Pyr.csv",
-        figure_output="figures/tables_Pyr.png",
+    parser.add_argument(
+        '--output', default=None,
+        help='Output CSV path. Default: temp_picks/tables_Pyr.csv.'
     )
+    parser.add_argument(
+        '--figure-output', default=None,
+        help='Output PNG path. Default: temp_picks/figures/tables_Pyr.png.'
+    )
+    args = parser.parse_args()
+    save_theoretical_tables(args.output, args.figure_output)
 
-    save_theoretical_tables(params)
+
+if __name__ == '__main__':
+    main()
