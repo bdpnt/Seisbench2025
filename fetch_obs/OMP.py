@@ -283,7 +283,7 @@ def write_catalog_to_obs(parameters, log_dir=None):
             f.write('\n')
 
     logger.info(f"Events written                        : {n_events}")
-    logger.info(f"Events skipped (magnitude < 0)        : {n_skipped_neg}")
+    logger.info(f"Events skipped (magnitude < -5)        : {n_skipped_neg}")
     logger.info(f"Events skipped (magnitude == 9.9)     : {n_skipped_99}")
     logger.info(f"Events skipped (invalid datetime)     : {n_skipped_invalid}")
     logger.info(f"P picks written                       : {n_picks_p}")
