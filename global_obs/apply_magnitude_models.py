@@ -161,7 +161,7 @@ def apply_magnitude_models(parameters, log_dir=None):
     total_events    = 0
 
     for folder_file in glob.glob(parameters.folder_path):
-        folder_author = folder_file.lstrip('obs/').split('_')[0]
+        folder_author = os.path.basename(folder_file).split('_')[0]
 
         lines, lines_id = _fetch_events(folder_file)
 
