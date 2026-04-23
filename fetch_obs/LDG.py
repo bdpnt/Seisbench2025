@@ -13,10 +13,31 @@ Usage
 """
 
 import argparse
+import logging
+import os
 from dataclasses import dataclass
+from datetime import datetime as dt
 
 import pandas as pd
 from obspy import UTCDateTime
+
+
+logger = logging.getLogger('fetch_obs.LDG')
+
+_DEFAULT_LOG_DIR = 'fetch_obs/console_output/'
+
+
+def _setup_logger(log_dir, input_path):
+    os.makedirs(log_dir, exist_ok=True)
+    basename  = os.path.splitext(os.path.basename(input_path))[0]
+    timestamp = dt.now().strftime('%Y%m%d_%H%M%S')
+    log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+    handler = logging.FileHandler(log_path, encoding='utf-8')
+    handler.setFormatter(logging.Formatter('%(levelname)s %(message)s'))
+    logger.addHandler(handler)
+    return log_path
 
 
 # ---------------------------------------------------------------------------
@@ -43,23 +64,36 @@ class LDGParams:
 # Public API
 # ---------------------------------------------------------------------------
 
-def write_catalog_to_obs(parameters):
+def write_catalog_to_obs(parameters, log_dir=None):
     """
     Convert the LDG catalog and arrivals CSV files to the .obs bulletin format.
 
     Parameters
     ----------
     parameters : LDGParams
+    log_dir    : str, optional — log directory; default: fetch_obs/console_output/
 
     Returns
     -------
     dict with key: output
     """
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, parameters.save_name)
+    logger.info(f"Log file      : {log_path}")
+    logger.info(f"Catalog file  : {parameters.catalog_file}")
+    logger.info(f"Arrivals file : {parameters.arrival_file}")
+    logger.info(f"Output file   : {parameters.save_name}")
+
     catalog  = pd.read_csv(parameters.catalog_file, sep=';', header=0)
     arrivals = pd.read_csv(parameters.arrival_file,  sep=';', header=0)
 
-    print(f'\nEvents from {parameters.catalog_file!r} successfully retrieved')
-    print(f'Picks from  {parameters.arrival_file!r} successfully retrieved')
+    logger.info(f"Events loaded: {len(catalog)}")
+    logger.info(f"Picks loaded : {len(arrivals)}")
+
+    n_events           = 0
+    n_skipped_mag      = 0
+    n_events_no_picks  = 0
+    n_picks            = 0
+    n_picks_skip_phase = 0
 
     with open(parameters.save_name, 'w') as f:
         f.write(f'### Catalog generated on the {UTCDateTime()}\n')
@@ -79,6 +113,7 @@ def write_catalog_to_obs(parameters):
 
             magnitude = row.ML if row.ML != -999 else (row.MD if row.MD != -999 else None)
             if magnitude is None:
+                n_skipped_mag += 1
                 continue
 
             magnitude_type = 'ML' if row.ML != -999 else 'MD'
@@ -92,9 +127,11 @@ def write_catalog_to_obs(parameters):
                 f"{row.lat} {row.lon} {row.depth} {magnitude} "
                 f"{magnitude_type} LDG {phases_count} None None {row.gap1} {row.rms}\n"
             )
+            n_events += 1
 
             event_id = row.orid
             if event_id not in arrivals_by_orid.groups:
+                n_events_no_picks += 1
                 f.write('\n')
                 continue
 
@@ -102,6 +139,7 @@ def write_catalog_to_obs(parameters):
                 phase = row_p.phase
                 if (not phase.strip().lower().startswith('p') and
                         not phase.strip().lower().startswith('s')):
+                    n_picks_skip_phase += 1
                     continue
 
                 station   = row_p.sta
@@ -124,10 +162,16 @@ def write_catalog_to_obs(parameters):
                     f"{'-1.00e+00'.ljust(9)} {'-1.00e+00'.ljust(9)} {'-1.00e+00'.ljust(9)}"
                     f" # {phase.ljust(6)} {'None'.ljust(4)} {'LDG'.ljust(9)} {'None'.ljust(4)}\n"
                 )
+                n_picks += 1
 
             f.write('\n')
 
-    print(f'Catalog written → {parameters.save_name}\n')
+    logger.info(f"Events written                        : {n_events}")
+    logger.info(f"Events skipped (no valid magnitude)   : {n_skipped_mag}")
+    logger.info(f"Events written with no picks          : {n_events_no_picks}")
+    logger.info(f"Picks written                         : {n_picks}")
+    logger.info(f"Picks skipped (wrong phase)           : {n_picks_skip_phase}")
+    logger.info(f"Output: {parameters.save_name}")
     return {'output': parameters.save_name}
 
 

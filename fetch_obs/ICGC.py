@@ -20,12 +20,32 @@ Usage
 """
 
 import argparse
+import logging
 import os
 import time
 from dataclasses import dataclass
+from datetime import datetime as dt
 
 import requests
 from obspy import UTCDateTime
+
+
+logger = logging.getLogger('fetch_obs.ICGC')
+
+_DEFAULT_LOG_DIR = 'fetch_obs/console_output/'
+
+
+def _setup_logger(log_dir, input_path):
+    os.makedirs(log_dir, exist_ok=True)
+    basename  = os.path.splitext(os.path.basename(input_path))[0]
+    timestamp = dt.now().strftime('%Y%m%d_%H%M%S')
+    log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+    handler = logging.FileHandler(log_path, encoding='utf-8')
+    handler.setFormatter(logging.Formatter('%(levelname)s %(message)s'))
+    logger.addHandler(handler)
+    return log_path
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +139,7 @@ def _open_catalog(file_name):
     """Read a catalog file and return its lines."""
     with open(file_name, 'r', encoding='utf-8', errors='ignore') as f:
         lines = f.readlines()
-    print(f'\nEvents from {file_name!r} successfully retrieved')
+    logger.info(f"Catalog loaded: {file_name} ({len(lines)} lines)")
     return lines
 
 
@@ -217,7 +237,7 @@ def fetch_catalog(parameters):
     return {'output': parameters.file_name}
 
 
-def write_catalog_to_obs(parameters):
+def write_catalog_to_obs(parameters, log_dir=None):
     """
     Convert the ICGC GSE2 catalog to the .obs bulletin format.
 
@@ -226,12 +246,25 @@ def write_catalog_to_obs(parameters):
     Parameters
     ----------
     parameters : ICGCParams
+    log_dir    : str, optional — log directory; default: fetch_obs/console_output/
 
     Returns
     -------
     dict with key: output
     """
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, parameters.save_name)
+    logger.info(f"Log file   : {log_path}")
+    logger.info(f"Input file : {parameters.file_name}")
+    logger.info(f"Output file: {parameters.save_name}")
+    logger.info(f"mag_min    : {parameters.mag_min}")
+
     lines = _open_catalog(parameters.file_name)
+
+    n_events            = 0
+    n_skipped_mag       = 0
+    n_picks             = 0
+    n_picks_skip_phase  = 0
+    n_picks_skip_manual = 0
 
     with open(parameters.save_name, 'w') as f:
         f.write(f'### Catalog generated on the {UTCDateTime()}\n')
@@ -266,6 +299,7 @@ def write_catalog_to_obs(parameters):
             phases_count = _safe_float(event_info[89:93])
 
             if magnitude is None or magnitude < parameters.mag_min:
+                n_skipped_mag += 1
                 continue
 
             f.write(
@@ -276,6 +310,7 @@ def write_catalog_to_obs(parameters):
                 f"{latitude} {longitude} {depth} {magnitude} "
                 f"{magnitude_type} {mag_author} {phases_count} None None {az_gap} {rms}\n"
             )
+            n_events += 1
 
             # Phases: from 11th line after DATA_TYPE
             phase_ind = ind + 11
@@ -285,9 +320,11 @@ def write_catalog_to_obs(parameters):
                 phase_name = phase_info[19:27].strip()
                 if (not phase_name.lower().startswith('p') and
                         not phase_name.lower().startswith('s')):
+                    n_picks_skip_phase += 1
                     phase_ind += 1
                     continue
                 if phase_info[99:102] != 'm__':
+                    n_picks_skip_manual += 1
                     phase_ind += 1
                     continue
 
@@ -316,11 +353,17 @@ def write_catalog_to_obs(parameters):
                     f"{'-1.00e+00'.ljust(9)} {'-1.00e+00'.ljust(9)} {'-1.00e+00'.ljust(9)}"
                     f" # {phase.ljust(6)} {'None'.ljust(4)} {'ICGC'.ljust(9)} {'None'.ljust(4)}\n"
                 )
+                n_picks += 1
                 phase_ind += 1
 
             f.write('\n')
 
-    print(f'Catalog written → {parameters.save_name}\n')
+    logger.info(f"Events written                   : {n_events}")
+    logger.info(f"Events skipped (magnitude filter): {n_skipped_mag}")
+    logger.info(f"Picks written                    : {n_picks}")
+    logger.info(f"Picks skipped (wrong phase)      : {n_picks_skip_phase}")
+    logger.info(f"Picks skipped (non-manual)       : {n_picks_skip_manual}")
+    logger.info(f"Output: {parameters.save_name}")
     return {'output': parameters.save_name}
 
 
@@ -340,7 +383,7 @@ def main():
     parser.add_argument('--start-month', type=int, required=True)
     parser.add_argument('--end-year',    type=int, required=True)
     parser.add_argument('--end-month',   type=int, required=True)
-    parser.add_argument('--mag-min',     type=float, default=0)
+    parser.add_argument('--mag-min',     type=float, default=-5)
     args = parser.parse_args()
 
     params = ICGCParams(

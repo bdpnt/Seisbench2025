@@ -27,8 +27,11 @@ Usage
 """
 
 import argparse
+import logging
 import math
+import os
 from dataclasses import dataclass
+from datetime import datetime as dt
 
 import joblib
 import matplotlib.pyplot as plt
@@ -39,6 +42,24 @@ from scipy.odr import Model, ODR, RealData
 from scipy.optimize import minimize
 from scipy.spatial import KDTree
 from sklearn.metrics import r2_score
+
+
+logger = logging.getLogger('global_obs.generate_magnitude_models')
+
+_DEFAULT_LOG_DIR = 'global_obs/console_output/'
+
+
+def _setup_logger(log_dir, input_path):
+    os.makedirs(log_dir, exist_ok=True)
+    basename  = os.path.splitext(os.path.basename(input_path))[0]
+    timestamp = dt.now().strftime('%Y%m%d_%H%M%S')
+    log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+    handler = logging.FileHandler(log_path, encoding='utf-8')
+    handler.setFormatter(logging.Formatter('%(levelname)s %(message)s'))
+    logger.addHandler(handler)
+    return log_path
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +138,7 @@ def _retrieve_events(file_name, mag_type):
         for line in lines
         if line.startswith('#') and not line.startswith('###') and mag_type in line
     ]
-    print(f"{len(event_lines)} events from {file_name!r} (type '{mag_type}')")
+    logger.info(f"{len(event_lines)} event(s) from {file_name!r} (type '{mag_type}')")
     return event_lines
 
 
@@ -379,7 +400,7 @@ def _plot_residuals(matched_frame, parameters,
 # Public API
 # ---------------------------------------------------------------------------
 
-def convert_magnitudes(parameters, save_figs=False):
+def convert_magnitudes(parameters, save_figs=False, log_dir=None):
     """
     Build and save a piecewise ODR linear regression magnitude conversion model.
 
@@ -389,6 +410,7 @@ def convert_magnitudes(parameters, save_figs=False):
         Full configuration (files, magnitude types, thresholds, output paths).
     save_figs  : bool, optional
         If True, save scatter and residual figures to parameters.save_figs.
+    log_dir    : str, optional — log directory; default: global_obs/console_output/
 
     Returns
     -------
@@ -397,8 +419,12 @@ def convert_magnitudes(parameters, save_figs=False):
         slope_geq_2, intercept_geq_2, slope_lt_2, intercept_lt_2), or None if
         matching or data requirements are not met.
     """
-    print('\n#########')
-    print(f'\nGenerating model: {parameters.mag_name1} → {parameters.mag_name2}\n')
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, parameters.save_name)
+    logger.info(f"Log file    : {log_path}")
+    logger.info(f"Model       : {parameters.mag_name1} → {parameters.mag_name2}")
+    logger.info(f"File 1      : {parameters.file_name1}  (type: {parameters.mag_type1})")
+    logger.info(f"File 2      : {parameters.file_name2}  (type: {parameters.mag_type2})")
+    logger.info(f"Thresholds  : dist={parameters.dist_thresh} km  time={parameters.time_thresh} s")
 
     # --- Match events from both catalogs ---
     events1   = _retrieve_events(parameters.file_name1, parameters.mag_type1)
@@ -413,19 +439,15 @@ def convert_magnitudes(parameters, save_figs=False):
     )
 
     if len(matched_frame) == 0:
-        print('\nNo matched events — check thresholds or input files.')
-        print('#########\n')
+        logger.warning("No matched events — check thresholds or input files.")
         return None
 
-    print(f'\n  Matched: {len(matched_frame)} events')
-    print(f'  Unmatched in {parameters.file_name1}: '
-          f'{len(catalog1) - len(match_idx1)}/{len(catalog1)}')
-    print(f'  Unmatched in {parameters.file_name2}: '
-          f'{len(catalog2) - len(match_idx2)}/{len(catalog2)}')
+    logger.info(f"Matched        : {len(matched_frame)} event(s)")
+    logger.info(f"Unmatched in 1 : {len(catalog1) - len(match_idx1)}/{len(catalog1)}")
+    logger.info(f"Unmatched in 2 : {len(catalog2) - len(match_idx2)}/{len(catalog2)}")
 
     if len(matched_frame) < 100:
-        print('\nFewer than 100 matched events — cannot build a reliable model.')
-        print('#########\n')
+        logger.warning(f"Only {len(matched_frame)} matched events — cannot build a reliable model (min 100).")
         return None
 
     # --- Split at M=2 ---
@@ -493,10 +515,10 @@ def convert_magnitudes(parameters, save_figs=False):
     )
     n_outliers = matched_frame['is_outlier_iqr'].sum()
 
-    print(f'\n  R² (M≥2): {R2_geq_2:.3f}')
-    print(f'  R² (M<2): {R2_lt_2:.3f}  (constrained)')
-    print(f'  BIC:      {BIC:.3f}')
-    print(f'  Outliers: {n_outliers}/{n}  (IQR method)')
+    logger.info(f"R² (M≥2)   : {R2_geq_2:.3f}")
+    logger.info(f"R² (M<2)   : {R2_lt_2:.3f}  (constrained)")
+    logger.info(f"BIC        : {BIC:.3f}")
+    logger.info(f"Outliers   : {n_outliers}/{n}  (IQR method)")
 
     # --- Figures ---
     if save_figs:
@@ -520,10 +542,9 @@ def convert_magnitudes(parameters, save_figs=False):
     }
     joblib.dump(models, parameters.save_name)
 
-    print(f'\n  Model saved → {parameters.save_name}')
-    print(f'  {label_geq}: y = {slope_geq_2:.3f}x + {intercept_geq_2:.3f}')
-    print(f'  {label_lt}:  y = {slope_lt_2:.3f}x + {intercept_lt_2:.3f}')
-    print('\n#########\n')
+    logger.info(f"Model saved : {parameters.save_name}")
+    logger.info(f"  {label_geq}: y = {slope_geq_2:.3f}x + {intercept_geq_2:.3f}")
+    logger.info(f"  {label_lt}:  y = {slope_lt_2:.3f}x + {intercept_lt_2:.3f}")
 
     return {
         'output':          parameters.save_name,

@@ -13,9 +13,30 @@ Usage
 
 import argparse
 import datetime
+import logging
+import os
 from dataclasses import dataclass
+from datetime import datetime as dt
 
 from obspy import UTCDateTime
+
+
+logger = logging.getLogger('fetch_obs.OMP')
+
+_DEFAULT_LOG_DIR = 'fetch_obs/console_output/'
+
+
+def _setup_logger(log_dir, input_path):
+    os.makedirs(log_dir, exist_ok=True)
+    basename  = os.path.splitext(os.path.basename(input_path))[0]
+    timestamp = dt.now().strftime('%Y%m%d_%H%M%S')
+    log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+    handler = logging.FileHandler(log_path, encoding='utf-8')
+    handler.setFormatter(logging.Formatter('%(levelname)s %(message)s'))
+    logger.addHandler(handler)
+    return log_path
 
 
 # ---------------------------------------------------------------------------
@@ -44,7 +65,7 @@ def _open_catalog(file_name):
     """Read a catalog file and return its lines."""
     with open(file_name, 'r', encoding='utf-8', errors='ignore') as f:
         lines = f.readlines()
-    print(f'\nEvents from {file_name!r} successfully retrieved')
+    logger.info(f"Catalog loaded: {file_name} ({len(lines)} lines)")
     return lines
 
 
@@ -62,19 +83,35 @@ def _format_arrival_datetime(arrival):
 # Public API
 # ---------------------------------------------------------------------------
 
-def write_catalog_to_obs(parameters):
+def write_catalog_to_obs(parameters, log_dir=None):
     """
     Convert the OMP .mag catalog to the .obs bulletin format.
 
     Parameters
     ----------
     parameters : OMPParams
+    log_dir    : str, optional — log directory; default: fetch_obs/console_output/
 
     Returns
     -------
     dict with key: output
     """
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, parameters.save_name)
+    logger.info(f"Log file   : {log_path}")
+    logger.info(f"Input file : {parameters.file_name}")
+    logger.info(f"Output file: {parameters.save_name}")
+
     lines = _open_catalog(parameters.file_name)
+
+    n_events          = 0
+    n_skipped_neg     = 0
+    n_skipped_99      = 0
+    n_skipped_invalid = 0
+    n_picks_p         = 0
+    n_picks_s         = 0
+    n_skipped_quality = 0
+    n_skipped_miss_p  = 0
+    n_skipped_miss_s  = 0
 
     with open(parameters.save_name, 'w') as f:
         f.write(f'### Catalog generated on the {UTCDateTime()}\n')
@@ -104,7 +141,8 @@ def write_catalog_to_obs(parameters):
             rms        = float(event_info[45:50])
             magnitude  = float(event_info[51:54])
 
-            if magnitude < 0:
+            if magnitude < -5:
+                n_skipped_neg += 1
                 continue
 
             latitude  = lat_deg + lat_sec / 60
@@ -124,11 +162,13 @@ def write_catalog_to_obs(parameters):
             try:
                 UTCDateTime(f'{year}-{month}-{day}T{hour}:{minute}:{second}Z')
             except Exception:
+                n_skipped_invalid += 1
                 continue
 
             event_date = datetime.datetime(year, month, day, 0, 0, 0)
 
             if magnitude == 9.9:
+                n_skipped_99 += 1
                 continue
 
             f.write(
@@ -136,6 +176,7 @@ def write_catalog_to_obs(parameters):
                 f'{latitude} {longitude} {depth} {magnitude} '
                 f'ML OMP None None None None {rms}\n'
             )
+            n_events += 1
 
             phase_ind = ind + 7
             while phase_ind < len(lines) and lines[phase_ind].strip():
@@ -157,6 +198,7 @@ def write_catalog_to_obs(parameters):
                 quality_s = phase_info[102:103]
 
                 if quality_p == '4' or quality_s == '0':
+                    n_skipped_quality += 1
                     phase_ind += 1
                     continue
                 elif quality_p == '9' or station == 'LARF':
@@ -170,6 +212,7 @@ def write_catalog_to_obs(parameters):
                 second_p = phase_info[30:35].strip()
 
                 if not second_p or '*' in second_p:
+                    n_skipped_miss_p += 1
                     phase_ind += 1
                     continue
 
@@ -197,6 +240,7 @@ def write_catalog_to_obs(parameters):
                     f"{coda_dur} {amp} {period}"
                     f" # {'P'.ljust(6)} {'None'.ljust(4)} {'OMP'.ljust(9)} {'None'.ljust(4)}\n"
                 )
+                n_picks_p += 1
 
                 # --- S phase ---
                 hour_s   = 23 if weird_hour else int(phase_info[25:27])
@@ -204,6 +248,7 @@ def write_catalog_to_obs(parameters):
                 second_s = phase_info[105:110].strip()
 
                 if not second_s or '*' in second_s:
+                    n_skipped_miss_s += 1
                     phase_ind += 1
                     continue
 
@@ -231,12 +276,22 @@ def write_catalog_to_obs(parameters):
                     f"{coda_dur} {amp} {period}"
                     f" # {'S'.ljust(6)} {'None'.ljust(4)} {'OMP'.ljust(9)} {'None'.ljust(4)}\n"
                 )
+                n_picks_s += 1
 
                 phase_ind += 1
 
             f.write('\n')
 
-    print(f'Catalog written → {parameters.save_name}\n')
+    logger.info(f"Events written                        : {n_events}")
+    logger.info(f"Events skipped (magnitude < -5)        : {n_skipped_neg}")
+    logger.info(f"Events skipped (magnitude == 9.9)     : {n_skipped_99}")
+    logger.info(f"Events skipped (invalid datetime)     : {n_skipped_invalid}")
+    logger.info(f"P picks written                       : {n_picks_p}")
+    logger.info(f"S picks written                       : {n_picks_s}")
+    logger.info(f"Picks skipped (quality filter)        : {n_skipped_quality}")
+    logger.info(f"Picks skipped (missing P second)      : {n_skipped_miss_p}")
+    logger.info(f"Picks skipped (missing S second)      : {n_skipped_miss_s}")
+    logger.info(f"Output: {parameters.save_name}")
     return {'output': parameters.save_name}
 
 

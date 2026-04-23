@@ -52,6 +52,7 @@ The study area is too large for a single NLL run, so it is split into **6 geogra
   2. Merges the 6 regional results into `RESULT/FINAL.txt`
   3. Rematches relocated events back to `obs/GLOBAL.obs` to recover metadata not present in NLL output (e.g. magnitude)
   4. Saves matched events to `obs/FINAL.obs`
+- **`add_temp_picks.py`** (optional, run after): augments `obs/FINAL.obs` with picks from external sources → `obs/FINAL_augmented.obs`
 
 ---
 
@@ -70,13 +71,17 @@ Scripts in `complem_figures/` for visualization and statistics:
 
 ## External Pick Ingestion (temp_picks/)
 
-A self-contained sub-pipeline for ingesting picks from external sources into `GLOBAL.obs`. All scripts live in `temp_picks/` and are importable as a package (`from temp_picks.<module> import <function>`). Log files are written to `temp_picks/console_output/`.
+A self-contained sub-pipeline for ingesting picks from external sources into `obs/FINAL.obs`, producing `obs/FINAL_augmented.obs`. All scripts live in `temp_picks/` and are importable as a package (`from temp_picks.<module> import <function>`). Log files are written to `temp_picks/console_output/`.
+
+The root-level script **`add_temp_picks.py`** orchestrates the full pipeline (steps 1–5 below) in sequence.
 
 | Script | Role |
 |--------|------|
 | `build_theoretical_tables.py` | Runs Pyrocko's `cake` CLI to compute P/S travel-time envelopes (±5% velocity, 0–100 km) → `temp_picks/tables_Pyr.csv` |
-| `convert_picks.py` | Converts external pick files to `.obs` pick line format; maps station names to internal codes via `GLOBAL_code_map.txt`. Format `TEMP_OBS` is currently supported; new formats are registered in `FORMAT_HANDLERS`. |
-| `match_picks.py` | Matches converted picks to bulletin events: 60 s time window + residual filter (±0.1 s P, ±0.3 s S, plus ±2.5 s t0-error margin); appends new picks and updates `PhaseCount`; auto-sorts output via `sort_picks`. |
+| `merge_omp_picks.py` | Merges all yearly OMP/PhaseNet CSV files from `picks_OMP/` subdirectories → `pick_files/merged_omp.csv`; station `SMC` and year `2026` excluded by default |
+| `merge_pyrenees_picks.py` | Concatenates RaspberryShake/PhaseNet `.txt` files from `picks_station_pyrenees/` and `picks_station_pyrenees2/` → `pick_files/merged_pyrenees.txt` and `pick_files/merged_pyrenees2.txt` |
+| `convert_picks.py` | Converts external pick files to `.obs` pick line format; maps station names to internal codes via `GLOBAL_code_map.txt`. Formats `TEMP_OBS`, `TEMP_RSB`, and `TEMP_OMP` are supported; new formats are registered in `FORMAT_HANDLERS`. Unresolved stations are logged as an end-of-run summary. |
+| `match_picks.py` | Matches converted picks to bulletin events: 60 s time window + residual filter (±0.1 s P, ±0.3 s S, plus ±2.5 s t0-error margin); appends new picks and updates `PhaseCount`; chains against `obs/FINAL.obs` → `obs/FINAL_augmented.obs`; auto-sorts output via `sort_picks`. |
 | `sort_picks.py` | Sorts pick lines within each event block by ascending arrival time. |
 | `plot_travel_times.py` | QC figure: scatter of observed (distance, travel time) picks over theoretical P/S bands. |
 

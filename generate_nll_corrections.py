@@ -1,33 +1,82 @@
-from NLL_run.parse_nll_output import CleanPostRunParams
+"""
+generate_nll_corrections.py
+============================
+Generate second-pass NLL run files with per-station delay corrections.
+
+For each of the 6 geographic zones:
+  1. Cleans the first-pass NLL output and writes events to RESULT/GLOBAL_<key>.txt.
+  2. Derives per-station delay corrections from first-pass residuals and appends
+     them to a second-pass run file (run_<key>_PR.in).
+
+Also exports a summary of all locdelay corrections to run/locdelays/.
+
+After this script, run externally for each zone:
+    NLLoc run/run_<key>_PR.in
+
+Usage
+-----
+    python generate_nll_corrections.py
+"""
+
+import os
+
 from NLL_run.append_station_delays import SecondRunParams
-from NLL_run.export_locdelay_info import export_locdelay_info
+from NLL_run.export_locdelay_info  import export_locdelay_info
+from NLL_run.parse_nll_output      import CleanPostRunParams
 import NLL_run
 
-# For all areas
-for key in range(1,7):
-    # Clean the files post-run
-    params_clean = CleanPostRunParams(
-        folderLoc = f'loc/GLOBAL_{key}',
-        obsFile = f'GLOBAL_{key}.obs',
-        fileBulletin = f'RESULT/GLOBAL_{key}.txt',
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+
+_PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+_LOC      = os.path.join(_PROJECT_ROOT, 'loc')
+_RESULT   = os.path.join(_PROJECT_ROOT, 'RESULT')
+_RUN      = os.path.join(_PROJECT_ROOT, 'run')
+_STATIONS = os.path.join(_PROJECT_ROOT, 'stations')
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def run_pipeline():
+    """Clean first-pass NLL output and generate second-pass run files for all zones."""
+    for key in range(1, 7):
+        # Clean the files post-run
+        params_clean = CleanPostRunParams(
+            folderLoc    = os.path.join(_LOC,    f'GLOBAL_{key}'),
+            obsFile      = f'GLOBAL_{key}.obs',
+            fileBulletin = os.path.join(_RESULT, f'GLOBAL_{key}.txt'),
+        )
+
+        NLL_run.parse_nll_output.write_events(params_clean)
+
+        # Generate the second-pass run file
+        params_ssst_W = SecondRunParams(
+            locFolderName = os.path.join(_LOC, f'GLOBAL_{key}'),
+            fileRunName   = os.path.join(_RUN, f'run_{key}.in'),
+            fileRunSave   = os.path.join(_RUN, f'run_{key}_PR.in'),
+            minPhases     = 100,  # minimal number of phases for the delay to be used
+        )
+
+        NLL_run.append_station_delays.append_station_delays(params_ssst_W)
+
+    # Export the locdelays
+    export_locdelay_info(
+        run_dir      = _RUN,
+        codemap_path = os.path.join(_STATIONS, 'GLOBAL_code_map.txt'),
+        output_path  = os.path.join(_RUN, 'locdelays', 'locdelay_summary.txt'),
     )
 
-    NLL_run.parse_nll_output.write_events(params_clean)
 
-    # Generate the second-pass run file
-    params_ssst_W = SecondRunParams(
-        locFolderName = f'loc/GLOBAL_{key}', # loc folder to use
-        fileRunName = f'run/run_{key}.in', # run file to use
-        fileRunSave = f'run/run_{key}_PR.in', # run file to generate
-        # newObsFile = f'obs/GLOBAL_{key}_temp.obs', # new obs file to use (updated with temporary networks phase picks)
-        minPhases = 100, # minimal number of phases for the delay to be used
-    )
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
 
-    NLL_run.append_station_delays.append_station_delays(params_ssst_W)
+def main():
+    run_pipeline()
 
-# Export the locdelays
-export_locdelay_info(
-    run_dir      = 'run',
-    codemap_path = 'stations/GLOBAL_code_map.txt',
-    output_path  = 'run/locdelays/locdelay_summary.txt',
-)
+
+if __name__ == '__main__':
+    main()
