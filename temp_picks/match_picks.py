@@ -327,6 +327,7 @@ def match_picks(pick_file, bulletin_file, inventory_file, tables_file,
     # --- Process picks ---
     n_picks             = 0
     n_added             = 0
+    n_added_near        = 0
     n_skipped_no_event  = 0
     n_skipped_no_sta    = 0
     n_skipped_no_res    = 0
@@ -377,7 +378,7 @@ def match_picks(pick_file, bulletin_file, inventory_file, tables_file,
                 t_low, t_high = tt
                 obs_tt = (arrival_dt - event.event_dt).total_seconds()
                 if t_low - tol - T0_TOL <= obs_tt <= t_high + tol + T0_TOL:
-                    passing.append(event)
+                    passing.append((event, dist_km))
 
             if len(passing) == 0:
                 n_skipped_no_res += 1
@@ -392,7 +393,7 @@ def match_picks(pick_file, bulletin_file, inventory_file, tables_file,
                 continue
 
             # 4. Single match — check for duplicate
-            matched = passing[0]
+            matched, dist_km_matched = passing[0]
             if (station_code, phase) in matched.pick_keys:
                 n_skipped_dup += 1
                 continue
@@ -402,6 +403,8 @@ def match_picks(pick_file, bulletin_file, inventory_file, tables_file,
             matched.pick_keys.add((station_code, phase))
             matched.header_line = _update_phase_count(matched.header_line, len(matched.picks))
             n_added += 1
+            if dist_km_matched <= 20.0:
+                n_added_near += 1
 
     # --- Write output ---
     with open(output_file, 'w') as f:
@@ -416,6 +419,7 @@ def match_picks(pick_file, bulletin_file, inventory_file, tables_file,
 
     logger.info(f"Input picks                                    : {n_picks}")
     logger.info(f"Added                                          : {n_added}")
+    logger.info(f"Added - station within 20 km of event          : {n_added_near}")
     logger.info(f"Skipped - no bulletin event in 60 s window     : {n_skipped_no_event}")
     logger.info(f"Skipped - station not in inventory             : {n_skipped_no_sta}")
     logger.info(f"Skipped - travel time outside theoretical band : {n_skipped_no_res}")
@@ -433,6 +437,7 @@ def match_picks(pick_file, bulletin_file, inventory_file, tables_file,
         'log':                   log_path,
         'n_picks':               n_picks,
         'n_added':               n_added,
+        'n_added_near':          n_added_near,
         'n_skipped_no_event':    n_skipped_no_event,
         'n_skipped_no_station':  n_skipped_no_sta,
         'n_skipped_no_residual': n_skipped_no_res,

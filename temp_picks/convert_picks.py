@@ -151,6 +151,9 @@ def resolve_station(short_name, pick_date_str, code_map, fallback_counter=None):
     """
     entries = code_map.get(short_name)
     if not entries:
+        prefix = short_name + "_"
+        entries = [e for k, v in code_map.items() if k.startswith(prefix) for e in v]
+    if not entries:
         return None
 
     try:
