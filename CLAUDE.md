@@ -104,5 +104,6 @@ The root-level script **`add_temp_picks.py`** orchestrates the full pipeline (st
 
 - All AI-generated commits go to the **`claude` branch**, never to `main`
 - Commit messages must be clean and descriptive so changes are understandable without reading the diff
+- Use the format `type: description` — e.g. `fix: ...`, `feat: ...`, `docs: ...`. Never use scoped form `fix(module): ...`
 - **Never push automatically to main** — commit and push to the **`claude` branch** without asking, but notice the user
 - The user reviews changes locally and decides when to merge or push to `main`

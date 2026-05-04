@@ -162,10 +162,20 @@ def resolve_station(short_name, pick_date_str, code_map, fallback_counter=None):
         pick_dt = None
 
     if pick_dt is not None:
+        # Priority 1: both bounds defined and pick_dt within window
         for entry in entries:
-            start = entry['start']
-            end   = entry['end']
-            if start and end and start <= pick_dt <= end:
+            start, end = entry['start'], entry['end']
+            if start is not None and end is not None and start <= pick_dt <= end:
+                return entry['internal_code']
+        # Priority 2: exactly one bound defined, constraint satisfied
+        for entry in entries:
+            start, end = entry['start'], entry['end']
+            if (start is None) != (end is None):
+                if (start is None or pick_dt >= start) and (end is None or pick_dt <= end):
+                    return entry['internal_code']
+        # Priority 3: no bounds at all — open-ended catch-all
+        for entry in entries:
+            if entry['start'] is None and entry['end'] is None:
                 return entry['internal_code']
 
     if fallback_counter is not None:
