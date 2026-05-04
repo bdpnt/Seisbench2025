@@ -120,6 +120,15 @@ Seisbench2025/
 
 ---
 
+## Conventions
+
+All Python scripts in this project share the same interface contract:
+- **CLI**: every script accepts `--help` and can be run directly from the command line
+- **Public API**: every module is importable as a Python package (e.g. `from temp_picks.match_picks import match_picks`)
+- **Logging**: timestamped log files are written to a `console_output/` directory local to each sub-pipeline
+
+---
+
 ## Pipeline
 
 ### 1. Station Inventory Fusion
@@ -262,8 +271,6 @@ Scripts in `temp_picks/` implement a self-contained sub-pipeline for ingesting p
 | 5 | `convert_picks.py` | Converts external pick files to the project's `.obs` pick line format; maps short station names to internal codes via `GLOBAL_code_map.txt`. Supports formats `TEMP_OBS`, `TEMP_RSB`, and `TEMP_OMP`; new formats are added as handler functions. Unresolved stations are reported as an end-of-run summary. |
 | 6 | `match_picks.py` | For each converted pick, finds candidate events within a 60 s origin-time window, filters by theoretical travel-time residual (±0.1 s P, ±0.3 s S, plus ±2.5 s t0-error margin), and appends matched picks to the bulletin. Chains against `obs/FINAL.obs` → `obs/FINAL_augmented.obs`. Runs `sort_picks` automatically on the output. |
 | 7 | `sort_picks.py` | Sorts all pick lines within each event block by ascending arrival time. Also usable as a standalone script on any bulletin. |
-
-All scripts are importable as a Python package (`from temp_picks.match_picks import match_picks`) and accept `--help` for CLI usage. Timestamped log files are written to `temp_picks/console_output/`.
 
 ---
 
