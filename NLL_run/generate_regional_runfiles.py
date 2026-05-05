@@ -69,9 +69,9 @@ class GenRunParams:
 # Logging
 # ---------------------------------------------------------------------------
 
-def _setup_logger(log_dir, input_path):
+def _setup_logger(log_dir):
     os.makedirs(log_dir, exist_ok=True)
-    basename  = os.path.splitext(os.path.basename(input_path))[0]
+    basename  = os.path.splitext(os.path.basename(__file__))[0]
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
     logger.setLevel(logging.INFO)
@@ -285,7 +285,7 @@ def generate_run(parameters, log_dir=None):
     -------
     dict with keys: output, log
     """
-    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, parameters.fileRunSave)
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR)
     logger.info(f"Zone bounds  : lat [{parameters.latMin_event}, {parameters.latMax_event}]"
                 f"  lon [{parameters.lonMin_event}, {parameters.lonMax_event}]")
 

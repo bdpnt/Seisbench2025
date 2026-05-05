@@ -60,9 +60,9 @@ Scripts that produce persistent diagnostic output use the `logging` module with 
 ```python
 logger = logging.getLogger('module_name')   # module-level singleton
 
-def _setup_logger(log_dir, input_path):
+def _setup_logger(log_dir):
     os.makedirs(log_dir, exist_ok=True)
-    basename  = os.path.splitext(os.path.basename(input_path))[0]
+    basename  = os.path.splitext(os.path.basename(__file__))[0]
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
     logger.setLevel(logging.INFO)

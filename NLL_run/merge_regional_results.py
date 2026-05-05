@@ -44,9 +44,9 @@ logger = logging.getLogger('merge_regional_results')
 # Logging
 # ---------------------------------------------------------------------------
 
-def _setup_logger(log_dir, output_path):
+def _setup_logger(log_dir):
     os.makedirs(log_dir, exist_ok=True)
-    basename  = os.path.splitext(os.path.basename(output_path))[0]
+    basename  = os.path.splitext(os.path.basename(__file__))[0]
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
     logger.setLevel(logging.INFO)
@@ -255,7 +255,7 @@ def merge_bulletins(bulletin_files, output_path,
     -------
     dict with keys: output, log, n_merged, n_duplicates
     """
-    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, output_path)
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR)
 
     n = len(bulletin_files)
     logger.info(f"Files              : {n}")

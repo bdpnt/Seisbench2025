@@ -43,9 +43,9 @@ logger = logging.getLogger('match_pre_post_relocation')
 # Logging
 # ---------------------------------------------------------------------------
 
-def _setup_logger(log_dir, output_path):
+def _setup_logger(log_dir):
     os.makedirs(log_dir, exist_ok=True)
-    basename  = os.path.splitext(os.path.basename(output_path))[0]
+    basename  = os.path.splitext(os.path.basename(__file__))[0]
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
     logger.setLevel(logging.INFO)
@@ -430,154 +430,173 @@ def match_catalogues(
         next_i              = None
 
         if len(valid_pos) > 1:
-            candidate_times = d2_times[valid_pos]
-            is_ambiguous    = False
+            _next_j = i + 1
+            while _next_j in double_drop_map and _next_j < len(d1):
+                _next_j += 1
+            _next_within_30s = (
+                _next_j < len(d1)
+                and abs(d1.iloc[_next_j]['Time'].value - t1_ns) <= int(30e9)
+            )
+            _dt_cands  = np.abs(d2_times[valid_pos] - t1_ns)
+            _best_j    = int(np.argmin(_dt_cands))
+            _best_dt_s = _dt_cands[_best_j] / 1e9
 
-            unique_times = np.unique(candidate_times)
-            if len(unique_times) == 1:
-                is_ambiguous     = True
-                ambiguity_reason = 'all candidates share an identical timestamp'
-            else:
-                diff_matrix    = np.abs(candidate_times[:, None] - candidate_times[None, :])
-                min_dt_between = np.min(diff_matrix[diff_matrix > 0])
-                if min_dt_between < ambiguous_threshold_ns:
-                    is_ambiguous     = True
-                    ambiguity_reason = (
-                        f"candidates are within {min_dt_between/1e9:.2f}s of each other"
-                    )
-
-            if is_ambiguous:
-                sep = '─' * 72
-
-                df1_info = (
-                    f"  df1 event  │ Time: {row1['Time']}  "
-                    f"Lat: {row1['Lat']:.4f}  Lon: {row1['Lon']:.4f}  "
-                    f"Dep: {row1['Dep']:.1f} km"
-                )
-
-                next_i  = i + 1
-                while next_i in double_drop_map:
-                    next_i += 1
-                has_next = next_i < len(d1)
-                if has_next:
-                    nxt = d1.iloc[next_i]
-                    next_info = (
-                        f"  Next df1   │ Time: {nxt['Time']}  "
-                        f"Lat: {nxt['Lat']:.4f}  Lon: {nxt['Lon']:.4f}  "
-                        f"Dep: {nxt['Dep']:.1f} km"
-                    )
-                else:
-                    nxt       = None
-                    next_info = '  Next df1   │ (none — this is the last event)'
-
-                cand_lines = []
-                for k, p in enumerate(valid_pos):
-                    r2      = d2.iloc[p]
-                    dt_s    = (d2_times[p] - t1_ns) / 1e9
-                    xyz_c   = to_cartesian(np.array([r2['Lat']]), np.array([r2['Lon']]),
-                                           np.array([r2['Dep']]))
-                    dist_km = float(np.linalg.norm(xyz1[0] - xyz_c[0]))
-                    cand_lines.append(
-                        f"  Candidate {k+1} │ Time: {r2['Time']}  "
-                        f"Lat: {r2['Lat']:.4f}  Lon: {r2['Lon']:.4f}  "
-                        f"Dep: {r2['Dep']:.1f} km  "
-                        f"Δt: {dt_s:+.3f}s  Δd: {dist_km:.2f} km"
-                    )
-
-                phase_option_available  = bulletin_lines is not None
-                double_option_available = has_next
-                valid_choices = {'1', '2', 's', 'sd'}
-                if double_option_available:
-                    valid_choices |= {'1d', '2d'}
-                if phase_option_available:
-                    valid_choices.add('p')
-
-                hint_parts = ['1', '2', 's', 'sd']
-                if double_option_available:
-                    hint_parts += ['1d', '2d']
-                if phase_option_available:
-                    hint_parts.append('p')
-                choice_hint = '[' + ' / '.join(hint_parts) + ']'
-
-                def _print_prompt() -> None:
-                    print(f"\n{sep}")
-                    print(f"  AMBIGUOUS MATCH  ({ambiguity_reason})")
-                    print(sep)
-                    print(df1_info)
-                    print(next_info)
-                    print(sep)
-                    for cl in cand_lines:
-                        print(cl)
-                    print(sep)
-                    print('  1  → assign Candidate 1')
-                    print('  2  → assign Candidate 2')
-                    if double_option_available:
-                        print('  1d → assign Candidate 1  +  drop next df1 event as duplicate')
-                        print('  2d → assign Candidate 2  +  drop next df1 event as duplicate')
-                    print('  s  → skip this df1 event')
-                    print('  sd → skip this df1 event as duplicate of the next one')
-                    if phase_option_available:
-                        print('  p  → show phases for current & next df1 event')
-
-                _print_prompt()
-
-                while True:
-                    choice = input(f'  Your choice {choice_hint}: ').strip().lower()
-                    if choice not in valid_choices:
-                        print(f"  Invalid input — please enter one of: {', '.join(sorted(valid_choices))}.")
-                        continue
-                    if choice == 'p':
-                        _print_phases(row1, 'Current df1 event', sep)
-                        if nxt is not None:
-                            _print_phases(nxt, 'Next df1 event', sep)
-                        else:
-                            print('\n  (no next event)')
-                        _print_prompt()
-                        continue
-                    break
-
-                if choice == 's':
-                    print('  → Skipped.\n')
-                    logger.info(f"SKIPPED: df1 event at {row1['Time']}")
-                    continue
-
-                if choice == 'sd':
-                    pending_extra_bid = row1['BulletinID']
-                    print(
-                        f"  → Skipped as duplicate of next event.  "
-                        f"Unique phases from BulletinID={pending_extra_bid} "
-                        f"will be merged into the next matched event.\n"
-                    )
-                    logger.info(
-                        f"SKIPPED as duplicate: df1 event at {row1['Time']}  "
-                        f"BulletinID={pending_extra_bid}"
-                    )
-                    continue
-
-                drop_next_as_double = choice.endswith('d')
-                chosen_idx          = int(choice[0]) - 1
-                valid_pos           = [valid_pos[chosen_idx]]
-
+            if not _next_within_30s and _best_dt_s < 5.0:
+                valid_pos = [valid_pos[_best_j]]
                 logger.info(
-                    f"AMBIGUOUS resolved: choice={choice!r}  "
-                    f"df1_time={row1['Time']}  "
-                    f"candidate_time={d2.iloc[valid_pos[0]]['Time']}"
+                    f"AUTO-RESOLVED: df1 event at {row1['Time']}  "
+                    f"best_dt={_best_dt_s:.3f}s  no next df1 event within 30s"
                 )
+            else:
+                candidate_times = d2_times[valid_pos]
+                is_ambiguous    = False
 
-                if drop_next_as_double:
-                    kept_bid = row1['BulletinID'] if 'BulletinID' in row1.index else None
-                    double_drop_map[next_i] = kept_bid
-                    print(
-                        f"  → Assigned Candidate {choice[0]}  +  "
-                        f"next df1 event (index {next_i}, Time: {nxt['Time']}) "
-                        f"flagged as duplicate.\n"
-                    )
-                    logger.info(
-                        f"DROPPED next event as duplicate: df1 index={next_i}  "
-                        f"time={nxt['Time']}"
-                    )
+                unique_times = np.unique(candidate_times)
+                if len(unique_times) == 1:
+                    is_ambiguous     = True
+                    ambiguity_reason = 'all candidates share an identical timestamp'
                 else:
-                    print(f"  → Assigned Candidate {choice}.\n")
+                    diff_matrix    = np.abs(candidate_times[:, None] - candidate_times[None, :])
+                    min_dt_between = np.min(diff_matrix[diff_matrix > 0])
+                    if min_dt_between < ambiguous_threshold_ns:
+                        is_ambiguous     = True
+                        ambiguity_reason = (
+                            f"candidates are within {min_dt_between/1e9:.2f}s of each other"
+                        )
+
+                if is_ambiguous:
+                    sep = '─' * 72
+
+                    df1_info = (
+                        f"  df1 event  │ Time: {row1['Time']}  "
+                        f"Lat: {row1['Lat']:.4f}  Lon: {row1['Lon']:.4f}  "
+                        f"Dep: {row1['Dep']:.1f} km"
+                    )
+
+                    next_i  = i + 1
+                    while next_i in double_drop_map:
+                        next_i += 1
+                    has_next = next_i < len(d1)
+                    if has_next:
+                        nxt = d1.iloc[next_i]
+                        next_info = (
+                            f"  Next df1   │ Time: {nxt['Time']}  "
+                            f"Lat: {nxt['Lat']:.4f}  Lon: {nxt['Lon']:.4f}  "
+                            f"Dep: {nxt['Dep']:.1f} km"
+                        )
+                    else:
+                        nxt       = None
+                        next_info = '  Next df1   │ (none — this is the last event)'
+
+                    cand_lines = []
+                    for k, p in enumerate(valid_pos):
+                        r2      = d2.iloc[p]
+                        dt_s    = (d2_times[p] - t1_ns) / 1e9
+                        xyz_c   = to_cartesian(np.array([r2['Lat']]), np.array([r2['Lon']]),
+                                               np.array([r2['Dep']]))
+                        dist_km = float(np.linalg.norm(xyz1[0] - xyz_c[0]))
+                        cand_lines.append(
+                            f"  Candidate {k+1} │ Time: {r2['Time']}  "
+                            f"Lat: {r2['Lat']:.4f}  Lon: {r2['Lon']:.4f}  "
+                            f"Dep: {r2['Dep']:.1f} km  "
+                            f"Δt: {dt_s:+.3f}s  Δd: {dist_km:.2f} km"
+                        )
+
+                    phase_option_available  = bulletin_lines is not None
+                    double_option_available = has_next
+                    n_cands = len(valid_pos)
+                    valid_choices = {str(k) for k in range(1, n_cands + 1)} | {'s', 'sd'}
+                    if double_option_available:
+                        valid_choices |= {f'{k}d' for k in range(1, n_cands + 1)}
+                    if phase_option_available:
+                        valid_choices.add('p')
+
+                    hint_parts = [str(k) for k in range(1, n_cands + 1)] + ['s', 'sd']
+                    if double_option_available:
+                        hint_parts += [f'{k}d' for k in range(1, n_cands + 1)]
+                    if phase_option_available:
+                        hint_parts.append('p')
+                    choice_hint = '[' + ' / '.join(hint_parts) + ']'
+
+                    def _print_prompt() -> None:
+                        print(f"\n{sep}")
+                        print(f"  AMBIGUOUS MATCH  ({ambiguity_reason})")
+                        print(sep)
+                        print(df1_info)
+                        print(next_info)
+                        print(sep)
+                        for cl in cand_lines:
+                            print(cl)
+                        print(sep)
+                        for k in range(1, n_cands + 1):
+                            print(f'  {k}  → assign Candidate {k}')
+                        if double_option_available:
+                            for k in range(1, n_cands + 1):
+                                print(f'  {k}d → assign Candidate {k}  +  drop next df1 event as duplicate')
+                        print('  s  → skip this df1 event')
+                        print('  sd → skip this df1 event as duplicate of the next one')
+                        if phase_option_available:
+                            print('  p  → show phases for current & next df1 event')
+
+                    _print_prompt()
+
+                    while True:
+                        choice = input(f'  Your choice {choice_hint}: ').strip().lower()
+                        if choice not in valid_choices:
+                            print(f"  Invalid input — please enter one of: {', '.join(sorted(valid_choices))}.")
+                            continue
+                        if choice == 'p':
+                            _print_phases(row1, 'Current df1 event', sep)
+                            if nxt is not None:
+                                _print_phases(nxt, 'Next df1 event', sep)
+                            else:
+                                print('\n  (no next event)')
+                            _print_prompt()
+                            continue
+                        break
+
+                    if choice == 's':
+                        print('  → Skipped.\n')
+                        logger.info(f"SKIPPED: df1 event at {row1['Time']}")
+                        continue
+
+                    if choice == 'sd':
+                        pending_extra_bid = row1['BulletinID']
+                        print(
+                            f"  → Skipped as duplicate of next event.  "
+                            f"Unique phases from BulletinID={pending_extra_bid} "
+                            f"will be merged into the next matched event.\n"
+                        )
+                        logger.info(
+                            f"SKIPPED as duplicate: df1 event at {row1['Time']}  "
+                            f"BulletinID={pending_extra_bid}"
+                        )
+                        continue
+
+                    drop_next_as_double = choice.endswith('d')
+                    chosen_idx          = int(choice.rstrip('d')) - 1
+                    valid_pos           = [valid_pos[chosen_idx]]
+
+                    logger.info(
+                        f"AMBIGUOUS resolved: choice={choice!r}  "
+                        f"df1_time={row1['Time']}  "
+                        f"candidate_time={d2.iloc[valid_pos[0]]['Time']}"
+                    )
+
+                    if drop_next_as_double:
+                        kept_bid = row1['BulletinID'] if 'BulletinID' in row1.index else None
+                        double_drop_map[next_i] = kept_bid
+                        print(
+                            f"  → Assigned Candidate {choice.rstrip('d')}  +  "
+                            f"next df1 event (index {next_i}, Time: {nxt['Time']}) "
+                            f"flagged as duplicate.\n"
+                        )
+                        logger.info(
+                            f"DROPPED next event as duplicate: df1 index={next_i}  "
+                            f"time={nxt['Time']}"
+                        )
+                    else:
+                        print(f"  → Assigned Candidate {choice}.\n")
 
         dt_values  = np.abs(d2_times[valid_pos] - t1_ns)
         best_local = int(np.argmin(dt_values))
@@ -597,8 +616,6 @@ def match_catalogues(
         if pending_extra_bid is not None and phase_index:
             kept_bid = out_row.get('BulletinID')
             extra    = _diff_phases(kept_bid, pending_extra_bid, phase_index)
-            out_row['_extra_phases'] = extra
-            out_row['_dropped_i']    = None
             if extra:
                 print(
                     f"  INFO: {len(extra)} unique phase(s) from duplicate "
@@ -611,24 +628,34 @@ def match_catalogues(
                 )
             pending_extra_bid = None
 
-        elif drop_next_as_double and phase_index:
-            out_row['_extra_phases'] = None
-            out_row['_dropped_i']    = next_i
+            if drop_next_as_double and phase_index:
+                dropped_bid  = d1.iloc[next_i]['BulletinID']
+                extra_keys   = {_phase_key(p) for p in extra if _phase_key(p) is not None}
+                new_extra    = [
+                    p for p in _diff_phases(kept_bid, dropped_bid, phase_index)
+                    if _phase_key(p) not in extra_keys
+                ]
+                extra = extra + new_extra
+                if new_extra:
+                    print(
+                        f"  INFO: {len(new_extra)} unique phase(s) from duplicate "
+                        f"(BulletinID={dropped_bid}) merged into "
+                        f"event BulletinID={kept_bid}."
+                    )
+                    logger.info(
+                        f"MERGED: {len(new_extra)} phase(s) from BulletinID={dropped_bid} "
+                        f"into BulletinID={kept_bid}"
+                    )
 
-        else:
-            out_row['_extra_phases'] = None
+            out_row['_extra_phases'] = extra
             out_row['_dropped_i']    = None
 
-        match_records.append(out_row)
-
-    # Resolve _extra_phases for the 1d/2d path
-    for rec in match_records:
-        dropped_i = rec.pop('_dropped_i')
-        if dropped_i is not None and phase_index:
-            kept_bid    = rec.get('BulletinID')
-            dropped_bid = d1.iloc[dropped_i]['BulletinID']
+        elif drop_next_as_double and phase_index:
+            kept_bid    = out_row.get('BulletinID')
+            dropped_bid = d1.iloc[next_i]['BulletinID']
             extra       = _diff_phases(kept_bid, dropped_bid, phase_index)
-            rec['_extra_phases'] = extra
+            out_row['_extra_phases'] = extra
+            out_row['_dropped_i']    = None
             if extra:
                 print(
                     f"  INFO: {len(extra)} unique phase(s) from duplicate "
@@ -639,6 +666,15 @@ def match_catalogues(
                     f"MERGED: {len(extra)} phase(s) from BulletinID={dropped_bid} "
                     f"into BulletinID={kept_bid}"
                 )
+
+        else:
+            out_row['_extra_phases'] = None
+            out_row['_dropped_i']    = None
+
+        match_records.append(out_row)
+
+    for rec in match_records:
+        rec.pop('_dropped_i')
 
     if not match_records:
         out_cols = [c for c in d1.columns if c not in update_cols] + update_cols
@@ -668,7 +704,7 @@ def save_bulletin(parameters, log_dir=None):
     -------
     dict with keys: output, log, n_matched
     """
-    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, parameters.save_file)
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR)
     logger.info(f"Obs file     : {parameters.file_obs}")
     logger.info(f"Final file   : {parameters.file_final}")
     logger.info(f"Output       : {parameters.save_file}")

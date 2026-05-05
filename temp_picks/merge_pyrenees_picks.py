@@ -44,7 +44,8 @@ _SOURCE_DIRS = [
 def _setup_logger(log_dir):
     os.makedirs(log_dir, exist_ok=True)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    log_path  = os.path.join(log_dir, f"merge_pyrenees_{timestamp}.log")
+    basename  = os.path.splitext(os.path.basename(__file__))[0]
+    log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
 
     logger.setLevel(logging.INFO)
     logger.handlers.clear()

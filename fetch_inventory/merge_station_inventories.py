@@ -35,9 +35,9 @@ logger = logging.getLogger('fetch_inventory')
 _DEFAULT_LOG_DIR = 'fetch_inventory/console_output/'
 
 
-def _setup_logger(log_dir, input_path):
+def _setup_logger(log_dir):
     os.makedirs(log_dir, exist_ok=True)
-    basename  = os.path.splitext(os.path.basename(input_path))[0]
+    basename  = os.path.splitext(os.path.basename(__file__))[0]
     timestamp = dt.now().strftime('%Y%m%d_%H%M%S')
     log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
     logger.setLevel(logging.INFO)
@@ -223,7 +223,7 @@ def merge_inventory(parameters, log_dir=None):
     """
     import glob
 
-    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, parameters.file_save_inventory)
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR)
     logger.info(f"Log file             : {log_path}")
     logger.info(f"Input glob           : {parameters.folder_path}")
     logger.info(f"Co-location threshold: {parameters.accepted_distance} m")

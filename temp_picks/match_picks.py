@@ -263,9 +263,9 @@ _MODULE_DIR      = os.path.dirname(os.path.abspath(__file__))
 _DEFAULT_LOG_DIR = os.path.join(_MODULE_DIR, 'console_output')
 
 
-def _setup_logger(log_dir, input_path):
+def _setup_logger(log_dir):
     os.makedirs(log_dir, exist_ok=True)
-    basename  = os.path.splitext(os.path.basename(input_path))[0]
+    basename  = os.path.splitext(os.path.basename(__file__))[0]
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
 
@@ -306,7 +306,7 @@ def match_picks(pick_file, bulletin_file, inventory_file, tables_file,
         base, _ = os.path.splitext(bulletin_file)
         output_file = base + '_augmented.obs'
 
-    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, pick_file)
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR)
 
     # --- Load data ---
     logger.info(f"Loading bulletin     : {bulletin_file}")
