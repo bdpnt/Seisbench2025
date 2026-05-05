@@ -43,9 +43,9 @@ logger = logging.getLogger('match_pre_post_relocation')
 # Logging
 # ---------------------------------------------------------------------------
 
-def _setup_logger(log_dir, output_path):
+def _setup_logger(log_dir):
     os.makedirs(log_dir, exist_ok=True)
-    basename  = os.path.splitext(os.path.basename(output_path))[0]
+    basename  = os.path.splitext(os.path.basename(__file__))[0]
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
     logger.setLevel(logging.INFO)
@@ -704,7 +704,7 @@ def save_bulletin(parameters, log_dir=None):
     -------
     dict with keys: output, log, n_matched
     """
-    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, parameters.save_file)
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR)
     logger.info(f"Obs file     : {parameters.file_obs}")
     logger.info(f"Final file   : {parameters.file_final}")
     logger.info(f"Output       : {parameters.save_file}")

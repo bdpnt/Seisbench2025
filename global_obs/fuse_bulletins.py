@@ -50,9 +50,9 @@ logger = logging.getLogger('global_obs.fuse_bulletins')
 _DEFAULT_LOG_DIR = 'global_obs/console_output/'
 
 
-def _setup_logger(log_dir, input_path):
+def _setup_logger(log_dir):
     os.makedirs(log_dir, exist_ok=True)
-    basename  = os.path.splitext(os.path.basename(input_path))[0]
+    basename  = os.path.splitext(os.path.basename(__file__))[0]
     timestamp = dt.now().strftime('%Y%m%d_%H%M%S')
     log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
     logger.setLevel(logging.INFO)
@@ -921,7 +921,7 @@ def fuse_bulletins(parameters, log_dir=None):
     -------
     dict with key: output
     """
-    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, parameters.global_bulletin_path)
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR)
     logger.info(f"Log file        : {log_path}")
     logger.info(f"Main bulletin   : {parameters.main_bulletin_path}")
     logger.info(f"Source glob     : {parameters.folder_path}")
@@ -985,7 +985,7 @@ def find_and_merge_doubles(parameters, log_dir=None):
     -------
     dict with key: output
     """
-    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, parameters.global_bulletin_path)
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR)
     logger.info(f"Log file        : {log_path}")
     logger.info(f"Bulletin        : {parameters.global_bulletin_path}")
     logger.info(f"Thresholds      : max_dt={parameters.max_dt_seconds} s  max_dist={parameters.max_dist_km} km")

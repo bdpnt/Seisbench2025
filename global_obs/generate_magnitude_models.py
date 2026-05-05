@@ -49,9 +49,9 @@ logger = logging.getLogger('global_obs.generate_magnitude_models')
 _DEFAULT_LOG_DIR = 'global_obs/console_output/'
 
 
-def _setup_logger(log_dir, input_path):
+def _setup_logger(log_dir):
     os.makedirs(log_dir, exist_ok=True)
-    basename  = os.path.splitext(os.path.basename(input_path))[0]
+    basename  = os.path.splitext(os.path.basename(__file__))[0]
     timestamp = dt.now().strftime('%Y%m%d_%H%M%S')
     log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
     logger.setLevel(logging.INFO)
@@ -419,7 +419,7 @@ def convert_magnitudes(parameters, save_figs=False, log_dir=None):
         slope_geq_2, intercept_geq_2, slope_lt_2, intercept_lt_2), or None if
         matching or data requirements are not met.
     """
-    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, parameters.save_name)
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR)
     logger.info(f"Log file    : {log_path}")
     logger.info(f"Model       : {parameters.mag_name1} → {parameters.mag_name2}")
     logger.info(f"File 1      : {parameters.file_name1}  (type: {parameters.mag_type1})")

@@ -376,17 +376,10 @@ _DEFAULT_CODEMAP = os.path.join(_MODULE_DIR, '..', 'stations', 'GLOBAL_code_map.
 _DEFAULT_LOG_DIR = os.path.join(_MODULE_DIR, 'console_output')
 
 
-def _setup_logger(log_dir, input_path):
-    """
-    Configure the module logger to write to a timestamped file in log_dir.
-
-    The log file is named after the input file basename plus a timestamp,
-    e.g. viehla_final_20260413_153042.log. Any existing handlers are removed
-    so repeated calls (e.g. in a notebook) don't accumulate handlers.
-    """
+def _setup_logger(log_dir):
     os.makedirs(log_dir, exist_ok=True)
 
-    basename   = os.path.splitext(os.path.basename(input_path))[0]
+    basename   = os.path.splitext(os.path.basename(__file__))[0]
     timestamp  = datetime.now().strftime('%Y%m%d_%H%M%S')
     log_path   = os.path.join(log_dir, f"{basename}_{timestamp}.log")
 
@@ -438,7 +431,7 @@ def convert_file(input_path, fmt, output_path=None, codemap_path=None, log_dir=N
         raise ValueError(f"Unknown format '{fmt}'. Supported: {', '.join(FORMAT_HANDLERS)}")
 
     codemap_path = codemap_path or _DEFAULT_CODEMAP
-    log_path     = _setup_logger(log_dir or _DEFAULT_LOG_DIR, input_path)
+    log_path     = _setup_logger(log_dir or _DEFAULT_LOG_DIR)
 
     if output_path is None:
         base, _ = os.path.splitext(input_path)

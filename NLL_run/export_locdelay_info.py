@@ -48,9 +48,9 @@ logger = logging.getLogger('export_locdelay_info')
 # Logging
 # ---------------------------------------------------------------------------
 
-def _setup_logger(log_dir, output_path):
+def _setup_logger(log_dir):
     os.makedirs(log_dir, exist_ok=True)
-    basename  = os.path.splitext(os.path.basename(output_path))[0]
+    basename  = os.path.splitext(os.path.basename(__file__))[0]
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
     logger.setLevel(logging.INFO)
@@ -161,7 +161,7 @@ def export_locdelay_info(run_dir, codemap_path, output_path, log_dir=None):
     -------
     dict with keys: output, log, n_zones, n_stations_total, n_missing
     """
-    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, output_path)
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR)
     logger.info(f"Run dir      : {run_dir}")
     logger.info(f"Code map     : {codemap_path}")
     logger.info(f"Output       : {output_path}")

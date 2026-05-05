@@ -27,9 +27,9 @@ logger = logging.getLogger('fetch_obs.LDG')
 _DEFAULT_LOG_DIR = 'fetch_obs/console_output/'
 
 
-def _setup_logger(log_dir, input_path):
+def _setup_logger(log_dir):
     os.makedirs(log_dir, exist_ok=True)
-    basename  = os.path.splitext(os.path.basename(input_path))[0]
+    basename  = os.path.splitext(os.path.basename(__file__))[0]
     timestamp = dt.now().strftime('%Y%m%d_%H%M%S')
     log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
     logger.setLevel(logging.INFO)
@@ -77,7 +77,7 @@ def write_catalog_to_obs(parameters, log_dir=None):
     -------
     dict with key: output
     """
-    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, parameters.save_name)
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR)
     logger.info(f"Log file      : {log_path}")
     logger.info(f"Catalog file  : {parameters.catalog_file}")
     logger.info(f"Arrivals file : {parameters.arrival_file}")

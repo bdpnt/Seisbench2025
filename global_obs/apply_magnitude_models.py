@@ -28,9 +28,9 @@ logger = logging.getLogger('global_obs.apply_magnitude_models')
 _DEFAULT_LOG_DIR = 'global_obs/console_output/'
 
 
-def _setup_logger(log_dir, input_path):
+def _setup_logger(log_dir):
     os.makedirs(log_dir, exist_ok=True)
-    basename  = os.path.splitext(os.path.basename(input_path))[0]
+    basename  = os.path.splitext(os.path.basename(__file__))[0]
     timestamp = dt.now().strftime('%Y%m%d_%H%M%S')
     log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
     logger.setLevel(logging.INFO)
@@ -153,7 +153,7 @@ def apply_magnitude_models(parameters, log_dir=None):
         'n_converted' — total number of magnitudes converted
         'n_total'     — total number of events processed
     """
-    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, 'apply_magnitude_models')
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR)
     logger.info(f"Log file       : {log_path}")
     logger.info(f"Bulletin glob  : {parameters.folder_path}")
 

@@ -50,9 +50,9 @@ class CleanPostRunParams:
 # Logging
 # ---------------------------------------------------------------------------
 
-def _setup_logger(log_dir, input_path):
+def _setup_logger(log_dir):
     os.makedirs(log_dir, exist_ok=True)
-    basename  = os.path.splitext(os.path.basename(input_path))[0]
+    basename  = os.path.splitext(os.path.basename(__file__))[0]
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
     logger.setLevel(logging.INFO)
@@ -141,7 +141,7 @@ def write_events(parameters, log_dir=None):
     -------
     dict with keys: output, log, n_events
     """
-    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, parameters.fileBulletin)
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR)
     logger.info(f"Loc folder   : {parameters.folderLoc}")
     logger.info(f"Hypo file    : {parameters.obsFile}.sum.grid0.loc.hypo_71")
     logger.info(f"Output       : {parameters.fileBulletin}")

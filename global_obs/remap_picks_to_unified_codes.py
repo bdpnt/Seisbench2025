@@ -28,9 +28,9 @@ logger = logging.getLogger('global_obs.remap_picks')
 _DEFAULT_LOG_DIR = 'global_obs/console_output/'
 
 
-def _setup_logger(log_dir, input_path):
+def _setup_logger(log_dir):
     os.makedirs(log_dir, exist_ok=True)
-    basename  = os.path.splitext(os.path.basename(input_path))[0]
+    basename  = os.path.splitext(os.path.basename(__file__))[0]
     timestamp = dt.now().strftime('%Y%m%d_%H%M%S')
     log_path  = os.path.join(log_dir, f"{basename}_{timestamp}.log")
     logger.setLevel(logging.INFO)
@@ -180,7 +180,7 @@ def remap_picks_to_unified_codes(parameters, log_dir=None):
         'n_removed' — total picks removed across all files
         'n_total'   — total picks seen across all files
     """
-    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR, parameters.file_inventory)
+    log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR)
     logger.info(f"Log file         : {log_path}")
     logger.info(f"Inventory        : {parameters.file_inventory}")
     logger.info(f"Bulletin pattern : {parameters.folder_bulletin}")
