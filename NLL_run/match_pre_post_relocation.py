@@ -617,7 +617,7 @@ def match_catalogues(
             kept_bid = out_row.get('BulletinID')
             extra    = _diff_phases(kept_bid, pending_extra_bid, phase_index)
             out_row['_extra_phases'] = extra
-            out_row['_dropped_i']    = None
+            out_row['_dropped_i']    = next_i if drop_next_as_double else None
             if extra:
                 print(
                     f"  INFO: {len(extra)} unique phase(s) from duplicate "
@@ -640,22 +640,28 @@ def match_catalogues(
 
         match_records.append(out_row)
 
-    # Resolve _extra_phases for the 1d/2d path
+    # Resolve _extra_phases for the Nd path (may combine with phases already
+    # collected via a prior sd on the same kept event)
     for rec in match_records:
         dropped_i = rec.pop('_dropped_i')
         if dropped_i is not None and phase_index:
             kept_bid    = rec.get('BulletinID')
             dropped_bid = d1.iloc[dropped_i]['BulletinID']
-            extra       = _diff_phases(kept_bid, dropped_bid, phase_index)
-            rec['_extra_phases'] = extra
-            if extra:
+            existing    = rec.get('_extra_phases') or []
+            existing_keys = {_phase_key(p) for p in existing if _phase_key(p) is not None}
+            new_extra = [
+                p for p in _diff_phases(kept_bid, dropped_bid, phase_index)
+                if _phase_key(p) not in existing_keys
+            ]
+            rec['_extra_phases'] = existing + new_extra
+            if new_extra:
                 print(
-                    f"  INFO: {len(extra)} unique phase(s) from duplicate "
+                    f"  INFO: {len(new_extra)} unique phase(s) from duplicate "
                     f"(BulletinID={dropped_bid}) merged into "
                     f"event BulletinID={kept_bid}."
                 )
                 logger.info(
-                    f"MERGED: {len(extra)} phase(s) from BulletinID={dropped_bid} "
+                    f"MERGED: {len(new_extra)} phase(s) from BulletinID={dropped_bid} "
                     f"into BulletinID={kept_bid}"
                 )
 
