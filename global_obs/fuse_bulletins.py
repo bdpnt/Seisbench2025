@@ -401,7 +401,7 @@ def find_match_events(
                     best = {'idx': i, 'dist': cand_dist, 'time': cand_time,
                             'mag': cand_mag_delta, 'ml': cand_ml}
 
-        if best['idx'] is not None:
+        if best['idx'] is not None and best['idx'] not in matched_id2:
             matched_id1.add(idx1)
             matched_id2.add(best['idx'])
             matched_pairs.append({
