@@ -504,15 +504,16 @@ def match_catalogues(
 
                     phase_option_available  = bulletin_lines is not None
                     double_option_available = has_next
-                    valid_choices = {'1', '2', 's', 'sd'}
+                    n_cands = len(valid_pos)
+                    valid_choices = {str(k) for k in range(1, n_cands + 1)} | {'s', 'sd'}
                     if double_option_available:
-                        valid_choices |= {'1d', '2d'}
+                        valid_choices |= {f'{k}d' for k in range(1, n_cands + 1)}
                     if phase_option_available:
                         valid_choices.add('p')
 
-                    hint_parts = ['1', '2', 's', 'sd']
+                    hint_parts = [str(k) for k in range(1, n_cands + 1)] + ['s', 'sd']
                     if double_option_available:
-                        hint_parts += ['1d', '2d']
+                        hint_parts += [f'{k}d' for k in range(1, n_cands + 1)]
                     if phase_option_available:
                         hint_parts.append('p')
                     choice_hint = '[' + ' / '.join(hint_parts) + ']'
@@ -527,11 +528,11 @@ def match_catalogues(
                         for cl in cand_lines:
                             print(cl)
                         print(sep)
-                        print('  1  → assign Candidate 1')
-                        print('  2  → assign Candidate 2')
+                        for k in range(1, n_cands + 1):
+                            print(f'  {k}  → assign Candidate {k}')
                         if double_option_available:
-                            print('  1d → assign Candidate 1  +  drop next df1 event as duplicate')
-                            print('  2d → assign Candidate 2  +  drop next df1 event as duplicate')
+                            for k in range(1, n_cands + 1):
+                                print(f'  {k}d → assign Candidate {k}  +  drop next df1 event as duplicate')
                         print('  s  → skip this df1 event')
                         print('  sd → skip this df1 event as duplicate of the next one')
                         if phase_option_available:
@@ -573,7 +574,7 @@ def match_catalogues(
                         continue
 
                     drop_next_as_double = choice.endswith('d')
-                    chosen_idx          = int(choice[0]) - 1
+                    chosen_idx          = int(choice.rstrip('d')) - 1
                     valid_pos           = [valid_pos[chosen_idx]]
 
                     logger.info(
@@ -586,7 +587,7 @@ def match_catalogues(
                         kept_bid = row1['BulletinID'] if 'BulletinID' in row1.index else None
                         double_drop_map[next_i] = kept_bid
                         print(
-                            f"  → Assigned Candidate {choice[0]}  +  "
+                            f"  → Assigned Candidate {choice.rstrip('d')}  +  "
                             f"next df1 event (index {next_i}, Time: {nxt['Time']}) "
                             f"flagged as duplicate.\n"
                         )
