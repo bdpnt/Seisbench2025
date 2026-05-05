@@ -337,6 +337,8 @@ _MATCH_COLS = [
     'time_diff_seconds', 'mag_diff', 'mag_type_ML', 'threshold_used',
 ]
 
+_ALPHA = 0.95   # weight of normalised time_diff in the assignment cost (1-_ALPHA goes to dist)
+
 
 def find_match_events(
     catalog1, catalog2,
@@ -346,7 +348,8 @@ def find_match_events(
 ):
     """
     Find matching event pairs between two catalogs using global optimal
-    assignment (Hungarian algorithm) with time difference as sole cost (α=1).
+    assignment (Hungarian algorithm) with a weighted cost (α=_ALPHA on time,
+    1-_ALPHA on distance, both normalised to their loose thresholds).
 
     All candidate pairs within loose_time_thresh and loose_dist_thresh are
     collected first, then assigned globally to minimise total time difference.
@@ -401,20 +404,23 @@ def find_match_events(
         return _empty, _empty, list(catalog2.index)
 
     # ------------------------------------------------------------------
-    # 2. Build cost matrix  (cost = time_diff; sentinel for non-candidates)
+    # 2. Build cost matrix  (normalised weighted cost; sentinel for non-candidates)
     # ------------------------------------------------------------------
     idx1_list = sorted(set(c[0] for c in candidates))
     idx2_list = sorted(set(c[1] for c in candidates))
     idx1_pos  = {v: i for i, v in enumerate(idx1_list)}
     idx2_pos  = {v: i for i, v in enumerate(idx2_list)}
 
-    _SENTINEL = loose_time_thresh + 1.0
+    _SENTINEL = 2.0   # above any real normalised cost (which lives in [0, 1])
     cost      = np.full((len(idx1_list), len(idx2_list)), _SENTINEL)
     cand_info = {}   # (idx1, idx2) -> (time_diff, dist_km, mag_diff, is_ml)
 
     for idx1, idx2, time_diff, dist_km, mag_diff, is_ml in candidates:
         r, c = idx1_pos[idx1], idx2_pos[idx2]
-        cost[r, c]            = time_diff
+        cost[r, c] = (
+            _ALPHA       * (time_diff / loose_time_thresh)
+            + (1 - _ALPHA) * (dist_km   / loose_dist_thresh)
+        )
         cand_info[(idx1, idx2)] = (time_diff, dist_km, mag_diff, is_ml)
 
     # ------------------------------------------------------------------
