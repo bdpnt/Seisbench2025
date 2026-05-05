@@ -437,10 +437,11 @@ def find_match_events(
         idx2 = idx2_list[c]
         time_diff, dist_km, mag_diff, is_ml = cand_info[(idx1, idx2)]
 
-        matched_id2.add(idx2)
-
         mag_ok    = not is_ml or mag_diff <= mag_thresh
         is_strict = time_diff <= time_thresh and dist_km <= dist_thresh and mag_ok
+
+        if is_strict:
+            matched_id2.add(idx2)
 
         record = {
             'catalog1_idx':      idx1,
