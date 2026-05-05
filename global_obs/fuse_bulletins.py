@@ -41,7 +41,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from scipy.spatial import KDTree
+from scipy.optimize import linear_sum_assignment
 from scipy.stats import pearsonr, spearmanr
 
 
@@ -332,6 +332,12 @@ def check_similar_picks(main_lines, secondary_lines, main_id, secondary_id):
 # Event matching
 # ---------------------------------------------------------------------------
 
+_MATCH_COLS = [
+    'catalog1_idx', 'catalog2_idx', 'distance_km',
+    'time_diff_seconds', 'mag_diff', 'mag_type_ML', 'threshold_used',
+]
+
+
 def find_match_events(
     catalog1, catalog2,
     dist_thresh, loose_dist_thresh,
@@ -339,115 +345,122 @@ def find_match_events(
     mag_thresh,
 ):
     """
-    Find candidate matching event pairs between two catalogs.
+    Find matching event pairs between two catalogs using global optimal
+    assignment (Hungarian algorithm) with time difference as sole cost (α=1).
 
-    Two passes are performed:
-      strict — within dist_thresh / time_thresh, plus mag_thresh for ML–ML pairs
-      loose  — within loose_dist_thresh / loose_time_thresh (validated later by picks)
+    All candidate pairs within loose_time_thresh and loose_dist_thresh are
+    collected first, then assigned globally to minimise total time difference.
+    Each catalog1 event is assigned to at most one catalog2 event and
+    vice-versa.  Assigned pairs are labelled strict (within dist_thresh /
+    time_thresh, with ML magnitude filter) or loose (within loose thresholds
+    only); loose pairs are returned separately for pick-based validation.
 
     Parameters
     ----------
-    catalog1, catalog2       : pd.DataFrame — produced by get_catalog_frame()
-    dist_thresh              : float — strict distance threshold (km)
-    loose_dist_thresh        : float — loose distance threshold (km)
-    time_thresh              : float — strict time threshold (s)
-    loose_time_thresh        : float — loose time threshold (s)
-    mag_thresh               : float — magnitude difference limit for ML–ML pairs
+    catalog1, catalog2   : pd.DataFrame — produced by get_catalog_frame()
+    dist_thresh          : float — strict distance threshold (km)
+    loose_dist_thresh    : float — loose distance threshold (km)
+    time_thresh          : float — strict time threshold (s)
+    loose_time_thresh    : float — loose time threshold (s)
+    mag_thresh           : float — magnitude difference limit for ML–ML pairs
 
     Returns
     -------
     (strict_matches, possible_matches, unmatched_catalog2)
-        strict_matches, possible_matches : pd.DataFrame
-        unmatched_catalog2               : list of int
+        strict_matches, possible_matches : pd.DataFrame with columns _MATCH_COLS
+        unmatched_catalog2               : list of int (catalog2 index labels)
     """
-    time_thresh_td       = pd.Timedelta(seconds=time_thresh)
-    loose_time_thresh_td = pd.Timedelta(seconds=loose_time_thresh)
-
-    matched_pairs  = []
-    possible_match = []
-    matched_id1    = set()
-    matched_id2    = set()
+    # ------------------------------------------------------------------
+    # 1. Collect all candidate pairs within loose thresholds
+    # ------------------------------------------------------------------
+    candidates = []   # (idx1, idx2, time_diff, dist_km, mag_diff, is_ml)
 
     for idx1, row1 in catalog1.iterrows():
-        idx2 = abs((catalog2.time - row1.time).dt.total_seconds()) < loose_time_thresh_td.total_seconds()
-        idx2 = idx2[idx2].index.to_numpy()
+        time_diffs  = abs((catalog2.time - row1.time).dt.total_seconds())
+        within_time = time_diffs[time_diffs < loose_time_thresh].index.to_numpy()
 
-        if len(idx2) > 1:
-            coords2     = catalog2.loc[idx2, ['latitude', 'longitude']].to_numpy()
-            coords_idx2 = KDTree(coords2).query_ball_point(
-                [row1['latitude'], row1['longitude']], r=loose_dist_thresh / 111
-            )
-            idx2 = idx2[coords_idx2]
-
-        best = {'idx': None, 'dist': float('inf'), 'time': float('inf'),
-                'mag': float('inf'), 'ml': False}
-
-        for i in idx2:
-            candidate      = catalog2.iloc[i]
-            cand_dist      = haversine(row1.latitude, row1.longitude, candidate.latitude, candidate.longitude)
-            cand_time      = abs((row1.time - candidate.time).total_seconds())
-            cand_mag_delta = abs(row1.magnitude - candidate.magnitude)
-            cand_ml        = (
-                row1.magType == 'ML' and candidate.magType == 'ML'
-                and row1.magAuthor in ('LDG', 'OMP')
-                and candidate.magAuthor in ('LDG', 'OMP')
-            )
-
-            if cand_ml and cand_mag_delta > mag_thresh:
+        for idx2 in within_time:
+            row2    = catalog2.loc[idx2]
+            dist_km = haversine(row1.latitude, row1.longitude,
+                                row2.latitude, row2.longitude)
+            if dist_km > loose_dist_thresh:
                 continue
+            time_diff = float(time_diffs.loc[idx2])
+            mag_diff  = abs(row1.magnitude - row2.magnitude)
+            is_ml     = (
+                row1.magType == 'ML' and row2.magType == 'ML'
+                and row1.magAuthor in ('LDG', 'OMP')
+                and row2.magAuthor in ('LDG', 'OMP')
+            )
+            candidates.append((idx1, idx2, time_diff, dist_km, mag_diff, is_ml))
 
-            if cand_time <= time_thresh_td.total_seconds() and cand_dist <= dist_thresh:
-                if cand_dist < best['dist'] or (cand_dist == best['dist'] and cand_time < best['time']):
-                    best = {'idx': i, 'dist': cand_dist, 'time': cand_time,
-                            'mag': cand_mag_delta, 'ml': cand_ml}
+    _empty = pd.DataFrame(columns=_MATCH_COLS)
 
-        if best['idx'] is not None and best['idx'] not in matched_id2:
-            matched_id1.add(idx1)
-            matched_id2.add(best['idx'])
-            matched_pairs.append({
-                'catalog1_idx':      idx1,
-                'catalog2_idx':      best['idx'],
-                'distance_km':       best['dist'],
-                'time_diff_seconds': best['time'],
-                'mag_diff':          best['mag'],
-                'mag_type_ML':       best['ml'],
-                'threshold_used':    'strict',
-            })
-        else:
-            loose_best = {'idx': None, 'dist': float('inf'), 'time': float('inf'),
-                         'mag': float('inf'), 'ml': False}
-            for i in idx2:
-                if i in matched_id2:
-                    continue
-                candidate      = catalog2.iloc[i]
-                cand_dist      = haversine(row1.latitude, row1.longitude, candidate.latitude, candidate.longitude)
-                cand_time      = abs((row1.time - candidate.time).total_seconds())
-                cand_mag_delta = abs(row1.magnitude - candidate.magnitude)
-                cand_ml        = (
-                    row1.magType == 'ML' and candidate.magType == 'ML'
-                    and row1.magAuthor in ('LDG', 'OMP')
-                    and candidate.magAuthor in ('LDG', 'OMP')
-                )
-                if cand_time <= loose_time_thresh_td.total_seconds():
-                    loose_best = {'idx': i, 'dist': cand_dist, 'time': cand_time,
-                                  'mag': cand_mag_delta, 'ml': cand_ml}
+    if not candidates:
+        logger.info("Strict matches: 0  Possible matches: 0")
+        return _empty, _empty, list(catalog2.index)
 
-            if loose_best['idx'] is not None:
-                possible_match.append({
-                    'catalog1_idx':      idx1,
-                    'catalog2_idx':      loose_best['idx'],
-                    'distance_km':       loose_best['dist'],
-                    'time_diff_seconds': loose_best['time'],
-                    'mag_diff':          loose_best['mag'],
-                    'mag_type_ML':       loose_best['ml'],
-                    'threshold_used':    'loose',
-                })
+    # ------------------------------------------------------------------
+    # 2. Build cost matrix  (cost = time_diff; sentinel for non-candidates)
+    # ------------------------------------------------------------------
+    idx1_list = sorted(set(c[0] for c in candidates))
+    idx2_list = sorted(set(c[1] for c in candidates))
+    idx1_pos  = {v: i for i, v in enumerate(idx1_list)}
+    idx2_pos  = {v: i for i, v in enumerate(idx2_list)}
 
-    unmatched_catalog2 = [item for item in catalog2.index if item not in matched_id2]
-    possible_match     = [m for m in possible_match if m['catalog2_idx'] not in matched_id2]
+    _SENTINEL = loose_time_thresh + 1.0
+    cost      = np.full((len(idx1_list), len(idx2_list)), _SENTINEL)
+    cand_info = {}   # (idx1, idx2) -> (time_diff, dist_km, mag_diff, is_ml)
+
+    for idx1, idx2, time_diff, dist_km, mag_diff, is_ml in candidates:
+        r, c = idx1_pos[idx1], idx2_pos[idx2]
+        cost[r, c]            = time_diff
+        cand_info[(idx1, idx2)] = (time_diff, dist_km, mag_diff, is_ml)
+
+    # ------------------------------------------------------------------
+    # 3. Solve global one-to-one assignment
+    # ------------------------------------------------------------------
+    row_ind, col_ind = linear_sum_assignment(cost)
+
+    # ------------------------------------------------------------------
+    # 4. Label strict vs loose; build output DataFrames
+    # ------------------------------------------------------------------
+    matched_pairs  = []
+    possible_match = []
+    matched_id2    = set()
+
+    for r, c in zip(row_ind, col_ind):
+        if cost[r, c] >= _SENTINEL:
+            continue   # forced sentinel assignment — no real candidate
+
+        idx1 = idx1_list[r]
+        idx2 = idx2_list[c]
+        time_diff, dist_km, mag_diff, is_ml = cand_info[(idx1, idx2)]
+
+        matched_id2.add(idx2)
+
+        mag_ok    = not is_ml or mag_diff <= mag_thresh
+        is_strict = time_diff <= time_thresh and dist_km <= dist_thresh and mag_ok
+
+        record = {
+            'catalog1_idx':      idx1,
+            'catalog2_idx':      idx2,
+            'distance_km':       dist_km,
+            'time_diff_seconds': time_diff,
+            'mag_diff':          mag_diff,
+            'mag_type_ML':       is_ml,
+            'threshold_used':    'strict' if is_strict else 'loose',
+        }
+        (matched_pairs if is_strict else possible_match).append(record)
+
+    unmatched_catalog2 = [i for i in catalog2.index if i not in matched_id2]
 
     logger.info(f"Strict matches: {len(matched_pairs)}  Possible matches: {len(possible_match)}")
-    return pd.DataFrame(matched_pairs), pd.DataFrame(possible_match), unmatched_catalog2
+    return (
+        pd.DataFrame(matched_pairs) if matched_pairs else _empty,
+        pd.DataFrame(possible_match) if possible_match else _empty,
+        unmatched_catalog2,
+    )
 
 
 # ---------------------------------------------------------------------------
