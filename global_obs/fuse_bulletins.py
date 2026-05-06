@@ -113,10 +113,14 @@ class MergeDoublesParams:
     global_bulletin_path : str   — path to the bulletin to review and clean
     max_dt_seconds       : float — maximum time gap (s) to flag a potential double
     max_dist_km          : float — maximum 3-D distance (km) to flag a potential double
+    auto_dt_seconds      : float — Δt threshold (s) below which a pair of 2 is merged automatically
+    auto_dist_km         : float — distance threshold (km) below which a pair of 2 is merged automatically
     """
     global_bulletin_path: str
     max_dt_seconds:       float
     max_dist_km:          float
+    auto_dt_seconds:      float = 0.15
+    auto_dist_km:         float = 10.0
 
 
 # ---------------------------------------------------------------------------
@@ -991,6 +995,9 @@ def find_and_merge_doubles(parameters, log_dir=None):
     Connected components (groups of 2 or more events) are presented one group at a time,
     so triples and larger clusters are handled correctly in a single review step.
 
+    Auto-merge: groups of exactly 2 events where |Δt| ≤ auto_dt_seconds AND distance ≤ auto_dist_km
+    are merged automatically (first event kept) without user interaction.
+
     Interactive choices
     -------------------
     k<n> → keep Event n, drop all others; unique phases from dropped events are merged in
@@ -1009,7 +1016,8 @@ def find_and_merge_doubles(parameters, log_dir=None):
     log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR)
     logger.info(f"Log file        : {log_path}")
     logger.info(f"Bulletin        : {parameters.global_bulletin_path}")
-    logger.info(f"Thresholds      : max_dt={parameters.max_dt_seconds} s  max_dist={parameters.max_dist_km} km")
+    logger.info(f"Thresholds      : max_dt={parameters.max_dt_seconds} s  max_dist={parameters.max_dist_km} km  "
+                f"auto_dt={parameters.auto_dt_seconds} s  auto_dist={parameters.auto_dist_km} km")
 
     with open(parameters.global_bulletin_path, 'r') as f:
         bulletin_lines = f.readlines()
@@ -1134,6 +1142,26 @@ def find_and_merge_doubles(parameters, log_dir=None):
         group_events = [events[i] for i in group]
         n_ev         = len(group_events)
 
+        if n_ev == 2:
+            e1, e2   = group_events[0], group_events[1]
+            auto_dt  = abs((e1['time'] - e2['time']).total_seconds())
+            auto_d   = float(np.linalg.norm(
+                _to_cartesian(e1['lat'], e1['lon'], e1['dep']) -
+                _to_cartesian(e2['lat'], e2['lon'], e2['dep'])
+            ))
+            if auto_dt <= parameters.auto_dt_seconds and auto_d <= parameters.auto_dist_km:
+                kept_phases = list(e1['phases'])
+                extra       = _unique_phases(kept_phases, e2['phases'])
+                kept_phases.extend(extra)
+                drop_bids.add(e2['bid'])
+                if extra:
+                    merge_map.setdefault(e1['bid'], []).extend(extra)
+                print(f'  [AUTO] Merged BulletinID={e2["bid"]} into BulletinID={e1["bid"]}  '
+                      f'Δt={auto_dt:.3f}s  Δd={auto_d:.2f} km  {len(extra)} unique phase(s) merged.')
+                logger.info(f"Auto-merged BulletinID={e2['bid']} into BulletinID={e1['bid']}  "
+                            f"dt={auto_dt:.3f}s  dist={auto_d:.2f}km")
+                continue
+
         def _print_group():
             print(f'\n{sep}')
             print(f'  POTENTIAL DOUBLES  Group {group_num}/{len(groups)}  ({n_ev} events)')
@@ -1249,8 +1277,12 @@ def main():
     parser.add_argument('--sim-pick-thresh',   type=int,   default=2)
 
     # --- doubles mode arguments ---
-    parser.add_argument('--max-dt-seconds', type=float, default=1.0)
-    parser.add_argument('--max-dist-km',    type=float, default=50.0)
+    parser.add_argument('--max-dt-seconds',  type=float, default=1.0)
+    parser.add_argument('--max-dist-km',     type=float, default=50.0)
+    parser.add_argument('--auto-dt-seconds', type=float, default=0.15,
+                        help='Δt threshold (s) for automatic merging of pairs (default: 0.15)')
+    parser.add_argument('--auto-dist-km',    type=float, default=10.0,
+                        help='Distance threshold (km) for automatic merging of pairs (default: 10.0)')
 
     args = parser.parse_args()
 
@@ -1272,6 +1304,8 @@ def main():
             global_bulletin_path = args.global_bulletin_path,
             max_dt_seconds       = args.max_dt_seconds,
             max_dist_km          = args.max_dist_km,
+            auto_dt_seconds      = args.auto_dt_seconds,
+            auto_dist_km         = args.auto_dist_km,
         )
         find_and_merge_doubles(params)
 
