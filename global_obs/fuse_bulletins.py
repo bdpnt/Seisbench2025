@@ -1172,9 +1172,10 @@ def find_and_merge_doubles(parameters, log_dir=None):
                 print(f'  Event {k:<4} │ Time: {e["time"]}  '
                       f'Lat: {e["lat"]:.4f}  Lon: {e["lon"]:.4f}  Dep: {e["dep"]:.1f} km')
             print(sep)
-            print(f'  k<n> → keep Event n (1–{n_ev}), drop all others (merge unique phases)')
-            print(f'  s    → keep all (not doubles)')
-            print(f'  p<n> → show phases for Event n')
+            print(f'  k<n>          → keep Event n (1–{n_ev}), merge all others, drop none')
+            print(f'  k<n>d<x,y,…>  → keep Event n, drop x,y,… completely, merge the rest')
+            print(f'  s             → keep all (not doubles)')
+            print(f'  p<n>          → show phases for Event n')
 
         def _print_phases_for(e, label):
             print(f'\n  {label} phases  (BulletinID={e["bid"]})')
@@ -1185,11 +1186,13 @@ def find_and_merge_doubles(parameters, log_dir=None):
 
         _print_group()
 
+        kept_idx      = None
+        discard_set   = set()   # 0-based indices to drop without phase merge
+
         while True:
             choice = input('  Your choice: ').strip().lower()
 
             if choice == 's':
-                print('  → Kept all.\n')
                 break
 
             if choice.startswith('p') and choice[1:].isdigit():
@@ -1201,34 +1204,65 @@ def find_and_merge_doubles(parameters, log_dir=None):
                 print(f'  Invalid event number — enter a value between 1 and {n_ev}.')
                 continue
 
-            if choice.startswith('k') and choice[1:].isdigit():
-                k = int(choice[1:])
-                if 1 <= k <= n_ev:
-                    break
-                print(f'  Invalid event number — enter a value between 1 and {n_ev}.')
-                continue
+            if choice.startswith('k'):
+                rest  = choice[1:]
+                k_str, _, d_str = rest.partition('d')
 
-            print(f'  Invalid input — please enter k<n> (1–{n_ev}), s, or p<n>.')
+                if not k_str.isdigit():
+                    print(f'  Invalid input — please enter k<n>, k<n>d<x,y,…>, s, or p<n>.')
+                    continue
 
-        if choice == 's':
+                k = int(k_str)
+                if not (1 <= k <= n_ev):
+                    print(f'  Invalid event number — enter a value between 1 and {n_ev}.')
+                    continue
+
+                if d_str:
+                    try:
+                        drop_nums = [int(x.strip()) for x in d_str.split(',')]
+                    except ValueError:
+                        print(f'  Invalid drop list — use comma-separated numbers, e.g. k2d1,3.')
+                        continue
+                    if any(not (1 <= d <= n_ev) for d in drop_nums):
+                        print(f'  Drop list contains an invalid event number (must be 1–{n_ev}).')
+                        continue
+                    if k in drop_nums:
+                        print(f'  Cannot discard the kept event (Event {k}).')
+                        continue
+                    discard_set = {d - 1 for d in drop_nums}
+
+                kept_idx = k - 1
+                break
+
+            print(f'  Invalid input — please enter k<n>, k<n>d<x,y,…>, s, or p<n>.')
+
+        if kept_idx is None:   # choice was 's'
+            print('  → Kept all.\n')
             continue
 
-        kept_idx    = int(choice[1:]) - 1
         kept        = group_events[kept_idx]
-        dropped     = [e for k, e in enumerate(group_events) if k != kept_idx]
         kept_phases = list(kept['phases'])
 
-        for d in dropped:
-            extra = _unique_phases(kept_phases, d['phases'])
-            kept_phases.extend(extra)
-            drop_bids.add(d['bid'])
-            if extra:
-                merge_map.setdefault(kept['bid'], []).extend(extra)
+        for i, e in enumerate(group_events):
+            if i == kept_idx:
+                continue
+            drop_bids.add(e['bid'])
+            if i not in discard_set:
+                extra = _unique_phases(kept_phases, e['phases'])
+                kept_phases.extend(extra)
+                if extra:
+                    merge_map.setdefault(kept['bid'], []).extend(extra)
 
         n_extra = len(kept_phases) - len(kept['phases'])
-        print(f'  → Kept Event {kept_idx + 1} (BulletinID={kept["bid"]}), '
-              f'dropped {len(dropped)} event(s).  '
-              f'{n_extra} unique phase(s) will be merged.\n')
+        if discard_set:
+            discard_label = ', '.join(f'Event {i + 1}' for i in sorted(discard_set))
+            print(f'  → Kept Event {kept_idx + 1} (BulletinID={kept["bid"]}), '
+                  f'discarded {discard_label} (no phase merge), '
+                  f'merged remaining.  {n_extra} unique phase(s) added.\n')
+        else:
+            n_merged = len(group_events) - 1
+            print(f'  → Kept Event {kept_idx + 1} (BulletinID={kept["bid"]}), '
+                  f'merged {n_merged} other event(s).  {n_extra} unique phase(s) added.\n')
 
     # ------------------------------------------------------------------ #
     # 3. Rebuild bulletin                                                  #
