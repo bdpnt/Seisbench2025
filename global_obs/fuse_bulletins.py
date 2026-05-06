@@ -986,15 +986,15 @@ def find_and_merge_doubles(parameters, log_dir=None):
     """
     Scan a bulletin for suspiciously close event pairs and let the user resolve them interactively.
 
-    Detection: two events are flagged when |Δt| ≤ max_dt_seconds AND 3-D distance ≤ max_dist_km.
-    Only consecutive pairs (by time order) are shown; each pair is never shown twice.
+    Detection: events are connected when |Δt| ≤ max_dt_seconds AND 3-D distance ≤ max_dist_km.
+    Connected components (groups of 2 or more events) are presented one group at a time,
+    so triples and larger clusters are handled correctly in a single review step.
 
     Interactive choices
     -------------------
-    k1  → keep Event 1, drop Event 2; unique phases from Event 2 are appended to Event 1
-    k2  → keep Event 2, drop Event 1; unique phases from Event 1 are appended to Event 2
-    s   → keep both as-is (not a double)
-    p   → print all phase lines for both events, then re-display the prompt
+    k<n> → keep Event n, drop all others; unique phases from dropped events are merged in
+    s    → keep all events in the group (not doubles)
+    p<n> → print phase lines for Event n, then re-display the group prompt
 
     Parameters
     ----------
@@ -1063,7 +1063,7 @@ def find_and_merge_doubles(parameters, log_dir=None):
         return {'output': parameters.global_bulletin_path}
 
     # ------------------------------------------------------------------ #
-    # 1. Detect candidate pairs                                            #
+    # 1. Detect groups of potential doubles (connected components)         #
     # ------------------------------------------------------------------ #
     def _to_cartesian(lat_deg, lon_deg, depth_km):
         R   = 6371.0
@@ -1076,24 +1076,42 @@ def find_and_merge_doubles(parameters, log_dir=None):
 
     events.sort(key=lambda e: e['time'])
     max_dt = pd.Timedelta(seconds=parameters.max_dt_seconds)
-    pairs  = []
-    for idx in range(len(events) - 1):
-        e1, e2 = events[idx], events[idx + 1]
-        dt = abs(e2['time'] - e1['time'])
-        if dt > max_dt:
-            continue
-        dist_km = float(np.linalg.norm(
-            _to_cartesian(e1['lat'], e1['lon'], e1['dep']) -
-            _to_cartesian(e2['lat'], e2['lon'], e2['dep'])
-        ))
-        if dist_km <= parameters.max_dist_km:
-            pairs.append((idx, idx + 1, dt, dist_km))
 
-    if not pairs:
+    adj = {i: set() for i in range(len(events))}
+    for i in range(len(events)):
+        for j in range(i + 1, len(events)):
+            if abs(events[j]['time'] - events[i]['time']) > max_dt:
+                break
+            dist_km = float(np.linalg.norm(
+                _to_cartesian(events[i]['lat'], events[i]['lon'], events[i]['dep']) -
+                _to_cartesian(events[j]['lat'], events[j]['lon'], events[j]['dep'])
+            ))
+            if dist_km <= parameters.max_dist_km:
+                adj[i].add(j)
+                adj[j].add(i)
+
+    visited = set()
+    groups  = []
+    for start in range(len(events)):
+        if start in visited or not adj[start]:
+            continue
+        group = []
+        stack = [start]
+        while stack:
+            node = stack.pop()
+            if node in visited:
+                continue
+            visited.add(node)
+            group.append(node)
+            stack.extend(adj[node] - visited)
+        if len(group) > 1:
+            groups.append(sorted(group))
+
+    if not groups:
         print('  No potential doubles found.')
         return {'output': parameters.global_bulletin_path}
 
-    print(f'\n  Found {len(pairs)} potential double(s) to review.\n')
+    print(f'\n  Found {len(groups)} group(s) of potential doubles to review.\n')
 
     # ------------------------------------------------------------------ #
     # 2. Interactive review                                                #
@@ -1111,60 +1129,75 @@ def find_and_merge_doubles(parameters, log_dir=None):
 
     sep = '─' * 72
 
-    for pair_num, (i, j, dt, dist_km) in enumerate(pairs, start=1):
-        e1, e2 = events[i], events[j]
-        if e1['bid'] in drop_bids or e2['bid'] in drop_bids:
-            continue
+    for group_num, group in enumerate(groups, start=1):
+        group_events = [events[i] for i in group]
+        n_ev         = len(group_events)
 
-        def _fmt(e, label):
-            return (f'  {label:<10} │ Time: {e["time"]}  '
-                    f'Lat: {e["lat"]:.4f}  Lon: {e["lon"]:.4f}  Dep: {e["dep"]:.1f} km')
+        def _print_group():
+            print(f'\n{sep}')
+            print(f'  POTENTIAL DOUBLES  Group {group_num}/{len(groups)}  ({n_ev} events)')
+            print(sep)
+            for k, e in enumerate(group_events, start=1):
+                print(f'  Event {k:<4} │ Time: {e["time"]}  '
+                      f'Lat: {e["lat"]:.4f}  Lon: {e["lon"]:.4f}  Dep: {e["dep"]:.1f} km')
+            print(sep)
+            print(f'  k<n> → keep Event n (1–{n_ev}), drop all others (merge unique phases)')
+            print(f'  s    → keep all (not doubles)')
+            print(f'  p<n> → show phases for Event n')
 
-        def _print_phases(e, label):
+        def _print_phases_for(e, label):
             print(f'\n  {label} phases  (BulletinID={e["bid"]})')
             print(sep)
             for ph in e['phases'] or ['    (no phases)']:
                 print(f'    {ph}')
             print(sep)
 
-        def _print_prompt():
-            print(f'\n{sep}')
-            print(f'  POTENTIAL DOUBLE  {pair_num}/{len(pairs)}  (Δt={dt.total_seconds():.3f}s  Δd={dist_km:.2f} km)')
-            print(sep)
-            print(_fmt(e1, 'Event 1'))
-            print(_fmt(e2, 'Event 2'))
-            print(sep)
-            print('  k1 → keep Event 1, drop Event 2 (merge unique phases into Event 1)')
-            print('  k2 → keep Event 2, drop Event 1 (merge unique phases into Event 2)')
-            print('  s  → keep both (not a double)')
-            print('  p  → show phases for both events')
-
-        _print_prompt()
+        _print_group()
 
         while True:
-            choice = input('  Your choice [k1 / k2 / s / p]: ').strip().lower()
-            if choice == 'p':
-                _print_phases(e1, 'Event 1')
-                _print_phases(e2, 'Event 2')
-                _print_prompt()
-                continue
-            if choice in ('k1', 'k2', 's'):
+            choice = input('  Your choice: ').strip().lower()
+
+            if choice == 's':
+                print('  → Kept all.\n')
                 break
-            print('  Invalid input — please enter k1, k2, s, or p.')
+
+            if choice.startswith('p') and choice[1:].isdigit():
+                k = int(choice[1:])
+                if 1 <= k <= n_ev:
+                    _print_phases_for(group_events[k - 1], f'Event {k}')
+                    _print_group()
+                    continue
+                print(f'  Invalid event number — enter a value between 1 and {n_ev}.')
+                continue
+
+            if choice.startswith('k') and choice[1:].isdigit():
+                k = int(choice[1:])
+                if 1 <= k <= n_ev:
+                    break
+                print(f'  Invalid event number — enter a value between 1 and {n_ev}.')
+                continue
+
+            print(f'  Invalid input — please enter k<n> (1–{n_ev}), s, or p<n>.')
 
         if choice == 's':
-            print('  → Kept both.\n')
             continue
 
-        kept, dropped = (e1, e2) if choice == 'k1' else (e2, e1)
-        extra = _unique_phases(kept['phases'], dropped['phases'])
-        drop_bids.add(dropped['bid'])
-        if extra:
-            merge_map.setdefault(kept['bid'], []).extend(extra)
-        label = '1' if choice == 'k1' else '2'
-        print(f'  → Kept Event {label} (BulletinID={kept["bid"]}), '
-              f'dropped BulletinID={dropped["bid"]}.  '
-              f'{len(extra)} unique phase(s) will be merged.\n')
+        kept_idx    = int(choice[1:]) - 1
+        kept        = group_events[kept_idx]
+        dropped     = [e for k, e in enumerate(group_events) if k != kept_idx]
+        kept_phases = list(kept['phases'])
+
+        for d in dropped:
+            extra = _unique_phases(kept_phases, d['phases'])
+            kept_phases.extend(extra)
+            drop_bids.add(d['bid'])
+            if extra:
+                merge_map.setdefault(kept['bid'], []).extend(extra)
+
+        n_extra = len(kept_phases) - len(kept['phases'])
+        print(f'  → Kept Event {kept_idx + 1} (BulletinID={kept["bid"]}), '
+              f'dropped {len(dropped)} event(s).  '
+              f'{n_extra} unique phase(s) will be merged.\n')
 
     # ------------------------------------------------------------------ #
     # 3. Rebuild bulletin                                                  #
