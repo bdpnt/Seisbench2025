@@ -105,7 +105,7 @@ def write_catalog_to_obs(parameters, log_dir=None):
 
     n_events          = 0
     n_skipped_neg     = 0
-    n_skipped_99      = 0
+    n_skipped_mag99   = 0
     n_skipped_invalid = 0
     n_picks_p         = 0
     n_picks_s         = 0
@@ -168,7 +168,7 @@ def write_catalog_to_obs(parameters, log_dir=None):
             event_date = datetime.datetime(year, month, day, 0, 0, 0)
 
             if magnitude == 9.9:
-                n_skipped_99 += 1
+                n_skipped_mag99 += 1
                 continue
 
             f.write(
@@ -284,7 +284,7 @@ def write_catalog_to_obs(parameters, log_dir=None):
 
     logger.info(f"Events written                        : {n_events}")
     logger.info(f"Events skipped (magnitude < -5)        : {n_skipped_neg}")
-    logger.info(f"Events skipped (magnitude == 9.9)     : {n_skipped_99}")
+    logger.info(f"Events skipped (magnitude == 9.9)     : {n_skipped_mag99}")
     logger.info(f"Events skipped (invalid datetime)     : {n_skipped_invalid}")
     logger.info(f"P picks written                       : {n_picks_p}")
     logger.info(f"S picks written                       : {n_picks_s}")
