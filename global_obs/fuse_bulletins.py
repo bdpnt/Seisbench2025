@@ -632,7 +632,9 @@ def _concatenate_bulletin(
         new_lines.append('\n')
 
     if found_possible:
-        strict_match = pd.concat([strict_match, possible_match.iloc[found_possible]]).reset_index(drop=True)
+        validated    = possible_match.loc[found_possible]
+        to_concat    = [df for df in [strict_match, validated] if not df.empty]
+        strict_match = pd.concat(to_concat).reset_index(drop=True)
     possible_match = possible_match.drop(found_possible)
     logger.info(f"P-phase pick matching: {len(found_possible)} additional matches "
                 f"({len(possible_match)} remaining unmatched)")
