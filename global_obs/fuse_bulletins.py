@@ -627,7 +627,8 @@ def _concatenate_bulletin(
         new_lines = _add_phases_to_lines(new_lines, secondary_lines, secondary_ids[event_idx2])
         new_lines.append('\n')
 
-    strict_match = pd.concat([strict_match, possible_match.iloc[found_possible]]).reset_index(drop=True)
+    if found_possible:
+        strict_match = pd.concat([strict_match, possible_match.iloc[found_possible]]).reset_index(drop=True)
     possible_match = possible_match.drop(found_possible)
     logger.info(f"P-phase pick matching: {len(found_possible)} additional matches "
                 f"({len(possible_match)} remaining unmatched)")
