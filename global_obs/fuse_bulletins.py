@@ -89,7 +89,6 @@ class FusionParams:
     time_thresh          : float — strict time threshold (s)
     loose_time_thresh    : float — loose time threshold (s)
     mag_thresh           : float — magnitude difference threshold for ML–ML pairs
-    sim_pick_thresh      : int   — minimum shared P-phases for loose matching
     """
     global_bulletin_path: str
     main_bulletin_path:   str
@@ -99,7 +98,6 @@ class FusionParams:
     time_thresh:          float
     loose_time_thresh:    float
     mag_thresh:           float
-    sim_pick_thresh:      int
 
 
 @dataclass
@@ -526,7 +524,7 @@ def _add_phases_to_lines(new_lines, old_lines, event_id):
 def _concatenate_bulletin(
     parameters, main_lines, secondary_bulletin_path,
     dist_thresh, loose_dist_thresh, time_thresh, loose_time_thresh, mag_thresh,
-    sim_pick_thresh, loop_no,
+    loop_no,
 ):
     """Merge a secondary bulletin into the main bulletin, matching events and accumulating statistics."""
     main_event_lines, main_ids             = retrieve_events_from_lines(main_lines)
@@ -589,24 +587,7 @@ def _concatenate_bulletin(
                     main_ids[event_idx1], secondary_ids[event_idx2],
                 )
 
-                if sim_picks >= 1 and row.distance_km <= loose_dist_thresh:
-                    if row.mag_type_ML:
-                        event_line_main = _add_item_for_stats(event_line_main, event_line_secondary, 10)
-                    else:
-                        event_line_main = _add_item_for_stats(event_line_main, event_line_secondary, 10, is_nan=True)
-                    event_line_main = _add_item_for_stats(event_line_main, event_line_secondary, 7)
-                    event_line_main = _add_item_for_stats(event_line_main, event_line_secondary, 8)
-                    event_line_main = _add_item_for_stats(event_line_main, event_line_secondary, 9)
-                    new_lines.append(event_line_main)
-                    new_lines = _add_phases_to_lines(new_lines, main_lines, main_ids[event_idx1])
-                    new_lines = _add_phases_to_lines(new_lines, secondary_lines, secondary_ids[event_idx2])
-                    new_lines.append('\n')
-                    not_matched_secondary.remove(event_idx2)
-                    solution_found = True
-                    found_possible.append(possible_row.index[0])
-                    break
-
-                elif sim_picks >= sim_pick_thresh:
+                if sim_picks >= 1:
                     if row.mag_type_ML:
                         event_line_main = _add_item_for_stats(event_line_main, event_line_secondary, 10)
                     else:
@@ -970,7 +951,7 @@ def fuse_bulletins(parameters, log_dir=None):
     logger.info(
         f"Thresholds — strict: dist={parameters.dist_thresh} km  time={parameters.time_thresh} s  "
         f"loose: dist={parameters.loose_dist_thresh} km  time={parameters.loose_time_thresh} s  "
-        f"mag={parameters.mag_thresh}  sim_picks={parameters.sim_pick_thresh}"
+        f"mag={parameters.mag_thresh}"
     )
 
     all_paths  = [
@@ -987,7 +968,7 @@ def fuse_bulletins(parameters, log_dir=None):
             parameters, main_lines, file_path,
             parameters.dist_thresh, parameters.loose_dist_thresh,
             parameters.time_thresh, parameters.loose_time_thresh,
-            parameters.mag_thresh, parameters.sim_pick_thresh,
+            parameters.mag_thresh,
             file_no + 1,
         )
 
@@ -1329,7 +1310,6 @@ def main():
     parser.add_argument('--time-thresh',       type=float, default=2.0)
     parser.add_argument('--loose-time-thresh', type=float, default=10.0)
     parser.add_argument('--mag-thresh',        type=float, default=1.5)
-    parser.add_argument('--sim-pick-thresh',   type=int,   default=2)
 
     # --- doubles mode arguments ---
     parser.add_argument('--max-dt-seconds',  type=float, default=1.0)
@@ -1351,7 +1331,6 @@ def main():
             time_thresh          = args.time_thresh,
             loose_time_thresh    = args.loose_time_thresh,
             mag_thresh           = args.mag_thresh,
-            sim_pick_thresh      = args.sim_pick_thresh,
         )
         fuse_bulletins(params)
     else:

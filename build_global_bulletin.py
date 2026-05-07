@@ -153,7 +153,6 @@ def run_pipeline():
         time_thresh          = 2,    # seconds
         loose_time_thresh    = 30,   # seconds
         mag_thresh           = 1.5,  # magnitude units
-        sim_pick_thresh      = 2,    # minimum shared P-phases to confirm a loose match
     )
 
     global_obs.fuse_bulletins.fuse_bulletins(params_fusion)
