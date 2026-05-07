@@ -455,6 +455,12 @@ def find_match_events(
     # ------------------------------------------------------------------
     # 4. Phase 2 — loose best-pair-first greedy for remaining events
     # ------------------------------------------------------------------
+    # Snapshot strict-only claims before phase 2 so that loose candidates
+    # remain in unmatched_catalog2.  _concatenate_bulletin uses that list
+    # to gate pick-based validation; removing loose events from it would
+    # silently drop them from the output catalog.
+    strict_matched_id2 = set(matched_id2)
+
     possible_match = []
 
     for cost, idx1, idx2, time_diff, dist_km, mag_diff, is_ml in loose_candidates:
@@ -472,7 +478,7 @@ def find_match_events(
             'threshold_used':    'loose',
         })
 
-    unmatched_catalog2 = [i for i in catalog2.index if i not in matched_id2]
+    unmatched_catalog2 = [i for i in catalog2.index if i not in strict_matched_id2]
 
     logger.info(f"Strict matches: {len(matched_pairs)}  Possible matches: {len(possible_match)}")
     return (
