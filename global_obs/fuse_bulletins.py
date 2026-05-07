@@ -1012,7 +1012,7 @@ def find_and_merge_doubles(parameters, log_dir=None):
     -------------------
     k<n> → keep Event n, drop all others; unique phases from dropped events are merged in
     s    → keep all events in the group (not doubles)
-    p<n> → print phase lines for Event n, then re-display the group prompt
+    p    → print phase lines for all events side by side, then re-display the group prompt
 
     Parameters
     ----------
@@ -1183,13 +1183,14 @@ def find_and_merge_doubles(parameters, log_dir=None):
             print(f'  k<n>          → keep Event n (1–{n_ev}), merge all others, drop none')
             print(f'  k<n>d<x,y,…>  → keep Event n, drop x,y,… completely, merge the rest')
             print(f'  s             → keep all (not doubles)')
-            print(f'  p<n>          → show phases for Event n')
+            print(f'  p             → show phases for all events')
 
-        def _print_phases_for(e, label):
-            print(f'\n  {label} phases  (BulletinID={e["bid"]})')
-            print(sep)
-            for ph in e['phases'] or ['    (no phases)']:
-                print(f'    {ph}')
+        def _print_all_phases():
+            for k, e in enumerate(group_events, start=1):
+                print(f'\n  Event {k}  (BulletinID={e["bid"]})')
+                print(sep)
+                for ph in e['phases'] or ['    (no phases)']:
+                    print(f'    {ph}')
             print(sep)
 
         _print_group()
@@ -1203,13 +1204,9 @@ def find_and_merge_doubles(parameters, log_dir=None):
             if choice == 's':
                 break
 
-            if choice.startswith('p') and choice[1:].isdigit():
-                k = int(choice[1:])
-                if 1 <= k <= n_ev:
-                    _print_phases_for(group_events[k - 1], f'Event {k}')
-                    _print_group()
-                    continue
-                print(f'  Invalid event number — enter a value between 1 and {n_ev}.')
+            if choice == 'p':
+                _print_all_phases()
+                _print_group()
                 continue
 
             if choice.startswith('k'):
