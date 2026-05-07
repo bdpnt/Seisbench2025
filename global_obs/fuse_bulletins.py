@@ -41,7 +41,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from scipy.spatial import KDTree
 from scipy.stats import pearsonr, spearmanr
 
 
@@ -90,7 +89,6 @@ class FusionParams:
     time_thresh          : float — strict time threshold (s)
     loose_time_thresh    : float — loose time threshold (s)
     mag_thresh           : float — magnitude difference threshold for ML–ML pairs
-    sim_pick_thresh      : int   — minimum shared P-phases for loose matching
     """
     global_bulletin_path: str
     main_bulletin_path:   str
@@ -100,7 +98,6 @@ class FusionParams:
     time_thresh:          float
     loose_time_thresh:    float
     mag_thresh:           float
-    sim_pick_thresh:      int
 
 
 @dataclass
@@ -113,10 +110,14 @@ class MergeDoublesParams:
     global_bulletin_path : str   — path to the bulletin to review and clean
     max_dt_seconds       : float — maximum time gap (s) to flag a potential double
     max_dist_km          : float — maximum 3-D distance (km) to flag a potential double
+    auto_dt_seconds      : float — Δt threshold (s) below which a pair of 2 is merged automatically
+    auto_dist_km         : float — distance threshold (km) below which a pair of 2 is merged automatically
     """
     global_bulletin_path: str
     max_dt_seconds:       float
     max_dist_km:          float
+    auto_dt_seconds:      float = 0.15
+    auto_dist_km:         float = 10.0
 
 
 # ---------------------------------------------------------------------------
@@ -332,6 +333,14 @@ def check_similar_picks(main_lines, secondary_lines, main_id, secondary_id):
 # Event matching
 # ---------------------------------------------------------------------------
 
+_MATCH_COLS = [
+    'catalog1_idx', 'catalog2_idx', 'distance_km',
+    'time_diff_seconds', 'mag_diff', 'mag_type_ML', 'threshold_used',
+]
+
+_ALPHA = 0.95   # weight of normalised time_diff in the assignment cost (1-_ALPHA goes to dist)
+
+
 def find_match_events(
     catalog1, catalog2,
     dist_thresh, loose_dist_thresh,
@@ -339,115 +348,142 @@ def find_match_events(
     mag_thresh,
 ):
     """
-    Find candidate matching event pairs between two catalogs.
+    Find matching event pairs between two catalogs using a two-phase
+    best-pair-first greedy algorithm with a weighted cost (α=_ALPHA on time,
+    1-_ALPHA on distance, both normalised to their loose thresholds).
 
-    Two passes are performed:
-      strict — within dist_thresh / time_thresh, plus mag_thresh for ML–ML pairs
-      loose  — within loose_dist_thresh / loose_time_thresh (validated later by picks)
+    Phase 1 (strict): all candidate pairs within strict thresholds are sorted
+    by cost and assigned cheapest-first, one-to-one.  Phase 2 (loose): for
+    events unmatched after phase 1, candidate pairs within loose thresholds
+    are sorted and assigned the same way.  Sorting globally before any
+    assignment makes the algorithm symmetric — it implicitly checks both
+    directions (best B for A and best A for B) — bounding errors to
+    individual competing pairs rather than propagating chain-shifts across
+    a cluster.  Loose pairs are returned separately for pick-based validation.
 
     Parameters
     ----------
-    catalog1, catalog2       : pd.DataFrame — produced by get_catalog_frame()
-    dist_thresh              : float — strict distance threshold (km)
-    loose_dist_thresh        : float — loose distance threshold (km)
-    time_thresh              : float — strict time threshold (s)
-    loose_time_thresh        : float — loose time threshold (s)
-    mag_thresh               : float — magnitude difference limit for ML–ML pairs
+    catalog1, catalog2   : pd.DataFrame — produced by get_catalog_frame()
+    dist_thresh          : float — strict distance threshold (km)
+    loose_dist_thresh    : float — loose distance threshold (km)
+    time_thresh          : float — strict time threshold (s)
+    loose_time_thresh    : float — loose time threshold (s)
+    mag_thresh           : float — magnitude difference limit for ML–ML pairs
 
     Returns
     -------
     (strict_matches, possible_matches, unmatched_catalog2)
-        strict_matches, possible_matches : pd.DataFrame
-        unmatched_catalog2               : list of int
+        strict_matches, possible_matches : pd.DataFrame with columns _MATCH_COLS
+        unmatched_catalog2               : list of int (catalog2 index labels)
     """
-    time_thresh_td       = pd.Timedelta(seconds=time_thresh)
-    loose_time_thresh_td = pd.Timedelta(seconds=loose_time_thresh)
-
-    matched_pairs  = []
-    possible_match = []
-    matched_id1    = set()
-    matched_id2    = set()
+    # ------------------------------------------------------------------
+    # 1. Collect all candidate pairs within loose thresholds
+    # ------------------------------------------------------------------
+    candidates = []   # (idx1, idx2, time_diff, dist_km, mag_diff, is_ml)
 
     for idx1, row1 in catalog1.iterrows():
-        idx2 = abs((catalog2.time - row1.time).dt.total_seconds()) < loose_time_thresh_td.total_seconds()
-        idx2 = idx2[idx2].index.to_numpy()
+        time_diffs  = abs((catalog2.time - row1.time).dt.total_seconds())
+        within_time = time_diffs[time_diffs < loose_time_thresh].index.to_numpy()
 
-        if len(idx2) > 1:
-            coords2     = catalog2.loc[idx2, ['latitude', 'longitude']].to_numpy()
-            coords_idx2 = KDTree(coords2).query_ball_point(
-                [row1['latitude'], row1['longitude']], r=loose_dist_thresh / 111
-            )
-            idx2 = idx2[coords_idx2]
-
-        best = {'idx': None, 'dist': float('inf'), 'time': float('inf'),
-                'mag': float('inf'), 'ml': False}
-
-        for i in idx2:
-            candidate      = catalog2.iloc[i]
-            cand_dist      = haversine(row1.latitude, row1.longitude, candidate.latitude, candidate.longitude)
-            cand_time      = abs((row1.time - candidate.time).total_seconds())
-            cand_mag_delta = abs(row1.magnitude - candidate.magnitude)
-            cand_ml        = (
-                row1.magType == 'ML' and candidate.magType == 'ML'
-                and row1.magAuthor in ('LDG', 'OMP')
-                and candidate.magAuthor in ('LDG', 'OMP')
-            )
-
-            if cand_ml and cand_mag_delta > mag_thresh:
+        for idx2 in within_time:
+            row2    = catalog2.loc[idx2]
+            dist_km = haversine(row1.latitude, row1.longitude,
+                                row2.latitude, row2.longitude)
+            if dist_km > loose_dist_thresh:
                 continue
+            time_diff = float(time_diffs.loc[idx2])
+            mag_diff  = abs(row1.magnitude - row2.magnitude)
+            is_ml     = (
+                row1.magType == 'ML' and row2.magType == 'ML'
+                and row1.magAuthor in ('LDG', 'OMP')
+                and row2.magAuthor in ('LDG', 'OMP')
+            )
+            candidates.append((idx1, idx2, time_diff, dist_km, mag_diff, is_ml))
 
-            if cand_time <= time_thresh_td.total_seconds() and cand_dist <= dist_thresh:
-                if cand_dist < best['dist'] or (cand_dist == best['dist'] and cand_time < best['time']):
-                    best = {'idx': i, 'dist': cand_dist, 'time': cand_time,
-                            'mag': cand_mag_delta, 'ml': cand_ml}
+    _empty = pd.DataFrame(columns=_MATCH_COLS)
 
-        if best['idx'] is not None and best['idx'] not in matched_id2:
-            matched_id1.add(idx1)
-            matched_id2.add(best['idx'])
-            matched_pairs.append({
-                'catalog1_idx':      idx1,
-                'catalog2_idx':      best['idx'],
-                'distance_km':       best['dist'],
-                'time_diff_seconds': best['time'],
-                'mag_diff':          best['mag'],
-                'mag_type_ML':       best['ml'],
-                'threshold_used':    'strict',
-            })
+    if not candidates:
+        logger.info("Strict matches: 0  Possible matches: 0")
+        return _empty, _empty, list(catalog2.index)
+
+    # ------------------------------------------------------------------
+    # 2. Score and split into strict / loose candidate lists
+    # ------------------------------------------------------------------
+    strict_candidates = []   # (cost, idx1, idx2, time_diff, dist_km, mag_diff, is_ml)
+    loose_candidates  = []
+
+    for idx1, idx2, time_diff, dist_km, mag_diff, is_ml in candidates:
+        mag_ok    = not is_ml or mag_diff <= mag_thresh
+        is_strict = time_diff <= time_thresh and dist_km <= dist_thresh and mag_ok
+        cost      = (
+            _ALPHA       * (time_diff / loose_time_thresh)
+            + (1 - _ALPHA) * (dist_km   / loose_dist_thresh)
+        )
+        entry = (cost, idx1, idx2, time_diff, dist_km, mag_diff, is_ml)
+        if is_strict:
+            strict_candidates.append(entry)
         else:
-            loose_best = {'idx': None, 'dist': float('inf'), 'time': float('inf'),
-                         'mag': float('inf'), 'ml': False}
-            for i in idx2:
-                if i in matched_id2:
-                    continue
-                candidate      = catalog2.iloc[i]
-                cand_dist      = haversine(row1.latitude, row1.longitude, candidate.latitude, candidate.longitude)
-                cand_time      = abs((row1.time - candidate.time).total_seconds())
-                cand_mag_delta = abs(row1.magnitude - candidate.magnitude)
-                cand_ml        = (
-                    row1.magType == 'ML' and candidate.magType == 'ML'
-                    and row1.magAuthor in ('LDG', 'OMP')
-                    and candidate.magAuthor in ('LDG', 'OMP')
-                )
-                if cand_time <= loose_time_thresh_td.total_seconds():
-                    loose_best = {'idx': i, 'dist': cand_dist, 'time': cand_time,
-                                  'mag': cand_mag_delta, 'ml': cand_ml}
+            loose_candidates.append(entry)
 
-            if loose_best['idx'] is not None:
-                possible_match.append({
-                    'catalog1_idx':      idx1,
-                    'catalog2_idx':      loose_best['idx'],
-                    'distance_km':       loose_best['dist'],
-                    'time_diff_seconds': loose_best['time'],
-                    'mag_diff':          loose_best['mag'],
-                    'mag_type_ML':       loose_best['ml'],
-                    'threshold_used':    'loose',
-                })
+    strict_candidates.sort()
+    loose_candidates.sort()
 
-    unmatched_catalog2 = [item for item in catalog2.index if item not in matched_id2]
-    possible_match     = [m for m in possible_match if m['catalog2_idx'] not in matched_id2]
+    # ------------------------------------------------------------------
+    # 3. Phase 1 — strict best-pair-first greedy (one-to-one)
+    # ------------------------------------------------------------------
+    matched_id1   = set()
+    matched_id2   = set()
+    matched_pairs = []
+
+    for cost, idx1, idx2, time_diff, dist_km, mag_diff, is_ml in strict_candidates:
+        if idx1 in matched_id1 or idx2 in matched_id2:
+            continue
+        matched_id1.add(idx1)
+        matched_id2.add(idx2)
+        matched_pairs.append({
+            'catalog1_idx':      idx1,
+            'catalog2_idx':      idx2,
+            'distance_km':       dist_km,
+            'time_diff_seconds': time_diff,
+            'mag_diff':          mag_diff,
+            'mag_type_ML':       is_ml,
+            'threshold_used':    'strict',
+        })
+
+    # ------------------------------------------------------------------
+    # 4. Phase 2 — loose best-pair-first greedy for remaining events
+    # ------------------------------------------------------------------
+    # Snapshot strict-only claims before phase 2 so that loose candidates
+    # remain in unmatched_catalog2.  _concatenate_bulletin uses that list
+    # to gate pick-based validation; removing loose events from it would
+    # silently drop them from the output catalog.
+    strict_matched_id2 = set(matched_id2)
+
+    possible_match = []
+
+    for cost, idx1, idx2, time_diff, dist_km, mag_diff, is_ml in loose_candidates:
+        if idx1 in matched_id1 or idx2 in matched_id2:
+            continue
+        matched_id1.add(idx1)
+        matched_id2.add(idx2)
+        possible_match.append({
+            'catalog1_idx':      idx1,
+            'catalog2_idx':      idx2,
+            'distance_km':       dist_km,
+            'time_diff_seconds': time_diff,
+            'mag_diff':          mag_diff,
+            'mag_type_ML':       is_ml,
+            'threshold_used':    'loose',
+        })
+
+    unmatched_catalog2 = [i for i in catalog2.index if i not in strict_matched_id2]
 
     logger.info(f"Strict matches: {len(matched_pairs)}  Possible matches: {len(possible_match)}")
-    return pd.DataFrame(matched_pairs), pd.DataFrame(possible_match), unmatched_catalog2
+    return (
+        pd.DataFrame(matched_pairs) if matched_pairs else _empty,
+        pd.DataFrame(possible_match) if possible_match else _empty,
+        unmatched_catalog2,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -488,7 +524,7 @@ def _add_phases_to_lines(new_lines, old_lines, event_id):
 def _concatenate_bulletin(
     parameters, main_lines, secondary_bulletin_path,
     dist_thresh, loose_dist_thresh, time_thresh, loose_time_thresh, mag_thresh,
-    sim_pick_thresh, loop_no,
+    loop_no,
 ):
     """Merge a secondary bulletin into the main bulletin, matching events and accumulating statistics."""
     main_event_lines, main_ids             = retrieve_events_from_lines(main_lines)
@@ -551,24 +587,7 @@ def _concatenate_bulletin(
                     main_ids[event_idx1], secondary_ids[event_idx2],
                 )
 
-                if sim_picks >= 1 and row.distance_km <= loose_dist_thresh:
-                    if row.mag_type_ML:
-                        event_line_main = _add_item_for_stats(event_line_main, event_line_secondary, 10)
-                    else:
-                        event_line_main = _add_item_for_stats(event_line_main, event_line_secondary, 10, is_nan=True)
-                    event_line_main = _add_item_for_stats(event_line_main, event_line_secondary, 7)
-                    event_line_main = _add_item_for_stats(event_line_main, event_line_secondary, 8)
-                    event_line_main = _add_item_for_stats(event_line_main, event_line_secondary, 9)
-                    new_lines.append(event_line_main)
-                    new_lines = _add_phases_to_lines(new_lines, main_lines, main_ids[event_idx1])
-                    new_lines = _add_phases_to_lines(new_lines, secondary_lines, secondary_ids[event_idx2])
-                    new_lines.append('\n')
-                    not_matched_secondary.remove(event_idx2)
-                    solution_found = True
-                    found_possible.append(possible_row.index[0])
-                    break
-
-                elif sim_picks >= sim_pick_thresh:
+                if sim_picks >= 1:
                     if row.mag_type_ML:
                         event_line_main = _add_item_for_stats(event_line_main, event_line_secondary, 10)
                     else:
@@ -607,7 +626,10 @@ def _concatenate_bulletin(
         new_lines = _add_phases_to_lines(new_lines, secondary_lines, secondary_ids[event_idx2])
         new_lines.append('\n')
 
-    strict_match = pd.concat([strict_match, possible_match.iloc[found_possible]]).reset_index(drop=True)
+    if found_possible:
+        validated    = possible_match.loc[found_possible]
+        to_concat    = [df for df in [strict_match, validated] if not df.empty]
+        strict_match = pd.concat(to_concat).reset_index(drop=True)
     possible_match = possible_match.drop(found_possible)
     logger.info(f"P-phase pick matching: {len(found_possible)} additional matches "
                 f"({len(possible_match)} remaining unmatched)")
@@ -929,7 +951,7 @@ def fuse_bulletins(parameters, log_dir=None):
     logger.info(
         f"Thresholds — strict: dist={parameters.dist_thresh} km  time={parameters.time_thresh} s  "
         f"loose: dist={parameters.loose_dist_thresh} km  time={parameters.loose_time_thresh} s  "
-        f"mag={parameters.mag_thresh}  sim_picks={parameters.sim_pick_thresh}"
+        f"mag={parameters.mag_thresh}"
     )
 
     all_paths  = [
@@ -946,7 +968,7 @@ def fuse_bulletins(parameters, log_dir=None):
             parameters, main_lines, file_path,
             parameters.dist_thresh, parameters.loose_dist_thresh,
             parameters.time_thresh, parameters.loose_time_thresh,
-            parameters.mag_thresh, parameters.sim_pick_thresh,
+            parameters.mag_thresh,
             file_no + 1,
         )
 
@@ -966,15 +988,18 @@ def find_and_merge_doubles(parameters, log_dir=None):
     """
     Scan a bulletin for suspiciously close event pairs and let the user resolve them interactively.
 
-    Detection: two events are flagged when |Δt| ≤ max_dt_seconds AND 3-D distance ≤ max_dist_km.
-    Only consecutive pairs (by time order) are shown; each pair is never shown twice.
+    Detection: events are connected when |Δt| ≤ max_dt_seconds AND 3-D distance ≤ max_dist_km.
+    Connected components (groups of 2 or more events) are presented one group at a time,
+    so triples and larger clusters are handled correctly in a single review step.
+
+    Auto-merge: groups of exactly 2 events where |Δt| ≤ auto_dt_seconds AND distance ≤ auto_dist_km
+    are merged automatically (first event kept) without user interaction.
 
     Interactive choices
     -------------------
-    k1  → keep Event 1, drop Event 2; unique phases from Event 2 are appended to Event 1
-    k2  → keep Event 2, drop Event 1; unique phases from Event 1 are appended to Event 2
-    s   → keep both as-is (not a double)
-    p   → print all phase lines for both events, then re-display the prompt
+    k<n> → keep Event n, drop all others; unique phases from dropped events are merged in
+    s    → keep all events in the group (not doubles)
+    p    → print phase lines for all events side by side, then re-display the group prompt
 
     Parameters
     ----------
@@ -988,7 +1013,8 @@ def find_and_merge_doubles(parameters, log_dir=None):
     log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR)
     logger.info(f"Log file        : {log_path}")
     logger.info(f"Bulletin        : {parameters.global_bulletin_path}")
-    logger.info(f"Thresholds      : max_dt={parameters.max_dt_seconds} s  max_dist={parameters.max_dist_km} km")
+    logger.info(f"Thresholds      : max_dt={parameters.max_dt_seconds} s  max_dist={parameters.max_dist_km} km  "
+                f"auto_dt={parameters.auto_dt_seconds} s  auto_dist={parameters.auto_dist_km} km")
 
     with open(parameters.global_bulletin_path, 'r') as f:
         bulletin_lines = f.readlines()
@@ -1043,7 +1069,7 @@ def find_and_merge_doubles(parameters, log_dir=None):
         return {'output': parameters.global_bulletin_path}
 
     # ------------------------------------------------------------------ #
-    # 1. Detect candidate pairs                                            #
+    # 1. Detect groups of potential doubles (connected components)         #
     # ------------------------------------------------------------------ #
     def _to_cartesian(lat_deg, lon_deg, depth_km):
         R   = 6371.0
@@ -1056,24 +1082,42 @@ def find_and_merge_doubles(parameters, log_dir=None):
 
     events.sort(key=lambda e: e['time'])
     max_dt = pd.Timedelta(seconds=parameters.max_dt_seconds)
-    pairs  = []
-    for idx in range(len(events) - 1):
-        e1, e2 = events[idx], events[idx + 1]
-        dt = abs(e2['time'] - e1['time'])
-        if dt > max_dt:
-            continue
-        dist_km = float(np.linalg.norm(
-            _to_cartesian(e1['lat'], e1['lon'], e1['dep']) -
-            _to_cartesian(e2['lat'], e2['lon'], e2['dep'])
-        ))
-        if dist_km <= parameters.max_dist_km:
-            pairs.append((idx, idx + 1, dt, dist_km))
 
-    if not pairs:
+    adj = {i: set() for i in range(len(events))}
+    for i in range(len(events)):
+        for j in range(i + 1, len(events)):
+            if abs(events[j]['time'] - events[i]['time']) > max_dt:
+                break
+            dist_km = float(np.linalg.norm(
+                _to_cartesian(events[i]['lat'], events[i]['lon'], events[i]['dep']) -
+                _to_cartesian(events[j]['lat'], events[j]['lon'], events[j]['dep'])
+            ))
+            if dist_km <= parameters.max_dist_km:
+                adj[i].add(j)
+                adj[j].add(i)
+
+    visited = set()
+    groups  = []
+    for start in range(len(events)):
+        if start in visited or not adj[start]:
+            continue
+        group = []
+        stack = [start]
+        while stack:
+            node = stack.pop()
+            if node in visited:
+                continue
+            visited.add(node)
+            group.append(node)
+            stack.extend(adj[node] - visited)
+        if len(group) > 1:
+            groups.append(sorted(group))
+
+    if not groups:
         print('  No potential doubles found.')
         return {'output': parameters.global_bulletin_path}
 
-    print(f'\n  Found {len(pairs)} potential double(s) to review.\n')
+    print(f'\n  Found {len(groups)} group(s) of potential doubles to review.\n')
 
     # ------------------------------------------------------------------ #
     # 2. Interactive review                                                #
@@ -1091,60 +1135,134 @@ def find_and_merge_doubles(parameters, log_dir=None):
 
     sep = '─' * 72
 
-    for pair_num, (i, j, dt, dist_km) in enumerate(pairs, start=1):
-        e1, e2 = events[i], events[j]
-        if e1['bid'] in drop_bids or e2['bid'] in drop_bids:
-            continue
+    for group_num, group in enumerate(groups, start=1):
+        group_events = [events[i] for i in group]
+        n_ev         = len(group_events)
 
-        def _fmt(e, label):
-            return (f'  {label:<10} │ Time: {e["time"]}  '
-                    f'Lat: {e["lat"]:.4f}  Lon: {e["lon"]:.4f}  Dep: {e["dep"]:.1f} km')
+        if n_ev == 2:
+            e1, e2   = group_events[0], group_events[1]
+            auto_dt  = abs((e1['time'] - e2['time']).total_seconds())
+            auto_d   = float(np.linalg.norm(
+                _to_cartesian(e1['lat'], e1['lon'], e1['dep']) -
+                _to_cartesian(e2['lat'], e2['lon'], e2['dep'])
+            ))
+            if auto_dt <= parameters.auto_dt_seconds and auto_d <= parameters.auto_dist_km:
+                kept_phases = list(e1['phases'])
+                extra       = _unique_phases(kept_phases, e2['phases'])
+                kept_phases.extend(extra)
+                drop_bids.add(e2['bid'])
+                if extra:
+                    merge_map.setdefault(e1['bid'], []).extend(extra)
+                print(f'  [AUTO] Merged BulletinID={e2["bid"]} into BulletinID={e1["bid"]}  '
+                      f'Δt={auto_dt:.3f}s  Δd={auto_d:.2f} km  {len(extra)} unique phase(s) merged.')
+                logger.info(f"Auto-merged BulletinID={e2['bid']} into BulletinID={e1['bid']}  "
+                            f"dt={auto_dt:.3f}s  dist={auto_d:.2f}km")
+                continue
 
-        def _print_phases(e, label):
-            print(f'\n  {label} phases  (BulletinID={e["bid"]})')
-            print(sep)
-            for ph in e['phases'] or ['    (no phases)']:
-                print(f'    {ph}')
-            print(sep)
-
-        def _print_prompt():
+        def _print_group():
             print(f'\n{sep}')
-            print(f'  POTENTIAL DOUBLE  {pair_num}/{len(pairs)}  (Δt={dt.total_seconds():.3f}s  Δd={dist_km:.2f} km)')
+            print(f'  POTENTIAL DOUBLES  Group {group_num}/{len(groups)}  ({n_ev} events)')
             print(sep)
-            print(_fmt(e1, 'Event 1'))
-            print(_fmt(e2, 'Event 2'))
+            for k, e in enumerate(group_events, start=1):
+                print(f'  Event {k:<4} │ Time: {e["time"]}  '
+                      f'Lat: {e["lat"]:.4f}  Lon: {e["lon"]:.4f}  Dep: {e["dep"]:.1f} km')
             print(sep)
-            print('  k1 → keep Event 1, drop Event 2 (merge unique phases into Event 1)')
-            print('  k2 → keep Event 2, drop Event 1 (merge unique phases into Event 2)')
-            print('  s  → keep both (not a double)')
-            print('  p  → show phases for both events')
+            print(f'  k<n>          → keep Event n (1–{n_ev}), merge all others, drop none')
+            print(f'  k<n>d<x,y,…>  → keep Event n, drop x,y,… completely, merge the rest')
+            print(f'  s             → keep all (not doubles)')
+            print(f'  p             → show phases for all events')
 
-        _print_prompt()
+        def _print_all_phases():
+            for k, e in enumerate(group_events, start=1):
+                print(f'\n  Event {k}  (BulletinID={e["bid"]})')
+                print(sep)
+                for ph in e['phases'] or ['    (no phases)']:
+                    print(f'    {ph}')
+            print(sep)
+
+        _print_group()
+
+        kept_idx      = None
+        discard_set   = set()   # 0-based indices to drop without phase merge
 
         while True:
-            choice = input('  Your choice [k1 / k2 / s / p]: ').strip().lower()
-            if choice == 'p':
-                _print_phases(e1, 'Event 1')
-                _print_phases(e2, 'Event 2')
-                _print_prompt()
-                continue
-            if choice in ('k1', 'k2', 's'):
-                break
-            print('  Invalid input — please enter k1, k2, s, or p.')
+            choice = input('  Your choice: ').strip().lower()
 
-        if choice == 's':
-            print('  → Kept both.\n')
+            if choice == 's':
+                break
+
+            if choice == 'p':
+                _print_all_phases()
+                _print_group()
+                continue
+
+            if choice.startswith('k'):
+                rest  = choice[1:]
+                k_str, _, d_str = rest.partition('d')
+
+                if not k_str.isdigit():
+                    print(f'  Invalid input — please enter k<n>, k<n>d<x,y,…>, s, or p<n>.')
+                    continue
+
+                k = int(k_str)
+                if not (1 <= k <= n_ev):
+                    print(f'  Invalid event number — enter a value between 1 and {n_ev}.')
+                    continue
+
+                if d_str:
+                    try:
+                        drop_nums = [int(x.strip()) for x in d_str.split(',')]
+                    except ValueError:
+                        print(f'  Invalid drop list — use comma-separated numbers, e.g. k2d1,3.')
+                        continue
+                    if any(not (1 <= d <= n_ev) for d in drop_nums):
+                        print(f'  Drop list contains an invalid event number (must be 1–{n_ev}).')
+                        continue
+                    if k in drop_nums:
+                        print(f'  Cannot discard the kept event (Event {k}).')
+                        continue
+                    discard_set = {d - 1 for d in drop_nums}
+
+                kept_idx = k - 1
+                break
+
+            print(f'  Invalid input — please enter k<n>, k<n>d<x,y,…>, s, or p<n>.')
+
+        if kept_idx is None:   # choice was 's'
+            print('  → Kept all.\n')
+            logger.info(f"Group {group_num}: kept all events (user skipped)")
             continue
 
-        kept, dropped = (e1, e2) if choice == 'k1' else (e2, e1)
-        extra = _unique_phases(kept['phases'], dropped['phases'])
-        drop_bids.add(dropped['bid'])
-        if extra:
-            merge_map.setdefault(kept['bid'], []).extend(extra)
-        label = '1' if choice == 'k1' else '2'
-        print(f'  → Kept Event {label} (BulletinID={kept["bid"]}), '
-              f'dropped BulletinID={dropped["bid"]}.  '
-              f'{len(extra)} unique phase(s) will be merged.\n')
+        kept        = group_events[kept_idx]
+        kept_phases = list(kept['phases'])
+
+        for i, e in enumerate(group_events):
+            if i == kept_idx:
+                continue
+            drop_bids.add(e['bid'])
+            if i not in discard_set:
+                extra = _unique_phases(kept_phases, e['phases'])
+                kept_phases.extend(extra)
+                if extra:
+                    merge_map.setdefault(kept['bid'], []).extend(extra)
+
+        n_extra = len(kept_phases) - len(kept['phases'])
+        if discard_set:
+            discard_label = ', '.join(f'Event {i + 1}' for i in sorted(discard_set))
+            discard_bids  = ', '.join(str(group_events[i]['bid']) for i in sorted(discard_set))
+            print(f'  → Kept Event {kept_idx + 1} (BulletinID={kept["bid"]}), '
+                  f'discarded {discard_label} (no phase merge), '
+                  f'merged remaining.  {n_extra} unique phase(s) added.\n')
+            logger.info(f"Group {group_num}: kept BulletinID={kept['bid']}, "
+                        f"discarded BulletinID(s)={discard_bids} (no phase merge), "
+                        f"merged remaining, {n_extra} unique phase(s) added")
+        else:
+            n_merged = len(group_events) - 1
+            merged_bids = ', '.join(str(e['bid']) for i, e in enumerate(group_events) if i != kept_idx)
+            print(f'  → Kept Event {kept_idx + 1} (BulletinID={kept["bid"]}), '
+                  f'merged {n_merged} other event(s).  {n_extra} unique phase(s) added.\n')
+            logger.info(f"Group {group_num}: kept BulletinID={kept['bid']}, "
+                        f"merged BulletinID(s)={merged_bids}, {n_extra} unique phase(s) added")
 
     # ------------------------------------------------------------------ #
     # 3. Rebuild bulletin                                                  #
@@ -1192,11 +1310,14 @@ def main():
     parser.add_argument('--time-thresh',       type=float, default=2.0)
     parser.add_argument('--loose-time-thresh', type=float, default=10.0)
     parser.add_argument('--mag-thresh',        type=float, default=1.5)
-    parser.add_argument('--sim-pick-thresh',   type=int,   default=2)
 
     # --- doubles mode arguments ---
-    parser.add_argument('--max-dt-seconds', type=float, default=1.0)
-    parser.add_argument('--max-dist-km',    type=float, default=50.0)
+    parser.add_argument('--max-dt-seconds',  type=float, default=1.0)
+    parser.add_argument('--max-dist-km',     type=float, default=50.0)
+    parser.add_argument('--auto-dt-seconds', type=float, default=0.15,
+                        help='Δt threshold (s) for automatic merging of pairs (default: 0.15)')
+    parser.add_argument('--auto-dist-km',    type=float, default=10.0,
+                        help='Distance threshold (km) for automatic merging of pairs (default: 10.0)')
 
     args = parser.parse_args()
 
@@ -1210,7 +1331,6 @@ def main():
             time_thresh          = args.time_thresh,
             loose_time_thresh    = args.loose_time_thresh,
             mag_thresh           = args.mag_thresh,
-            sim_pick_thresh      = args.sim_pick_thresh,
         )
         fuse_bulletins(params)
     else:
@@ -1218,6 +1338,8 @@ def main():
             global_bulletin_path = args.global_bulletin_path,
             max_dt_seconds       = args.max_dt_seconds,
             max_dist_km          = args.max_dist_km,
+            auto_dt_seconds      = args.auto_dt_seconds,
+            auto_dist_km         = args.auto_dist_km,
         )
         find_and_merge_doubles(params)
 

@@ -179,10 +179,11 @@ Runs the following steps in sequence:
 | 2 | `generate_magnitude_models.py` | `convert_magnitudes()` | Builds ODR regression models: MLv→ML, mb_Lg→ML, ML(ICGC)→ML |
 | 3 | `apply_magnitude_models.py` | `apply_magnitude_models()` | Applies magnitude models to all `.obs` files |
 | 4 | `filter_events_by_aoi.py` | `filter_events_by_aoi()` | Removes events outside the area of interest |
-| 5 | `fuse_bulletins.py` | `fuse_bulletins()`, `find_and_merge_doubles()` | Matches and merges all catalogs into `GLOBAL.obs` |
-| 6 | `plot_global_catalog_map.py` | `plot_global_catalog_map()` | Generates a map of the merged catalog |
+| 5 | `fuse_bulletins.py` | `find_and_merge_doubles()` | Deduplicates each source catalog individually before fusion |
+| 6 | `fuse_bulletins.py` | `fuse_bulletins()` | Matches and merges all cleaned catalogs into `GLOBAL.obs` |
+| 7 | `plot_global_catalog_map.py` | `plot_global_catalog_map()` | Generates a map of the merged catalog |
 
-**Matching thresholds (fusion):** ≤15 km distance, ≤2 s time, ≤1.5 magnitude units, ≥2 common picks.
+**Matching thresholds (step 6 fusion):** ≤15 km distance, ≤2 s time, ≤1.5 magnitude units; loose matches confirmed by ≥1 shared P-phase pick.
 
 **Outputs:**
 - `obs/GLOBAL.obs` — unified catalog

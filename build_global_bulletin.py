@@ -8,7 +8,8 @@ Steps:
   2. Generate magnitude conversion models (MLv RESIF, mb_Lg IGN, ML ICGC → ML LDG).
   3. Apply magnitude models to all source bulletins.
   4. Filter each bulletin to the area of interest.
-  5. Fuse all bulletins into obs/GLOBAL.obs, then find and merge doubles.
+  5. Dedup each source catalog individually (find_and_merge_doubles).
+  6. Fuse all bulletins into obs/GLOBAL.obs.
 
 Usage
 -----
@@ -125,6 +126,23 @@ def run_pipeline():
         check=True,
     )
 
+    # Dedup each source catalog before fusion
+    _source_catalogs = [
+        os.path.join(_OBS, 'RESIF_20-25.obs'),
+        os.path.join(_OBS, 'IGN_20-25.obs'),
+        os.path.join(_OBS, 'ICGC_20-25.obs'),
+        os.path.join(_OBS, 'LDG_20-25.obs'),
+        os.path.join(_OBS, 'OMP_2016.obs'),
+        os.path.join(_OBS, 'OMP_78-19.obs'),
+    ]
+    for _catalog_path in _source_catalogs:
+        params_dedup = MergeDoublesParams(
+            global_bulletin_path = _catalog_path,
+            max_dt_seconds       = 1.0,
+            max_dist_km          = 50.0,
+        )
+        global_obs.fuse_bulletins.find_and_merge_doubles(params_dedup)
+
     # Fusion all bulletins
     params_fusion = FusionParams(
         global_bulletin_path = os.path.join(_OBS, 'GLOBAL.obs'),
@@ -135,7 +153,6 @@ def run_pipeline():
         time_thresh          = 2,    # seconds
         loose_time_thresh    = 30,   # seconds
         mag_thresh           = 1.5,  # magnitude units
-        sim_pick_thresh      = 2,    # minimum shared P-phases to confirm a loose match
     )
 
     global_obs.fuse_bulletins.fuse_bulletins(params_fusion)
@@ -148,15 +165,6 @@ def run_pipeline():
         ],
         check=True,
     )
-
-    # Check for potential doubles that came from the same Bulletin
-    params_merge_doubles = MergeDoublesParams(
-        global_bulletin_path = os.path.join(_OBS, 'GLOBAL.obs'),
-        max_dt_seconds       = 1.0,
-        max_dist_km          = 50.0,
-    )
-
-    global_obs.fuse_bulletins.find_and_merge_doubles(params_merge_doubles)
 
 
 # ---------------------------------------------------------------------------
