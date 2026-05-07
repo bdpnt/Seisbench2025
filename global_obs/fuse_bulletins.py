@@ -350,16 +350,18 @@ def find_match_events(
     mag_thresh,
 ):
     """
-    Find matching event pairs between two catalogs using global optimal
-    assignment (Hungarian algorithm) with a weighted cost (α=_ALPHA on time,
+    Find matching event pairs between two catalogs using a two-phase
+    best-pair-first greedy algorithm with a weighted cost (α=_ALPHA on time,
     1-_ALPHA on distance, both normalised to their loose thresholds).
 
-    All candidate pairs within loose_time_thresh and loose_dist_thresh are
-    collected first, then assigned globally to minimise total time difference.
-    Each catalog1 event is assigned to at most one catalog2 event and
-    vice-versa.  Assigned pairs are labelled strict (within dist_thresh /
-    time_thresh, with ML magnitude filter) or loose (within loose thresholds
-    only); loose pairs are returned separately for pick-based validation.
+    Phase 1 (strict): all candidate pairs within strict thresholds are sorted
+    by cost and assigned cheapest-first, one-to-one.  Phase 2 (loose): for
+    events unmatched after phase 1, candidate pairs within loose thresholds
+    are sorted and assigned the same way.  Sorting globally before any
+    assignment makes the algorithm symmetric — it implicitly checks both
+    directions (best B for A and best A for B) — bounding errors to
+    individual competing pairs rather than propagating chain-shifts across
+    a cluster.  Loose pairs are returned separately for pick-based validation.
 
     Parameters
     ----------

@@ -8,7 +8,8 @@ Steps:
   2. Generate magnitude conversion models (MLv RESIF, mb_Lg IGN, ML ICGC → ML LDG).
   3. Apply magnitude models to all source bulletins.
   4. Filter each bulletin to the area of interest.
-  5. Fuse all bulletins into obs/GLOBAL.obs, then find and merge doubles.
+  5. Dedup each source catalog individually (find_and_merge_doubles).
+  6. Fuse all bulletins into obs/GLOBAL.obs.
 
 Usage
 -----
