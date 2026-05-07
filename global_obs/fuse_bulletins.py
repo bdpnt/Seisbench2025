@@ -41,7 +41,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from scipy.optimize import linear_sum_assignment
 from scipy.stats import pearsonr, spearmanr
 
 
@@ -408,61 +407,68 @@ def find_match_events(
         return _empty, _empty, list(catalog2.index)
 
     # ------------------------------------------------------------------
-    # 2. Build cost matrix  (normalised weighted cost; sentinel for non-candidates)
+    # 2. Score and split into strict / loose candidate lists
     # ------------------------------------------------------------------
-    idx1_list = sorted(set(c[0] for c in candidates))
-    idx2_list = sorted(set(c[1] for c in candidates))
-    idx1_pos  = {v: i for i, v in enumerate(idx1_list)}
-    idx2_pos  = {v: i for i, v in enumerate(idx2_list)}
-
-    _SENTINEL = 2.0   # above any real normalised cost (which lives in [0, 1])
-    cost      = np.full((len(idx1_list), len(idx2_list)), _SENTINEL)
-    cand_info = {}   # (idx1, idx2) -> (time_diff, dist_km, mag_diff, is_ml)
+    strict_candidates = []   # (cost, idx1, idx2, time_diff, dist_km, mag_diff, is_ml)
+    loose_candidates  = []
 
     for idx1, idx2, time_diff, dist_km, mag_diff, is_ml in candidates:
-        r, c = idx1_pos[idx1], idx2_pos[idx2]
-        cost[r, c] = (
+        mag_ok    = not is_ml or mag_diff <= mag_thresh
+        is_strict = time_diff <= time_thresh and dist_km <= dist_thresh and mag_ok
+        cost      = (
             _ALPHA       * (time_diff / loose_time_thresh)
             + (1 - _ALPHA) * (dist_km   / loose_dist_thresh)
         )
-        cand_info[(idx1, idx2)] = (time_diff, dist_km, mag_diff, is_ml)
-
-    # ------------------------------------------------------------------
-    # 3. Solve global one-to-one assignment
-    # ------------------------------------------------------------------
-    row_ind, col_ind = linear_sum_assignment(cost)
-
-    # ------------------------------------------------------------------
-    # 4. Label strict vs loose; build output DataFrames
-    # ------------------------------------------------------------------
-    matched_pairs  = []
-    possible_match = []
-    matched_id2    = set()
-
-    for r, c in zip(row_ind, col_ind):
-        if cost[r, c] >= _SENTINEL:
-            continue   # forced sentinel assignment — no real candidate
-
-        idx1 = idx1_list[r]
-        idx2 = idx2_list[c]
-        time_diff, dist_km, mag_diff, is_ml = cand_info[(idx1, idx2)]
-
-        mag_ok    = not is_ml or mag_diff <= mag_thresh
-        is_strict = time_diff <= time_thresh and dist_km <= dist_thresh and mag_ok
-
+        entry = (cost, idx1, idx2, time_diff, dist_km, mag_diff, is_ml)
         if is_strict:
-            matched_id2.add(idx2)
+            strict_candidates.append(entry)
+        else:
+            loose_candidates.append(entry)
 
-        record = {
+    strict_candidates.sort()
+    loose_candidates.sort()
+
+    # ------------------------------------------------------------------
+    # 3. Phase 1 — strict best-pair-first greedy (one-to-one)
+    # ------------------------------------------------------------------
+    matched_id1   = set()
+    matched_id2   = set()
+    matched_pairs = []
+
+    for cost, idx1, idx2, time_diff, dist_km, mag_diff, is_ml in strict_candidates:
+        if idx1 in matched_id1 or idx2 in matched_id2:
+            continue
+        matched_id1.add(idx1)
+        matched_id2.add(idx2)
+        matched_pairs.append({
             'catalog1_idx':      idx1,
             'catalog2_idx':      idx2,
             'distance_km':       dist_km,
             'time_diff_seconds': time_diff,
             'mag_diff':          mag_diff,
             'mag_type_ML':       is_ml,
-            'threshold_used':    'strict' if is_strict else 'loose',
-        }
-        (matched_pairs if is_strict else possible_match).append(record)
+            'threshold_used':    'strict',
+        })
+
+    # ------------------------------------------------------------------
+    # 4. Phase 2 — loose best-pair-first greedy for remaining events
+    # ------------------------------------------------------------------
+    possible_match = []
+
+    for cost, idx1, idx2, time_diff, dist_km, mag_diff, is_ml in loose_candidates:
+        if idx1 in matched_id1 or idx2 in matched_id2:
+            continue
+        matched_id1.add(idx1)
+        matched_id2.add(idx2)
+        possible_match.append({
+            'catalog1_idx':      idx1,
+            'catalog2_idx':      idx2,
+            'distance_km':       dist_km,
+            'time_diff_seconds': time_diff,
+            'mag_diff':          mag_diff,
+            'mag_type_ML':       is_ml,
+            'threshold_used':    'loose',
+        })
 
     unmatched_catalog2 = [i for i in catalog2.index if i not in matched_id2]
 
