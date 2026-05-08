@@ -664,7 +664,7 @@ def match_catalogues(
                 print(sep)
                 for k in range(1, n2 + 1):
                     print(f"  {k}  → assign NLL candidate {k}")
-                print(f"  s  → skip (no update)")
+                print(f"  s  → remove (event dropped from output)")
                 if phase_index:
                     print(f"  p  → show phases")
                 hint = ' / '.join([str(k) for k in range(1, n2 + 1)] + ['s']
@@ -735,7 +735,7 @@ def match_catalogues(
             print("    A1,Bm     → same (target inferred when only one assignment)")
             print("    A1,Bd     → assign obs-A→NLL-1, drop obs-B (no phase merge)")
             print("  Unspecified obs events auto-merge into their nearest assigned event.")
-            print("  s → skip group  |  p → show phases")
+            print("  s → remove entire group (all obs events dropped)  |  p → show phases")
 
         _print_mn()
 
