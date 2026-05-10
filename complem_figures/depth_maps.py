@@ -176,7 +176,7 @@ def _generate_plot(args, map_folder):
     date, df = args
     fig, ax  = plt.subplots(1, 1, figsize=(12, 6), layout='constrained')
     mesh     = _add_subplot(df, ax, type='DEPTH')
-    fig.colorbar(mesh, ax=ax, label='Median depth (km) - 3x3 grid',
+    fig.colorbar(mesh, ax=ax, label='Median depth (km) - 9x9 grid',
                  shrink=0.7, pad=0.025, aspect=50)
     plt.suptitle(f'Depth map\n{date}', fontweight='bold')
     plt.savefig(f'{map_folder}{date}.pdf')

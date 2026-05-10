@@ -178,7 +178,7 @@ def _generate_plot(args, map_folder):
     _add_subplot(df, axes[0], type='ERH')
     mesh = _add_subplot(df, axes[1], type='ERV')
     fig.colorbar(mesh, ax=[axes[0], axes[1]],
-                 label='Median error (km) - 3x3 grid',
+                 label='Median error (km) - 9x9 grid',
                  shrink=0.7, pad=0.025, aspect=50)
     plt.suptitle(f'Horizontal and vertical error maps\n{date}', fontweight='bold')
     plt.savefig(f'{map_folder}{date}.pdf')
