@@ -144,7 +144,7 @@ def _add_subplot(events, ax, type):
 
     median_masked = np.ma.masked_where(count < 10, median)
     mesh = ax.pcolormesh(lon_edges, lat_edges, median_masked,
-                         vmax=vmax, vmin=vmin, cmap='rocket_r',
+                         vmax=vmax, vmin=vmin, cmap='viridis_r',
                          shading='auto', alpha=0.9)
 
     sns.scatterplot(x=events['longitude'], y=events['latitude'],
