@@ -18,6 +18,7 @@ Usage
 import argparse
 import logging
 import os
+import shutil
 import subprocess
 import sys
 
@@ -38,17 +39,60 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+_MIN_FREE_GB = 5.0
+
+_FATAL_PATTERNS = (
+    "no space left on device",
+    "cannot allocate memory",
+    "out of memory",
+    "malloc failed",
+    "malloc: failed",
+)
+
 
 def _exe(name: str) -> str:
     return os.path.join(_NLL_BIN, name)
 
 
+def _check_disk(run_in: str) -> None:
+    out_dir = os.path.dirname(run_in)
+    with open(run_in) as f:
+        for line in f:
+            if line.startswith("VGOUT"):
+                parts = line.split()
+                if len(parts) >= 2:
+                    out_dir = os.path.dirname(parts[1]) or "."
+                break
+    try:
+        free_gb = shutil.disk_usage(out_dir).free / 1e9
+        if free_gb < _MIN_FREE_GB:
+            log.warning("Low disk space: %.1f GB free at %s", free_gb, out_dir)
+    except OSError:
+        pass
+
+
 def _run(cmd: list[str], label: str) -> None:
     log.info("Starting %s", label)
-    result = subprocess.run(cmd)
-    if result.returncode != 0:
-        log.error("%s failed (exit %d)", label, result.returncode)
-        sys.exit(result.returncode)
+    proc = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
+    )
+    lines: list[str] = []
+    for line in proc.stdout:
+        sys.stdout.write(line)
+        sys.stdout.flush()
+        lines.append(line)
+    proc.wait()
+
+    if proc.returncode != 0:
+        log.error("%s failed (exit %d)", label, proc.returncode)
+        sys.exit(proc.returncode)
+
+    output_lower = "".join(lines).lower()
+    for pattern in _FATAL_PATTERNS:
+        if pattern in output_lower:
+            log.error("%s: fatal error detected in output (%r)", label, pattern)
+            sys.exit(1)
+
     log.info("%s done", label)
 
 
@@ -67,6 +111,7 @@ def run_zone(run_in: str, *, corrections_pass: bool = False) -> None:
         raise FileNotFoundError(f"Run file not found: {run_in}")
 
     if not corrections_pass:
+        _check_disk(run_in)
         _run([_exe("Vel2Grid"),   run_in], "Vel2Grid")
         _run([_exe("Grid2Time"),  run_in], "Grid2Time")
 
