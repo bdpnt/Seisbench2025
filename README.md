@@ -209,7 +209,7 @@ Calls `NLL_run/generate_regional_runfiles.py` → `generate_run()` for each zone
 - Generates `stations/GTSRCE_1.txt` … `stations/GTSRCE_6.txt` (station lists)
 - Generates `run/run_1.in` … `run/run_6.in` (NLL configuration files)
 
-NLL is then launched automatically via `NLL_run/run_zone.py`, which runs Vel2Grid → Grid2Time → NLLoc in sequence for each zone.
+NLL is then launched automatically via `NLL_run/run_zone.py`, which runs Vel2Grid → Grid2Time → NLLoc in sequence for each zone. Before each run it checks free disk space on the output filesystem, and after each step it scans the subprocess output for fatal disk/memory errors (which NLL programs can otherwise report as a silent exit code 0), aborting the pipeline if one is detected.
 
 #### Second pass — `generate_nll_corrections.py`
 
@@ -270,9 +270,9 @@ Scripts in `temp_picks/` implement a self-contained sub-pipeline for ingesting p
 |------|--------|-------------|
 | 1 | `build_theoretical_tables.py` | Uses Pyrocko's `cake` CLI to compute P/S travel-time envelopes across ±5% velocity models and source depths of 0–30 km, for epicentral distances 0–100 km → `tables_Pyr.csv` |
 | 2 | `plot_travel_times.py` | QC figure: overlays all observed (distance, travel time) picks from a bulletin on top of the theoretical P/S bands. Run automatically as step 2; skipped if the figure already exists. Also usable as a standalone script. |
-| 3 | `merge_omp_picks.py` | Merges all yearly OMP/PhaseNet CSV files from `picks_OMP/` subdirectories → `pick_files/merged_omp.csv`. Station `SMC` and year `2026` are excluded by default; configurable via `--drop-years`. |
-| 4 | `merge_pyrenees_picks.py` | Concatenates RaspberryShake/PhaseNet `.txt` files from `picks_station_pyrenees/` and `picks_station_pyrenees2/` → `pick_files/merged_pyrenees.txt` and `pick_files/merged_pyrenees2.txt`. |
-| 5 | `convert_picks.py` | Converts external pick files to the project's `.obs` pick line format; maps short station names to internal codes via `GLOBAL_code_map.txt`. Supports formats `TEMP_OBS`, `TEMP_RSB`, and `TEMP_OMP`; new formats are added as handler functions. Unresolved stations are reported as an end-of-run summary. |
+| 3 | `merge_omp_picks.py` | Merges all yearly OMP/PhaseNet CSV files from `picks_OMP/` subdirectories → `pick_files/merged_omp.csv`. Station `SMC` and year `2026` are excluded by default; configurable via `--drop-years`. Rows with a PhaseNet `phase_score` below 0.5 (default) are dropped. |
+| 4 | `merge_pyrenees_picks.py` | Concatenates RaspberryShake/PhaseNet `.txt` files from `picks_station_pyrenees/` and `picks_station_pyrenees2/` → `pick_files/merged_pyrenees.txt` and `pick_files/merged_pyrenees2.txt`. Lines with a `prob=` value below 0.5 (default) are dropped. |
+| 5 | `convert_picks.py` | Converts external pick files to the project's `.obs` pick line format; maps short station names to internal codes via `GLOBAL_code_map.txt`. Supports formats `TEMP_OBS`, `TEMP_RSB`, `TEMP_OMP`, and `TEMP_OTH`; new formats are added as handler functions. Unresolved stations are reported as an end-of-run summary. |
 | 6 | `match_picks.py` | For each converted pick, finds candidate events within a 60 s origin-time window, filters by theoretical travel-time residual (±0.1 s P, ±0.3 s S, plus ±2.5 s t0-error margin), and appends matched picks to the bulletin. Chains against `obs/FINAL.obs` → `obs/FINAL_augmented.obs`. Runs `sort_picks` automatically on the output. |
 | 7 | `sort_picks.py` | Sorts all pick lines within each event block by ascending arrival time. Also usable as a standalone script on any bulletin. |
 
@@ -301,4 +301,4 @@ Scripts in `temp_picks/` implement a self-contained sub-pipeline for ingesting p
 
 ## A note on AI assistance
 
-Parts of this codebase were written or modified with the help of **[Claude Code](https://claude.ai/code)** (Anthropic). As a researcher, I believe in being transparent about the use of AI tools in scientific work. All AI-generated code in this project has been reviewed and verified line-by-line before being committed to the main branch.
+Parts of this codebase were written or modified with the help of **[Claude Code](https://claude.ai/code)** (Anthropic). As a researcher, I believe in being transparent about the use of AI tools in scientific work. All AI-generated code in this project has been reviewed before being committed to the main branch.
