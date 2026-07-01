@@ -34,6 +34,9 @@ STATIONS_TO_DROP = {'SMC'}
 # Add years (as strings) here to exclude them from the merged output (permanent exclusions)
 YEARS_TO_DROP = {'2026'}
 
+# Minimum PhaseNet phase_score (pick probability) required to keep a row
+DEFAULT_MIN_PHASE_SCORE = 0.5
+
 logger = logging.getLogger('merge_omp_picks')
 
 
@@ -74,13 +77,14 @@ def _year_from_dirname(dirname):
 # ---------------------------------------------------------------------------
 
 def merge_omp(input_dir=None, output_path=None, log_dir=None,
-              stations_to_drop=None, years_to_drop=None):
+              stations_to_drop=None, years_to_drop=None, min_phase_score=None):
     """
     Merge all OMP PhaseNet pick CSVs into a single file.
 
     Iterates all yearly subdirectories in input_dir, collects every
-    PICKS_*.csv file, skips stations and years in the drop sets, and writes
-    one merged CSV with a single header row.
+    PICKS_*.csv file, skips stations and years in the drop sets, drops rows
+    whose phase_score is below min_phase_score, and writes one merged CSV
+    with a single header row.
 
     Parameters
     ----------
@@ -95,24 +99,29 @@ def merge_omp(input_dir=None, output_path=None, log_dir=None,
         Station codes to exclude (e.g. {'SMC'}). Defaults to STATIONS_TO_DROP.
     years_to_drop : set[str], optional
         Years to exclude as strings (e.g. {'2020', '2021'}). Defaults to YEARS_TO_DROP.
+    min_phase_score : float, optional
+        Minimum PhaseNet phase_score required to keep a pick row.
+        Defaults to DEFAULT_MIN_PHASE_SCORE (0.5).
 
     Returns
     -------
     dict
         Summary with keys: 'output', 'log', 'n_files', 'n_rows',
-        'n_dropped_files', 'n_dropped_years'.
+        'n_dropped_files', 'n_dropped_years', 'n_dropped_low_score'.
     """
     input_dir        = input_dir        or _DEFAULT_INPUT_DIR
     output_path      = output_path      or _DEFAULT_OUTPUT
     log_dir          = log_dir          or _DEFAULT_LOG_DIR
     stations_to_drop = stations_to_drop if stations_to_drop is not None else STATIONS_TO_DROP
     years_to_drop    = years_to_drop    if years_to_drop    is not None else YEARS_TO_DROP
+    min_phase_score  = min_phase_score  if min_phase_score  is not None else DEFAULT_MIN_PHASE_SCORE
 
     log_path = _setup_logger(log_dir)
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     logger.info(f"Input dir  : {input_dir}")
     logger.info(f"Output     : {output_path}")
+    logger.info(f"Min phase score : {min_phase_score}")
     if stations_to_drop:
         logger.info(f"Dropping stations : {', '.join(sorted(stations_to_drop))}")
     if years_to_drop:
@@ -123,11 +132,12 @@ def merge_omp(input_dir=None, output_path=None, log_dir=None,
         if os.path.isdir(os.path.join(input_dir, d))
     )
 
-    header_written  = False
-    n_files         = 0
-    n_rows          = 0
-    n_dropped_files = 0
-    n_dropped_years = 0
+    header_written      = False
+    n_files             = 0
+    n_rows              = 0
+    n_dropped_files     = 0
+    n_dropped_years     = 0
+    n_dropped_low_score = 0
 
     with open(output_path, 'w', encoding='utf-8') as out:
         for year_dir in yearly_dirs:
@@ -157,25 +167,43 @@ def merge_omp(input_dir=None, output_path=None, log_dir=None,
                     out.write(lines[0])
                     header_written = True
 
+                warned = False
                 for line in lines[1:]:
+                    parts = line.rstrip('\n').split(',')
+                    try:
+                        phase_score = float(parts[5])
+                    except (IndexError, ValueError):
+                        if not warned:
+                            logger.warning(f"Cannot parse phase_score in {fname}, keeping row(s) as-is.")
+                            warned = True
+                        out.write(line)
+                        n_rows += 1
+                        continue
+
+                    if phase_score < min_phase_score:
+                        n_dropped_low_score += 1
+                        continue
+
                     out.write(line)
                     n_rows += 1
 
                 n_files += 1
 
-    logger.info(f"Files merged  : {n_files}")
-    logger.info(f"Rows written  : {n_rows}")
-    logger.info(f"Files dropped : {n_dropped_files}")
-    logger.info(f"Years dropped : {n_dropped_years}")
+    logger.info(f"Files merged      : {n_files}")
+    logger.info(f"Rows written      : {n_rows}")
+    logger.info(f"Files dropped     : {n_dropped_files}")
+    logger.info(f"Years dropped     : {n_dropped_years}")
+    logger.info(f"Rows dropped (low phase_score) : {n_dropped_low_score}")
     logger.info(f"Log: {log_path}")
 
     return {
-        'output':          output_path,
-        'log':             log_path,
-        'n_files':         n_files,
-        'n_rows':          n_rows,
-        'n_dropped_files': n_dropped_files,
-        'n_dropped_years': n_dropped_years,
+        'output':              output_path,
+        'log':                 log_path,
+        'n_files':             n_files,
+        'n_rows':              n_rows,
+        'n_dropped_files':     n_dropped_files,
+        'n_dropped_years':     n_dropped_years,
+        'n_dropped_low_score': n_dropped_low_score,
     }
 
 
@@ -203,9 +231,14 @@ def main():
         '--drop-years', nargs='*', default=None, metavar='YEAR',
         help='Years to exclude (e.g. --drop-years 2020 2021).'
     )
+    parser.add_argument(
+        '--min-phase-score', type=float, default=None, metavar='SCORE',
+        help=f'Minimum phase_score required to keep a pick (default: {DEFAULT_MIN_PHASE_SCORE}).'
+    )
     args = parser.parse_args()
     years_to_drop = set(args.drop_years) if args.drop_years else None
-    merge_omp(args.input_dir, args.output, args.log_dir, years_to_drop=years_to_drop)
+    merge_omp(args.input_dir, args.output, args.log_dir,
+              years_to_drop=years_to_drop, min_phase_score=args.min_phase_score)
 
 
 if __name__ == '__main__':
