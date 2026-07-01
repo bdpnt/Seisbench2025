@@ -529,6 +529,7 @@ def convert_file(input_path, fmt, output_path=None, codemap_path=None, log_dir=N
         base, _ = os.path.splitext(input_path)
         output_path = base + '_converted.obs'
 
+    logger.info(f"Converting file: {input_path}")
     logger.info(f"Loading station code map: {codemap_path}")
     code_map = load_code_map(codemap_path)
     n_windows = sum(len(v) for v in code_map.values())
