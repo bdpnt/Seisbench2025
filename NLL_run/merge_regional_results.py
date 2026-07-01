@@ -25,7 +25,7 @@ from datetime import datetime
 
 import numpy as np
 import pandas as pd
-# from scipy.stats import chi2 as chi2dist
+from scipy.stats import chi2 as chi2dist
 
 # ---------------------------------------------------------------------------
 # Module paths
@@ -72,7 +72,10 @@ def _ellipsoid_axis_to_xyz(az_deg, dip_deg, length):
 def _build_covariance(az1, dip1, len1, az2, dip2, len2, len3):
     """
     Build the covariance matrix of the NLLoc 3D confidence ellipsoid (R @ R.T).
-    The semi-axes are used as-is; no chi-squared rescaling is applied.
+    The semi-axes are used as-is; no chi-squared rescaling is applied here.
+    NLLoc's reported axis lengths already carry its own 3-DOF, 68% chi-square
+    scaling (_S3_3DOF) — callers must divide it out before reapplying a
+    DOF-appropriate factor.
     """
     v1 = _ellipsoid_axis_to_xyz(az1, dip1, len1)
     v2 = _ellipsoid_axis_to_xyz(az2, dip2, len2)
@@ -81,15 +84,25 @@ def _build_covariance(az1, dip1, len1, az2, dip2, len2, len3):
     R = np.column_stack([v1, v2, v3])
     return R @ R.T
 
+# 68% chi-square factors used to convert between NLLoc's 3-DOF ellipsoid
+# scaling and the DOF-appropriate scaling for each derived quantity.
+_S1_1DOF = chi2dist.ppf(0.68, df=1)   # ERZ: 1-DOF marginal std dev
+_S2_2DOF = chi2dist.ppf(0.68, df=2)   # ERH: 2-DOF horizontal error ellipse
+_S3_3DOF = chi2dist.ppf(0.68, df=3)   # NLLoc's own ellipsoid-axis scaling
+
 def _compute_true_erz(az1, dip1, len1, az2, dip2, len2, len3):
-    """Maximum vertical extent of the NLLoc 3D confidence ellipsoid (km)."""
+    """1-DOF, 68% confidence vertical standard deviation (km)."""
     C = _build_covariance(az1, dip1, len1, az2, dip2, len2, len3)
-    return float(np.sqrt(C[2, 2]))
+    sigma_zz = C[2, 2] / _S3_3DOF
+    return float(np.sqrt(sigma_zz * _S1_1DOF))
 
 def _compute_true_erh(az1, dip1, len1, az2, dip2, len2, len3):
-    """Maximum horizontal extent of the NLLoc 3D confidence ellipsoid (km)."""
+    """2-DOF horizontal error ellipse, reduced via geometric mean of semi-axes (km)."""
     C = _build_covariance(az1, dip1, len1, az2, dip2, len2, len3)
-    return float(np.sqrt(np.max(np.linalg.eigvalsh(C[:2, :2]))))
+    cov2d = C[:2, :2] / _S3_3DOF
+    eigvals = np.linalg.eigvalsh(cov2d)   # ascending: [minor^2, major^2], unscaled
+    b, a = np.sqrt(eigvals * _S2_2DOF)    # b = minor semi-axis, a = major semi-axis
+    return float(np.sqrt(a * b))
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +160,7 @@ def merge_bulletins(csv_files, output_path, log_dir=None):
     merged   = all_events.loc[best_idx].copy()
     n_dup    = n_total - len(merged)
 
-    # Compute true ERH/ERZ from the 3D confidence ellipsoid axes
+    # Compute true ERH (2-DOF) / ERZ (1-DOF) from the 3D confidence ellipsoid axes
     _ell_args = ['EllipsoidAz1', 'EllipsoidDip1', 'EllipsoidLen1',
                  'EllipsoidAz2', 'EllipsoidDip2', 'EllipsoidLen2',
                  'EllipsoidLen3']
