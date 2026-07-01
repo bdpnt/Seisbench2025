@@ -51,6 +51,7 @@ _VIEHLA_OBS    = os.path.join(_PICK_FILES, 'viehla_final.obs')
 _PYRENEES_TXT  = os.path.join(_PICK_FILES, 'merged_pyrenees.txt')
 _PYRENEES2_TXT = os.path.join(_PICK_FILES, 'merged_pyrenees2.txt')
 _OMP_CSV       = os.path.join(_PICK_FILES, 'merged_omp.csv')
+_OTHER_TXT     = os.path.join(_PICK_FILES, 'merged_other.txt')
 
 # Ordered list of (input_file, format) for conversion, then matching
 _PICKS_TO_CONVERT = [
@@ -58,6 +59,7 @@ _PICKS_TO_CONVERT = [
     (_PYRENEES_TXT,  'TEMP_RSB'),
     (_PYRENEES2_TXT, 'TEMP_RSB'),
     (_OMP_CSV,       'TEMP_OMP'),
+    (_OTHER_TXT,     'TEMP_OTH'),
 ]
 
 
