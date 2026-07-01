@@ -46,9 +46,7 @@ Shallow_Depth_DL_Catalog/
 ├── fetch_all_bulletins.py        # Entry point: fetch & convert all catalogs
 ├── build_global_inventory.py     # Entry point: fuse all station inventories
 ├── build_global_bulletin.py      # Entry point: harmonize & merge catalogs
-├── prepare_nll_inputs.py         # Entry point: prepare NLL run files (6 zones)
-├── generate_nll_corrections.py   # Entry point: prepare second-pass NLL run files
-├── finalize_nll_catalog.py       # Entry point: compile and match final catalog
+├── nll_phase_1.py                # Entry point: run NLL relocation (6 zones) and finalize the catalog
 ├── add_temp_picks.py             # Entry point: augment FINAL.obs with external picks
 ├── generate_complem_figures.py   # Entry point: matplotlib figures (seisbench_env)
 ├── generate_complem_maps.py      # Entry point: PyGMT event maps (pygmt_env)
@@ -200,40 +198,39 @@ Runs the following steps in sequence:
 
 ### 4. Earthquake Relocation (NonLinLoc)
 
-The study area is too large for a single NLL run, so it is divided into **6 geographic zones**. Each zone is processed independently, then results are merged.
+The study area is too large for a single NLL run, so it is divided into **6 geographic zones**. Each zone is processed independently — up to **3 zones run concurrently** — then results are merged.
 
-#### Pre-run — `prepare_nll_inputs.py`
+**Script:** `nll_phase_1.py`
 
-Calls `NLL_run/generate_regional_runfiles.py` → `generate_run()` for each zone:
-- Generates `obs/GLOBAL_1.obs` … `obs/GLOBAL_6.obs` (regional subsets, with far picks removed)
-- Generates `stations/GTSRCE_1.txt` … `stations/GTSRCE_6.txt` (station lists)
-- Generates `run/run_1.in` … `run/run_6.in` (NLL configuration files)
+For each zone:
 
-NLL is then launched automatically via `NLL_run/run_zone.py`, which runs Vel2Grid → Grid2Time → NLLoc in sequence for each zone. Before each run it checks free disk space on the output filesystem, and after each step it scans the subprocess output for fatal disk/memory errors (which NLL programs can otherwise report as a silent exit code 0), aborting the pipeline if one is detected.
+1. **First pass.** Calls `NLL_run/generate_regional_runfiles.py` → `generate_run()`:
+   - Generates `obs/GLOBAL_<N>.obs` (regional subset, with far picks removed — done once globally before any zone starts)
+   - Generates `stations/GTSRCE_<N>.txt` (station list)
+   - Generates `run/run_<N>.in` (NLL configuration file)
 
-#### Second pass — `generate_nll_corrections.py`
+   NLL is then launched automatically via `NLL_run/run_zone.py`, which runs Vel2Grid → Grid2Time → NLLoc in sequence. Before each run it checks free disk space on the output filesystem, and after each step it scans the subprocess output for fatal disk/memory errors (which NLL programs can otherwise report as a silent exit code 0), aborting the pipeline if one is detected. Console log lines are prefixed with the zone label (e.g. `[zone 3]`) since multiple zones may log concurrently.
+   - Cleans up `.hdr` files left by NLL in the `loc/GLOBAL_<N>/` folder.
 
-For each zone, this script does two things:
-1. Cleans up `.hdr` files left by NLL in the `loc/GLOBAL_<N>/` folder.
-2. Reads per-station average residuals (LOCDELAY entries) from the first run and appends qualifying station delay corrections to generate second-pass run files `run/run_<N>_PR.in`.
+2. **Second (corrections) pass.** Calls `NLL_run/append_station_delays.py` → `append_station_delays()` to read per-station average residuals (LOCDELAY entries) from the first pass and append qualifying station delay corrections to a second-pass run file `run/run_<N>_PR.in`. NLLoc is then launched automatically via `NLL_run/run_zone.py` with `--corrections-pass` (Vel2Grid and Grid2Time are skipped since the grids are already built).
+   - Cleans up `.hdr` files left by NLL in the `loc/GLOBAL_<N>/` folder again, right after this zone's second pass — since `.hdr` files are large, this keeps at most a few zones' worth on disk at a time instead of waiting for all 6 zones to finish.
 
-NLLoc is then launched automatically via `NLL_run/run_zone.py` with `--corrections-pass` (Vel2Grid and Grid2Time are skipped since the grids are already built).
+`generate_run()` and `append_station_delays()` reconfigure a shared logger on every call, which isn't safe if two zones call them at the same instant, so `nll_phase_1.py` serializes just those two (fast, non-NLL) calls behind a lock; the slow NLL subprocess runs themselves are not serialized and run fully in parallel across zones.
 
 #### Diagnostic — `NLL_run/export_locdelay_info.py`
 
-Called automatically by `generate_nll_corrections.py` at the end of the second-pass run. Reads the LOCDELAY station corrections from all second-pass run files and exports them to `run/locdelays/locdelay_summary.txt`, keeping only entries with |residual| > 0.3 s. Useful for identifying stations with systematically biased travel-time residuals.
+Called automatically by `nll_phase_1.py` once all zones have completed both passes. Reads the LOCDELAY station corrections from all second-pass run files and exports them to `run/locdelays/locdelay_summary.txt`, keeping only entries with |residual| > 0.3 s. Useful for identifying stations with systematically biased travel-time residuals.
 
 ---
 
 ### 5. Post-relocation Processing
 
-**Script:** `finalize_nll_catalog.py`  
+**Script:** `nll_phase_1.py` (runs after all 6 zones complete)
 **Modules:** `NLL_run/merge_regional_results.py`, `NLL_run/match_pre_post_relocation.py`
 
-1. Cleans up `.hdr` files left by NLL in each `loc/GLOBAL_<N>/` folder.
-2. Reads the 6 per-zone NLL CSV summaries (`loc/GLOBAL_<N>/GLOBAL_<N>.obs.sum.grid0.loc.csv`), deduplicates events that appear in multiple overlapping zones (kept: lowest `pdfVolume`), and writes → `RESULT/FINAL.csv`. True horizontal/vertical errors (`true_erh` / `true_erz`) are derived from the 3-D confidence ellipsoid.
-3. Rematches relocated events back to `obs/GLOBAL.obs` via the `publicId` field to recover metadata absent from NLL output (magnitude, pick details, etc.).
-4. Saves matched events → `obs/FINAL.obs`
+1. Reads the 6 per-zone NLL CSV summaries (`loc/GLOBAL_<N>/GLOBAL_<N>.obs.sum.grid0.loc.csv`), deduplicates events that appear in multiple overlapping zones (kept: lowest `pdfVolume`), and writes → `RESULT/FINAL.csv`. True horizontal/vertical errors (`true_erh` / `true_erz`) are derived from the 3-D confidence ellipsoid.
+2. Rematches relocated events back to `obs/GLOBAL.obs` via the `publicId` field to recover metadata absent from NLL output (magnitude, pick details, etc.).
+3. Saves matched events → `obs/FINAL.obs`
 
 ---
 

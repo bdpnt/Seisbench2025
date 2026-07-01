@@ -36,18 +36,16 @@ The workflow follows 5 main stages:
 - Matching thresholds: strict 15 km / 2 s / 1.5 mag units; loose 50 km / 30 s confirmed by ≥1 shared P-phase pick
 
 ### 4. Earthquake Relocation (NonLinLoc)
-The study area is too large for a single NLL run, so it is split into **6 geographic zones**.
+The study area is too large for a single NLL run, so it is split into **6 geographic zones**, processed with up to **3 zones running concurrently** (zones are independent; NLL runs are the bottleneck).
 
-- **`prepare_nll_inputs.py`** — generates one `.obs` file and one `.in` run file per zone, plus GTSRCE station files; then automatically runs Vel2Grid → Grid2Time → NLLoc for each zone via `NLL_run/run_zone.py`
-- **`generate_nll_corrections.py`** — generates second-pass run files by appending per-station delay corrections derived from first-run arrival-time residuals; also exports the locdelay summary via `export_locdelay_info`; then automatically runs NLLoc for each zone via `NLL_run/run_zone.py` with `--corrections-pass` (grids already built)
-- **`NLL_run/run_zone.py`** — runs Vel2Grid → Grid2Time → NLLoc in sequence for a given `.in` file; `--corrections-pass` skips Vel2Grid/Grid2Time
+- **`nll_phase_1.py`** — for each zone: generates one `.obs` file and one `.in` run file (plus GTSRCE station file), runs Vel2Grid → Grid2Time → NLLoc via `NLL_run/run_zone.py`, cleans up `.hdr` files, then generates a second-pass run file by appending per-station delay corrections derived from first-run arrival-time residuals and reruns NLLoc via `run_zone.py` with `--corrections-pass` (grids already built), cleaning up `.hdr` files again right after — this per-zone `.hdr` cleanup keeps at most a few zones' worth on disk at once instead of waiting for all 6 zones to finish. Once all zones are done, exports the locdelay summary via `export_locdelay_info`.
+- **`NLL_run/run_zone.py`** — runs Vel2Grid → Grid2Time → NLLoc in sequence for a given `.in` file; `--corrections-pass` skips Vel2Grid/Grid2Time; accepts a `zone_label` to prefix log output when zones run concurrently
 
 ### 5. Post-relocation Processing
-- **`finalize_nll_catalog.py`**:
-  1. Cleans `.hdr` files left by NLL in each `loc/GLOBAL_<N>/` folder
-  2. Reads the 6 per-zone NLL CSV summaries, deduplicates zone-overlap events (kept: lowest `pdfVolume`), writes → `RESULT/FINAL.csv`
-  3. Rematches relocated events back to `obs/GLOBAL.obs` via `publicId` to recover metadata not present in NLL output (e.g. magnitude)
-  4. Saves matched events to `obs/FINAL.obs`
+- **`nll_phase_1.py`** (after all 6 zones complete):
+  1. Reads the 6 per-zone NLL CSV summaries, deduplicates zone-overlap events (kept: lowest `pdfVolume`), writes → `RESULT/FINAL.csv`
+  2. Rematches relocated events back to `obs/GLOBAL.obs` via `publicId` to recover metadata not present in NLL output (e.g. magnitude)
+  3. Saves matched events to `obs/FINAL.obs`
 - **`add_temp_picks.py`** (optional, run after): augments `obs/FINAL.obs` with picks from external sources → `obs/FINAL_augmented.obs`
 
 ---
