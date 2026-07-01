@@ -314,6 +314,7 @@ def match_picks(pick_file, bulletin_file, inventory_file, tables_file,
     log_path = _setup_logger(log_dir or _DEFAULT_LOG_DIR)
 
     # --- Load data ---
+    logger.info(f"Augmenting with picks: {pick_file}")
     logger.info(f"Loading bulletin     : {bulletin_file}")
     file_header, events = load_bulletin(bulletin_file)
     logger.info(f"  {len(events)} events loaded.")

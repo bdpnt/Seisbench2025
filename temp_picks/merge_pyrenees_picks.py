@@ -36,6 +36,9 @@ _SOURCE_DIRS = [
     ('picks_station_pyrenees2', 'merged_pyrenees2.txt'),
 ]
 
+# Minimum PhaseNet pick probability ('prob=' field) required to keep a line
+DEFAULT_MIN_PHASE_SCORE = 0.5
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -57,39 +60,58 @@ def _setup_logger(log_dir):
     return log_path
 
 
-def _merge_directory(src_dir, output_path):
+def _merge_directory(src_dir, output_path, min_phase_score):
     """
-    Concatenate all .txt files in src_dir into output_path.
+    Concatenate all .txt files in src_dir into output_path, dropping lines
+    whose 'prob=' value is below min_phase_score.
 
-    Returns (n_files, n_lines).
+    Returns (n_files, n_lines, n_dropped_low_score).
     """
     txt_files = sorted(
         f for f in os.listdir(src_dir) if f.endswith('.txt')
     )
-    n_files = len(txt_files)
-    n_lines = 0
+    n_files             = len(txt_files)
+    n_lines             = 0
+    n_dropped_low_score = 0
 
     with open(output_path, 'w', encoding='utf-8') as out:
         for fname in txt_files:
             fpath = os.path.join(src_dir, fname)
+            warned = False
             with open(fpath, 'r', encoding='utf-8') as f:
                 for line in f:
+                    parts = line.split()
+                    try:
+                        prob = float(parts[-1].split('=', 1)[1])
+                    except (IndexError, ValueError):
+                        if not warned:
+                            logger.warning(f"Cannot parse prob= in {fname}, keeping line(s) as-is.")
+                            warned = True
+                        out.write(line)
+                        n_lines += 1
+                        continue
+
+                    if prob < min_phase_score:
+                        n_dropped_low_score += 1
+                        continue
+
                     out.write(line)
                     n_lines += 1
 
-    return n_files, n_lines
+    return n_files, n_lines, n_dropped_low_score
 
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
-def merge_all(input_dir=None, output_dir=None, log_dir=None):
+def merge_all(input_dir=None, output_dir=None, log_dir=None, min_phase_score=None):
     """
     Merge all RaspberryShake/PhaseNet pick files into two consolidated files.
 
     Processes picks_station_pyrenees/ and picks_station_pyrenees2/ separately,
-    writing one merged .txt file per source directory.
+    writing one merged .txt file per source directory, and drops lines whose
+    'prob=' value is below min_phase_score.
 
     Parameters
     ----------
@@ -101,23 +123,28 @@ def merge_all(input_dir=None, output_dir=None, log_dir=None):
         Defaults to temp_picks/pick_files/.
     log_dir : str, optional
         Directory for the log file. Defaults to temp_picks/console_output/.
+    min_phase_score : float, optional
+        Minimum 'prob=' value required to keep a pick line.
+        Defaults to DEFAULT_MIN_PHASE_SCORE (0.5).
 
     Returns
     -------
     dict
         Summary with keys: 'log', 'outputs' (list of output paths),
         and per-directory counts under 'stats' (list of dicts with
-        'subdir', 'n_files', 'n_lines', 'output').
+        'subdir', 'n_files', 'n_lines', 'n_dropped_low_score', 'output').
     """
-    input_dir  = input_dir  or _DEFAULT_INPUT_DIR
-    output_dir = output_dir or _DEFAULT_OUTPUT_DIR
-    log_dir    = log_dir    or _DEFAULT_LOG_DIR
+    input_dir       = input_dir       or _DEFAULT_INPUT_DIR
+    output_dir      = output_dir      or _DEFAULT_OUTPUT_DIR
+    log_dir         = log_dir         or _DEFAULT_LOG_DIR
+    min_phase_score = min_phase_score if min_phase_score is not None else DEFAULT_MIN_PHASE_SCORE
 
     log_path = _setup_logger(log_dir)
     os.makedirs(output_dir, exist_ok=True)
 
     logger.info(f"Input base : {input_dir}")
     logger.info(f"Output dir : {output_dir}")
+    logger.info(f"Min phase score : {min_phase_score}")
 
     outputs = []
     stats   = []
@@ -130,11 +157,20 @@ def merge_all(input_dir=None, output_dir=None, log_dir=None):
             logger.warning(f"Source directory not found, skipping: {src_dir}")
             continue
 
-        n_files, n_lines = _merge_directory(src_dir, output_path)
-        logger.info(f"{subdir_name}: {n_files} files, {n_lines} lines → {output_path}")
+        n_files, n_lines, n_dropped_low_score = _merge_directory(src_dir, output_path, min_phase_score)
+        logger.info(
+            f"{subdir_name}: {n_files} files, {n_lines} lines, "
+            f"{n_dropped_low_score} dropped (low phase_score) → {output_path}"
+        )
 
         outputs.append(output_path)
-        stats.append({'subdir': subdir_name, 'n_files': n_files, 'n_lines': n_lines, 'output': output_path})
+        stats.append({
+            'subdir':              subdir_name,
+            'n_files':             n_files,
+            'n_lines':             n_lines,
+            'n_dropped_low_score': n_dropped_low_score,
+            'output':              output_path,
+        })
 
     logger.info(f"Log: {log_path}")
 
@@ -161,8 +197,12 @@ def main():
         '--log-dir', default=None,
         help='Directory for log files.'
     )
+    parser.add_argument(
+        '--min-phase-score', type=float, default=None, metavar='SCORE',
+        help=f'Minimum prob= value required to keep a pick (default: {DEFAULT_MIN_PHASE_SCORE}).'
+    )
     args = parser.parse_args()
-    merge_all(args.input_dir, args.output_dir, args.log_dir)
+    merge_all(args.input_dir, args.output_dir, args.log_dir, min_phase_score=args.min_phase_score)
 
 
 if __name__ == '__main__':

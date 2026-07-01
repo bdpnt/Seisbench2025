@@ -13,6 +13,7 @@ Usage
     python temp_picks/convert_picks.py --input temp_picks/pick_files/viehla_final.obs --format TEMP_OBS
     python temp_picks/convert_picks.py --input temp_picks/pick_files/merged_pyrenees.txt --format TEMP_RSB
     python temp_picks/convert_picks.py --input temp_picks/pick_files/merged_omp.csv --format TEMP_OMP
+    python temp_picks/convert_picks.py --input temp_picks/pick_files/merged_other.txt --format TEMP_OTH
 
 Supported formats
 -----------------
@@ -23,20 +24,25 @@ Supported formats
                NETWORK.STATION.LOCATION PHASE ISO8601_TIMESTAMP prob=PROBABILITY
     TEMP_OMP : OMP/PhaseNet CSV files produced by merge_omp_picks.py. Columns used:
                station_id (fields 0-3), phase_time, phase_type.
+    TEMP_OTH : fixed-width quality-coded pick files. One line per P pick, with an
+               optional S pick stored as an offset in seconds after the P arrival.
 
 Adding a new format
 -------------------
-    1. Write a converter function: convert_<format>(line, code_map) -> str | None
+    1. Write a converter function: convert_<format>(line, code_map) -> str | list[str] | None
        It receives a single non-header, non-blank pick line and the station code map.
-       It must return the converted GLOBAL.obs pick line string, or None to skip.
+       It must return the converted GLOBAL.obs pick line string, a list of such
+       strings (for formats that pack multiple picks into one source line), or
+       None/an empty list to skip.
     2. Register it in FORMAT_HANDLERS with a descriptive key string.
 """
 
 import argparse
 import logging
 import os
+import re
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger('convert_picks')
 
@@ -187,7 +193,7 @@ def resolve_station(short_name, pick_date_str, code_map, fallback_counter=None):
 # Output formatting helper
 # ---------------------------------------------------------------------------
 
-def _format_pick_line(internal_code, phase, date, hhmm, seconds_str, error_str, pick_origin):
+def _format_pick_line(internal_code, phase, date, hhmm, seconds_str, error_str, pick_origin, instrument='?'):
     """
     Format a single pick line in GLOBAL.obs style.
 
@@ -202,9 +208,12 @@ def _format_pick_line(internal_code, phase, date, hhmm, seconds_str, error_str, 
     seconds_str   : str   — arrival seconds as string (e.g. '29.8640')
     error_str     : str   — pick uncertainty in seconds (e.g. '0.05e+00')
     pick_origin   : str   — source label appended in trailer (e.g. 'TEMP_OBS')
+    instrument    : str   — instrument field; '*' signals NLLoc to use S-P
+                            relative timing instead of the absolute pick time
+                            (mirrors fetch_obs/OMP.py's quality-9 convention)
     """
     code        = internal_code.ljust(9)
-    instrument  = '?'.ljust(4)
+    instrument  = instrument.ljust(4)
     component   = '?'.ljust(4)
     onset       = '?'.ljust(1)
     phase_field = phase.ljust(6)
@@ -356,6 +365,88 @@ def convert_temp_omp(line, code_map, skipped_stations=None, fallback_counter=Non
     return _format_pick_line(internal_code, phase_type, date, hhmm, seconds_str, error_str, 'TEMP_OMP')
 
 
+_TEMP_OTH_RE   = re.compile(r'^(.{5})P (\d) (.{15})(.*)$')
+_TEMP_OTH_S_RE = re.compile(r'^\s*(\S+)\s+S\s+(\d)\s*$')
+
+
+def convert_temp_oth(line, code_map, skipped_stations=None, fallback_counter=None):
+    """
+    Convert a single pick line from TEMP_OTH format to GLOBAL.obs format(s).
+
+    TEMP_OTH source format (fixed-width, no delimiters):
+        STATION(5) "P X "(4) YYMMDDHHMMSS.SS(15) [S_OFFSET " S " QUALITY]
+
+    Station is a 5-char space-padded short name. "P X " holds the P-phase
+    quality digit (0-9; >=4 means unusable, per project convention). The
+    15-char date/time field packs YY MM DD HH MI SS.SS as six 2-char
+    sub-fields, each right-justified with a space instead of a leading zero
+    (e.g. " 6" means 06). The optional trailing part gives the S arrival as
+    an offset in seconds after the P arrival, followed by " S " and the
+    S-phase quality digit.
+
+    P-phase quality 4 lines store an unusable placeholder time (blank or
+    "0.00") instead of a real reading; since the S offset is only meaningful
+    relative to a real P arrival, such lines are dropped entirely (mirrors
+    fetch_obs/OMP.py's handling of missing P seconds). P-phase quality 9
+    lines do carry a real timestamp but flag it as absolute-time-unreliable;
+    these are kept, with instrument '*' instead of '?' on both the P and S
+    lines, so NLLoc uses S-P relative timing instead of the absolute pick
+    time (mirrors fetch_obs/OMP.py's quality_p == '9' handling).
+
+    Returns a list of 0, 1, or 2 converted line strings (P pick, S pick,
+    both, or neither, depending on quality filtering), or None if the line
+    doesn't match the TEMP_OTH shape or the station can't be resolved.
+    """
+    m = _TEMP_OTH_RE.match(line)
+    if not m:
+        return None
+
+    station_field, quality_p_str, datefield, rest = m.groups()
+    short_name = station_field.strip()
+    quality_p  = int(quality_p_str)
+
+    yy = int(datefield[0:2])
+    mm = int(datefield[2:4])
+    dd = int(datefield[4:6])
+    hh = int(datefield[6:8])
+    mi = int(datefield[8:10])
+    ss_str   = datefield[10:12].strip()
+    frac_str = datefield[13:15].strip()
+    if not ss_str or not frac_str:
+        return None  # P time unusable -> S offset can't be resolved either
+
+    year = 2000 + yy if yy < 78 else 1900 + yy
+    p_dt = datetime(year, mm, dd, hh, mi, int(ss_str)) + timedelta(microseconds=int(frac_str) * 10000)
+
+    internal_code = resolve_station(short_name, p_dt.strftime('%Y%m%d'), code_map, fallback_counter)
+    if internal_code is None:
+        if skipped_stations is not None:
+            skipped_stations[short_name] += 1
+        return None
+
+    results = []
+    marker  = '*' if quality_p == 9 else '?'
+    if quality_p < 4 or quality_p == 9:
+        err_p = '0.05' if quality_p == 9 else ('0.10' if quality_p > 1 else '0.05')
+        results.append(_format_pick_line(
+            internal_code, 'P', p_dt.strftime('%Y%m%d'), p_dt.strftime('%H%M'),
+            f"{p_dt.second + p_dt.microsecond / 1e6:.3f}", err_p, 'TEMP_OTH', instrument=marker))
+
+    if rest.strip():
+        m2 = _TEMP_OTH_S_RE.match(rest)
+        if m2:
+            offset_str, quality_s_str = m2.groups()
+            quality_s = int(quality_s_str)
+            if quality_s < 4:
+                s_dt  = p_dt + timedelta(seconds=float(offset_str))
+                err_s = '0.30' if quality_s > 2 else '0.15'
+                results.append(_format_pick_line(
+                    internal_code, 'S', s_dt.strftime('%Y%m%d'), s_dt.strftime('%H%M'),
+                    f"{s_dt.second + s_dt.microsecond / 1e6:.3f}", err_s, 'TEMP_OTH', instrument=marker))
+
+    return results
+
+
 # ---------------------------------------------------------------------------
 # Format dispatch table — register new format handlers here
 # ---------------------------------------------------------------------------
@@ -364,6 +455,7 @@ FORMAT_HANDLERS = {
     'TEMP_OBS': convert_temp_obs,
     'TEMP_RSB': convert_temp_rsb,
     'TEMP_OMP': convert_temp_omp,
+    'TEMP_OTH': convert_temp_oth,
 }
 
 
@@ -437,6 +529,7 @@ def convert_file(input_path, fmt, output_path=None, codemap_path=None, log_dir=N
         base, _ = os.path.splitext(input_path)
         output_path = base + '_converted.obs'
 
+    logger.info(f"Converting file: {input_path}")
     logger.info(f"Loading station code map: {codemap_path}")
     code_map = load_code_map(codemap_path)
     n_windows = sum(len(v) for v in code_map.values())
@@ -456,10 +549,15 @@ def convert_file(input_path, fmt, output_path=None, codemap_path=None, log_dir=N
                 continue
             n_input += 1
             result = fmt_handler(line, code_map, skipped_stations, fallback_counter)
-            if result is not None:
-                converted.append(result)
-            else:
+            if result is None:
                 n_skipped += 1
+            elif isinstance(result, list):
+                if result:
+                    converted.extend(result)
+                else:
+                    n_skipped += 1
+            else:
+                converted.append(result)
 
     with open(output_path, 'w') as f:
         for line in converted:
