@@ -1,5 +1,5 @@
 """
-nll_phase_1.py
+run_NLL.py
 ============================
 Generate NLL inputs, run both passes, and finalize the relocated catalog for
 all 6 geographic zones.
@@ -25,7 +25,7 @@ After all zones complete:
 
 Usage
 -----
-    python nll_phase_1.py
+    python run_NLL.py
 """
 
 import glob

@@ -46,7 +46,7 @@ Shallow_Depth_DL_Catalog/
 ├── fetch_all_bulletins.py        # Entry point: fetch & convert all catalogs
 ├── build_global_inventory.py     # Entry point: fuse all station inventories
 ├── build_global_bulletin.py      # Entry point: harmonize & merge catalogs
-├── nll_phase_1.py                # Entry point: run NLL relocation (6 zones) and finalize the catalog
+├── run_NLL.py                # Entry point: run NLL relocation (6 zones) and finalize the catalog
 ├── add_temp_picks.py             # Entry point: augment FINAL.obs with external picks
 ├── generate_complem_figures.py   # Entry point: matplotlib figures (seisbench_env)
 ├── generate_complem_maps.py      # Entry point: PyGMT event maps (pygmt_env)
@@ -200,7 +200,7 @@ Runs the following steps in sequence:
 
 The study area is too large for a single NLL run, so it is divided into **6 geographic zones**. Each zone is processed independently — up to **3 zones run concurrently** — then results are merged.
 
-**Script:** `nll_phase_1.py`
+**Script:** `run_NLL.py`
 
 For each zone:
 
@@ -215,17 +215,17 @@ For each zone:
 2. **Second (corrections) pass.** Calls `NLL_run/append_station_delays.py` → `append_station_delays()` to read per-station average residuals (LOCDELAY entries) from the first pass and append qualifying station delay corrections to a second-pass run file `run/run_<N>_PR.in`. NLLoc is then launched automatically via `NLL_run/run_zone.py` with `--corrections-pass` (Vel2Grid and Grid2Time are skipped since the grids are already built).
    - Cleans up `.hdr` files left by NLL in the `loc/GLOBAL_<N>/` folder again, right after this zone's second pass — since `.hdr` files are large, this keeps at most a few zones' worth on disk at a time instead of waiting for all 6 zones to finish.
 
-`generate_run()` and `append_station_delays()` reconfigure a shared logger on every call, which isn't safe if two zones call them at the same instant, so `nll_phase_1.py` serializes just those two (fast, non-NLL) calls behind a lock; the slow NLL subprocess runs themselves are not serialized and run fully in parallel across zones.
+`generate_run()` and `append_station_delays()` reconfigure a shared logger on every call, which isn't safe if two zones call them at the same instant, so `run_NLL.py` serializes just those two (fast, non-NLL) calls behind a lock; the slow NLL subprocess runs themselves are not serialized and run fully in parallel across zones.
 
 #### Diagnostic — `NLL_run/export_locdelay_info.py`
 
-Called automatically by `nll_phase_1.py` once all zones have completed both passes. Reads the LOCDELAY station corrections from all second-pass run files and exports them to `run/locdelays/locdelay_summary.txt`, keeping only entries with |residual| > 0.3 s. Useful for identifying stations with systematically biased travel-time residuals.
+Called automatically by `run_NLL.py` once all zones have completed both passes. Reads the LOCDELAY station corrections from all second-pass run files and exports them to `run/locdelays/locdelay_summary.txt`, keeping only entries with |residual| > 0.3 s. Useful for identifying stations with systematically biased travel-time residuals.
 
 ---
 
 ### 5. Post-relocation Processing
 
-**Script:** `nll_phase_1.py` (runs after all 6 zones complete)
+**Script:** `run_NLL.py` (runs after all 6 zones complete)
 **Modules:** `NLL_run/merge_regional_results.py`, `NLL_run/match_pre_post_relocation.py`
 
 1. Reads the 6 per-zone NLL CSV summaries (`loc/GLOBAL_<N>/GLOBAL_<N>.obs.sum.grid0.loc.csv`), deduplicates events that appear in multiple overlapping zones (kept: lowest `pdfVolume`), and writes → `RESULT/FINAL.csv`. True horizontal/vertical errors (`true_erh` / `true_erz`) are derived from the 3-D confidence ellipsoid, rescaled to DOF-appropriate 68% confidence factors: `true_erz` is a 1-DOF marginal standard deviation, `true_erh` is a 2-DOF horizontal error ellipse reduced to the geometric mean of its semi-axes.
