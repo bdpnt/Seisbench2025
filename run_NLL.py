@@ -13,7 +13,9 @@ are independent and NLL runs are the bottleneck):
   3. Cleans up .hdr files left by the first-pass NLLoc run.
   4. Derives per-station delay corrections from first-pass residuals,
      generates a second-pass run file, and reruns NLLoc.
-  5. Cleans up .hdr files left by the second-pass NLLoc run.
+  5. Cleans up .hdr files left by the second-pass NLLoc run, and deletes the
+     zone's travel-time grids (run/nll_time/Pyrenees_<N>/) — nothing reads
+     them after the second pass, and they dominate disk usage.
 
 After all zones complete:
   6. Exports a summary of locdelay corrections.
@@ -30,6 +32,7 @@ Usage
 
 import glob
 import os
+import shutil
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -83,6 +86,10 @@ def _clean_hdr(key):
         os.remove(hdr)
 
 
+def _clean_time(key):
+    shutil.rmtree(os.path.join(_TIME, f'Pyrenees_{key}'), ignore_errors=True)
+
+
 def _process_zone(key, item):
     zone_label = f"zone {key}"
 
@@ -125,8 +132,10 @@ def _process_zone(key, item):
 
     run_zone(os.path.join(_RUN_NLL, f'run_{key}_NLL.in'), corrections_pass=True, zone_label=zone_label)
 
-    # Free disk space right after this zone's final run
+    # Free disk space right after this zone's final run; the travel-time
+    # grids are no longer read by anything once the second pass is done
     _clean_hdr(key)
+    _clean_time(key)
 
 
 # ---------------------------------------------------------------------------

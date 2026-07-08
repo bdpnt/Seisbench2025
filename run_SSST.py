@@ -20,11 +20,16 @@ LOC2SSST_CORES parallel processes):
   3. Builds the initial P and S travel-time grids (skipped when present).
   4. Runs the iterative NLLoc + Loc2ssst workflow (NLL_run/run_ssst.py):
      len(CHAR_DISTS) SSST iterations + one final NLLoc-only relocation.
+  5. Deletes the zone's travel-time grids, the big disk consumers: after the
+     final relocation, the whole chain (run/ssst_time/Pyrenees_<N>/ + every
+     ssst_corr<i>/ grid set); after a partial campaign, everything except the
+     last ssst_corr (kept for the resume, its symlinks materialized) and the
+     initial grids.
 
 After all zones complete (all final CSVs present):
-  5. Merges the zone CSVs into RESULT/SSST_result.csv (zone-overlap
+  6. Merges the zone CSVs into RESULT/SSST_result.csv (zone-overlap
      duplicates resolved by lowest pdfVolume).
-  6. Rematches relocated events to obs/NLL_result_augmented.obs via publicId
+  7. Rematches relocated events to obs/NLL_result_augmented.obs via publicId
      and writes obs/SSST_result.obs.
 
 Usage
@@ -36,7 +41,9 @@ Usage
 """
 
 import argparse
+import glob
 import os
+import shutil
 
 from run_NLL import _ZONES
 from NLL_run.generate_ssst_runfiles import GenSSSTRunParams, generate_ssst_run
@@ -89,6 +96,46 @@ def _final_csv(key):
     return os.path.join(_SSST_LOC, RUN_NAME, f'Pyrenees_{key}_SSST',
                         f'loc_ssst_corr{len(CHAR_DISTS)}', f'GLOBAL_{key}',
                         f'Pyrenees_{key}.sum.grid0.loc.csv')
+
+
+def _cleanup_zone_grids(key, finished):
+    """Delete the zone's travel-time grids once they are no longer used.
+
+    finished (the final NLLoc-only relocation ran): the whole grid chain is
+    dead weight — remove every ssst_corr<i> grid set and the initial grids.
+
+    not finished (partial campaign): the LAST ssst_corr is the resume input
+    of the next iteration, so it is kept and its symlinks (stations without
+    a correction, resolving into the earlier grid sets) are first replaced
+    by real copies; the earlier ssst_corr sets are then removed. The initial
+    grids are also kept: build_grids() runs again on resume and would
+    otherwise trigger a full, pointless rebuild.
+    """
+    corr_dirs = sorted(
+        glob.glob(os.path.join(_SSST_LOC, RUN_NAME, f'Pyrenees_{key}_SSST',
+                               'ssst_corr*')),
+        key=lambda path: int(path.rsplit('ssst_corr', 1)[1]))
+
+    if finished:
+        for corr_dir in corr_dirs:
+            shutil.rmtree(corr_dir)
+        shutil.rmtree(os.path.join(_SSST_TIME, f'Pyrenees_{key}'),
+                      ignore_errors=True)
+        return
+
+    if not corr_dirs:
+        return
+
+    kept = corr_dirs[-1]
+    for root, _, files in os.walk(kept):
+        for name in files:
+            path = os.path.join(root, name)
+            if os.path.islink(path):
+                target = os.path.realpath(path)
+                os.remove(path)
+                shutil.copy2(target, path)
+    for corr_dir in corr_dirs[:-1]:
+        shutil.rmtree(corr_dir)
 
 
 def _process_zone(key, item, iteration_start, iteration_stop, rebuild_grids):
@@ -152,8 +199,13 @@ def _process_zone(key, item, iteration_start, iteration_stop, rebuild_grids):
     # initial P+S grids (skipped when already present)
     build_grids(params, rebuild=rebuild_grids)
 
-    return run_ssst(params, iteration_start=iteration_start,
-                    iteration_stop=iteration_stop)
+    result = run_ssst(params, iteration_start=iteration_start,
+                      iteration_stop=iteration_stop)
+
+    # free the zone's travel-time grids before the next zone starts
+    _cleanup_zone_grids(key, finished=result['next_iteration'] is None)
+
+    return result
 
 
 # ---------------------------------------------------------------------------
