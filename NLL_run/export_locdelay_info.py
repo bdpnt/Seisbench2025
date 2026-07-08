@@ -4,7 +4,7 @@ export_locdelay_info.py
 Extract LOCDELAY station corrections from NLL second-pass run files and
 annotate each entry with its station metadata from the code map.
 
-For each zone (run_<N>_PR.in), the output file contains one block per
+For each zone (run_<N>_NLL.in), the output file contains one block per
 station: the code-map entry (Alternate Code, Station Code, Start/End Date)
 followed by the LOCDELAY line(s) (P and/or S) from that zone's run file.
 
@@ -17,9 +17,9 @@ Usage
 
     # Custom paths
     python NLL_run/export_locdelay_info.py \\
-        --run-dir   run/ \\
+        --run-dir   run/nll/ \\
         --codemap   stations/GLOBAL_code_map.txt \\
-        --output    run/locdelays/locdelay_summary.txt
+        --output    run/nll/locdelays/locdelay_summary.txt
 """
 
 import argparse
@@ -37,9 +37,9 @@ _MODULE_DIR      = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT    = os.path.dirname(_MODULE_DIR)
 _DEFAULT_LOG_DIR = os.path.join(_MODULE_DIR, 'console_output')
 
-_DEFAULT_RUN_DIR = os.path.join(_PROJECT_ROOT, 'run')
+_DEFAULT_RUN_DIR = os.path.join(_PROJECT_ROOT, 'run', 'nll')
 _DEFAULT_CODEMAP = os.path.join(_PROJECT_ROOT, 'stations', 'GLOBAL_code_map.txt')
-_DEFAULT_OUTPUT  = os.path.join(_PROJECT_ROOT, 'run', 'locdelays', 'locdelay_summary.txt')
+_DEFAULT_OUTPUT  = os.path.join(_PROJECT_ROOT, 'run', 'nll', 'locdelays', 'locdelay_summary.txt')
 
 logger = logging.getLogger('export_locdelay_info')
 
@@ -152,7 +152,7 @@ def export_locdelay_info(run_dir, codemap_path, output_path, log_dir=None):
 
     Parameters
     ----------
-    run_dir      : str — directory containing run_<N>_PR.in files
+    run_dir      : str — directory containing run_<N>_NLL.in files
     codemap_path : str — path to GLOBAL_code_map.txt
     output_path  : str — path for the output text file
     log_dir      : str, optional — log directory (default: NLL_run/console_output/)
@@ -169,20 +169,20 @@ def export_locdelay_info(run_dir, codemap_path, output_path, log_dir=None):
     # --- Load code map ---
     code_map = load_code_map(codemap_path)
 
-    # --- Find and sort PR run files by zone number ---
-    pattern   = os.path.join(run_dir, 'run_*_PR.in')
+    # --- Find and sort second-pass run files by zone number ---
+    pattern   = os.path.join(run_dir, 'run_*_NLL.in')
     run_files = sorted(glob.glob(pattern),
-                       key=lambda p: int(re.search(r'run_(\d+)_PR', p).group(1)))
+                       key=lambda p: int(re.search(r'run_(\d+)_NLL', p).group(1)))
 
     if not run_files:
-        raise FileNotFoundError(f"No run_*_PR.in files found in: {run_dir}")
+        raise FileNotFoundError(f"No run_*_NLL.in files found in: {run_dir}")
 
     n_stations_total = 0
     n_missing        = 0
     output_lines     = []
 
     for run_path in run_files:
-        zone_num = re.search(r'run_(\d+)_PR', run_path).group(1)
+        zone_num = re.search(r'run_(\d+)_NLL', run_path).group(1)
         rel_path = os.path.relpath(run_path, _PROJECT_ROOT)
 
         output_lines.append(
@@ -239,11 +239,11 @@ def main():
         description='Annotate NLL LOCDELAY corrections with station metadata from the code map.'
     )
     parser.add_argument('--run-dir',  default=_DEFAULT_RUN_DIR,
-                        help='Directory containing run_*_PR.in files')
+                        help='Directory containing run_*_NLL.in files')
     parser.add_argument('--codemap',  default=_DEFAULT_CODEMAP,
                         help='Path to GLOBAL_code_map.txt')
     parser.add_argument('--output',   default=_DEFAULT_OUTPUT,
-                        help='Output text file path (default: run/locdelays/locdelay_summary.txt)')
+                        help='Output text file path (default: run/nll/locdelays/locdelay_summary.txt)')
     args = parser.parse_args()
 
     export_locdelay_info(args.run_dir, args.codemap, args.output)

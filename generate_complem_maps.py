@@ -31,11 +31,11 @@ from complem_figures.event_maps import EventMapsParams, generate_figure as gen_e
 _PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 _OBS          = os.path.join(_PROJECT_ROOT, 'obs')
 _RESULT       = os.path.join(_PROJECT_ROOT, 'RESULT')
-_LOC          = os.path.join(_PROJECT_ROOT, 'loc')
+_LOC          = os.path.join(_PROJECT_ROOT, 'run', 'nll_loc')
 _FIGS         = os.path.join(_PROJECT_ROOT, 'complem_figures')
 
 # ---------------------------------------------------------------------------
-# Zone configs (inner box, outer box) — derived from loc/GLOBAL_<k>/last.in
+# Zone configs (inner box, outer box) — derived from run/nll_loc/GLOBAL_<k>/last.in
 # ---------------------------------------------------------------------------
 
 _R = 6371.0
@@ -92,10 +92,10 @@ _ZONE_CONFIGS = _load_zone_configs(_LOC)
 def run_pipeline():
     """Generate PyGMT event maps for each NLL zone and the final catalog."""
 
-    # 1. Per-zone event maps (filter deduplicated FINAL.csv by source zone)
+    # 1. Per-zone event maps (filter deduplicated NLL_result.csv by source zone)
     for key, (region_in, region_out) in _ZONE_CONFIGS.items():
         gen_event(EventMapsParams(
-            fileBulletin  = os.path.join(_RESULT, 'FINAL.csv'),
+            fileBulletin  = os.path.join(_RESULT, 'NLL_result.csv'),
             figSave       = os.path.join(_FIGS, 'event_maps', f'GLOBAL_{key}.pdf'),
             fileStations  = os.path.join(_LOC,  f'GLOBAL_{key}', 'last.stations'),
             region_in     = region_in,
@@ -105,8 +105,8 @@ def run_pipeline():
 
     # 2. Final merged catalog
     gen_event(EventMapsParams(
-        fileBulletin = os.path.join(_OBS, 'FINAL.obs'),
-        figSave      = os.path.join(_FIGS, 'event_maps', 'FINAL.pdf'),
+        fileBulletin = os.path.join(_OBS, 'NLL_result.obs'),
+        figSave      = os.path.join(_FIGS, 'event_maps', 'NLL_result.pdf'),
     ))
 
 

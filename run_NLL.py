@@ -17,11 +17,11 @@ are independent and NLL runs are the bottleneck):
 
 After all zones complete:
   6. Exports a summary of locdelay corrections.
-  7. Merges the 6 zone CSV outputs into RESULT/FINAL.csv, resolving
+  7. Merges the 6 zone CSV outputs into RESULT/NLL_result.csv, resolving
      zone-overlap duplicates by keeping the solution with the smallest
      pdfVolume.
   8. Rematches relocated events back to obs/GLOBAL.obs via publicId to
-     recover magnitude and picks, and writes obs/FINAL.obs.
+     recover magnitude and picks, and writes obs/NLL_result.obs.
 
 Usage
 -----
@@ -50,9 +50,10 @@ _PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 _OBS      = os.path.join(_PROJECT_ROOT, 'obs')
 _STATIONS = os.path.join(_PROJECT_ROOT, 'stations')
 _RUN      = os.path.join(_PROJECT_ROOT, 'run')
-_MODEL    = os.path.join(_PROJECT_ROOT, 'model')
-_TIME     = os.path.join(_PROJECT_ROOT, 'time')
-_LOC      = os.path.join(_PROJECT_ROOT, 'loc')
+_RUN_NLL  = os.path.join(_RUN, 'nll')
+_MODEL    = os.path.join(_RUN, 'nll_model')
+_TIME     = os.path.join(_RUN, 'nll_time')
+_LOC      = os.path.join(_RUN, 'nll_loc')
 _RESULT   = os.path.join(_PROJECT_ROOT, 'RESULT')
 
 _ZONES = {
@@ -92,7 +93,7 @@ def _process_zone(key, item):
         fileMap        = os.path.join(_STATIONS, 'GLOBAL_code_map.txt'),
         fileBulletinIn = os.path.join(_OBS,     f'GLOBAL_{key}.obs'),
         fileStations   = os.path.join(_STATIONS, f'GTSRCE_{key}.txt'),
-        fileRunSave    = os.path.join(_RUN,      f'run_{key}.in'),
+        fileRunSave    = os.path.join(_RUN_NLL,  f'run_{key}_DELAYS.in'),
         latMin_event   = item[0][0],
         latMax_event   = item[1][0],
         lonMin_event   = item[0][1],
@@ -106,7 +107,7 @@ def _process_zone(key, item):
     with _logger_lock:
         NLL_run.generate_regional_runfiles.generate_run(params_run)
 
-    run_zone(os.path.join(_RUN, f'run_{key}.in'), zone_label=zone_label)
+    run_zone(os.path.join(_RUN_NLL, f'run_{key}_DELAYS.in'), zone_label=zone_label)
 
     # Free disk space before the second pass
     _clean_hdr(key)
@@ -114,15 +115,15 @@ def _process_zone(key, item):
     # --- Corrections (second) pass ---
     params_ssst_W = SecondRunParams(
         locFolderName = os.path.join(_LOC, f'GLOBAL_{key}'),
-        fileRunName   = os.path.join(_RUN, f'run_{key}.in'),
-        fileRunSave   = os.path.join(_RUN, f'run_{key}_PR.in'),
+        fileRunName   = os.path.join(_RUN_NLL, f'run_{key}_DELAYS.in'),
+        fileRunSave   = os.path.join(_RUN_NLL, f'run_{key}_NLL.in'),
         minPhases     = 100,  # minimal number of phases for the delay to be used
     )
 
     with _logger_lock:
         append_station_delays(params_ssst_W)
 
-    run_zone(os.path.join(_RUN, f'run_{key}_PR.in'), corrections_pass=True, zone_label=zone_label)
+    run_zone(os.path.join(_RUN_NLL, f'run_{key}_NLL.in'), corrections_pass=True, zone_label=zone_label)
 
     # Free disk space right after this zone's final run
     _clean_hdr(key)
@@ -150,23 +151,23 @@ def run_pipeline():
 
     # Export the locdelays (needs all zones' corrected run files)
     export_locdelay_info(
-        run_dir      = _RUN,
+        run_dir      = _RUN_NLL,
         codemap_path = os.path.join(_STATIONS, 'GLOBAL_code_map.txt'),
-        output_path  = os.path.join(_RUN, 'locdelays', 'locdelay_summary.txt'),
+        output_path  = os.path.join(_RUN_NLL, 'locdelays', 'locdelay_summary.txt'),
     )
 
-    # Merge all zone CSV outputs into RESULT/FINAL.csv
+    # Merge all zone CSV outputs into RESULT/NLL_result.csv
     csv_files = [
         os.path.join(_LOC, f'GLOBAL_{key}', f'GLOBAL_{key}.obs.sum.grid0.loc.csv')
         for key in _ZONES
     ]
-    merge_bulletins(csv_files, os.path.join(_RESULT, 'FINAL.csv'))
+    merge_bulletins(csv_files, os.path.join(_RESULT, 'NLL_result.csv'))
 
-    # Rematch to obs/GLOBAL.obs via publicId and write obs/FINAL.obs
+    # Rematch to obs/GLOBAL.obs via publicId and write obs/NLL_result.obs
     save_bulletin(MatchCatalogsParams(
         file_obs   = os.path.join(_OBS, 'GLOBAL.obs'),
-        file_final = os.path.join(_RESULT, 'FINAL.csv'),
-        save_file  = os.path.join(_OBS, 'FINAL.obs'),
+        file_final = os.path.join(_RESULT, 'NLL_result.csv'),
+        save_file  = os.path.join(_OBS, 'NLL_result.obs'),
     ))
 
 

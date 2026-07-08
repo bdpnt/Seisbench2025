@@ -4,15 +4,15 @@ run_zone.py
 Run the full NonLinLoc pipeline (Vel2Grid → Grid2Time → NLLoc) for a single
 zone given a .in run file.
 
-For a first-pass run file (run_<N>.in) all three programs are executed in
-sequence.  For a corrections-pass file (run_<N>_PR.in) only NLLoc is run
+For a first-pass run file (run_<N>_DELAYS.in) all three programs are executed
+in sequence.  For a corrections-pass file (run_<N>_NLL.in) only NLLoc is run
 because the velocity and travel-time grids were already computed in the first
 pass.
 
 Usage
 -----
-    python NLL_run/run_zone.py run/run_1.in
-    python NLL_run/run_zone.py run/run_1_PR.in
+    python NLL_run/run_zone.py run/nll/run_1_DELAYS.in
+    python NLL_run/run_zone.py run/nll/run_1_NLL.in
 """
 
 import argparse

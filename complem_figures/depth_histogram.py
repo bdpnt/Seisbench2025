@@ -9,8 +9,8 @@ horizontal bars. Depths recorded as 'None' in the bulletin are ignored.
 Usage
 -----
     python complem_figures/depth_histogram.py \\
-        --bulletin  obs/FINAL.obs \\
-        --output    complem_figures/depth_histogram/FINAL.png
+        --bulletin  obs/NLL_result.obs \\
+        --output    complem_figures/depth_histogram/NLL_result.png
 """
 
 import argparse

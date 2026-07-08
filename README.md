@@ -34,7 +34,7 @@ Five seismic catalogs are integrated:
 | LDG | French seismological bulletin | Text | 2020–2025 |
 | OMP | Pyrenean Observatory | Text / .mag | 1978–2019 |
 
-All catalogs are converted to a common `.obs` format, magnitudes are harmonized to a common **ML (LDG)** scale, and events are merged into a single `GLOBAL.obs` bulletin. Earthquakes are then relocated using **NonLinLoc** across 6 geographic sub-zones, and final results are compiled into `RESULT/FINAL.csv` and `obs/FINAL.obs`.
+All catalogs are converted to a common `.obs` format, magnitudes are harmonized to a common **ML (LDG)** scale, and events are merged into a single `GLOBAL.obs` bulletin. Earthquakes are then relocated using **NonLinLoc** across 6 geographic sub-zones, and final results are compiled into `RESULT/NLL_result.csv` and `obs/NLL_result.obs`.
 
 ---
 
@@ -47,7 +47,7 @@ Shallow_Depth_DL_Catalog/
 ├── build_global_inventory.py     # Entry point: fuse all station inventories
 ├── build_global_bulletin.py      # Entry point: harmonize & merge catalogs
 ├── run_NLL.py                # Entry point: run NLL relocation (6 zones) and finalize the catalog
-├── add_temp_picks.py             # Entry point: augment FINAL.obs with external picks
+├── add_temp_picks.py             # Entry point: augment NLL_result.obs with external picks
 ├── generate_complem_figures.py   # Entry point: matplotlib figures (seisbench_env)
 ├── generate_complem_maps.py      # Entry point: PyGMT event maps (pygmt_env)
 ├── run_gamma_detection.py        # Entry point: standalone PhaseNet/GaMMA detection
@@ -114,11 +114,12 @@ Shallow_Depth_DL_Catalog/
 ├── org_catalogs/              # Raw input catalogs (not modified)
 ├── obs/                      # .obs bulletin files (source + merged)
 ├── stations/                 # Station inventories (XML + unified)
-├── run/                      # NLL run configuration files (.in)
-├── loc/                      # NLL output files per zone
+├── run/                      # NLL working directory
+│   ├── nll/                  # NLL run configuration files (.in) + locdelays/
+│   ├── nll_model/            # Velocity model grids (NLL)
+│   ├── nll_time/             # Travel time grids (NLL)
+│   └── nll_loc/              # NLL output files per zone
 ├── RESULT/                   # Merged relocation results (.csv)
-├── model/                    # Velocity model grids (NLL)
-├── time/                     # Travel time grids (NLL)
 └── mag_model/                # Saved magnitude conversion models
 ```
 
@@ -207,19 +208,19 @@ For each zone:
 1. **First pass.** Calls `NLL_run/generate_regional_runfiles.py` → `generate_run()`:
    - Generates `obs/GLOBAL_<N>.obs` (regional subset, with far picks removed — done once globally before any zone starts)
    - Generates `stations/GTSRCE_<N>.txt` (station list)
-   - Generates `run/run_<N>.in` (NLL configuration file)
+   - Generates `run/nll/run_<N>_DELAYS.in` (NLL configuration file)
 
    NLL is then launched automatically via `NLL_run/run_zone.py`, which runs Vel2Grid → Grid2Time → NLLoc in sequence. Before each run it checks free disk space on the output filesystem, and after each step it scans the subprocess output for fatal disk/memory errors (which NLL programs can otherwise report as a silent exit code 0), aborting the pipeline if one is detected. Console log lines are prefixed with the zone label (e.g. `[zone 3]`) since multiple zones may log concurrently.
-   - Cleans up `.hdr` files left by NLL in the `loc/GLOBAL_<N>/` folder.
+   - Cleans up `.hdr` files left by NLL in the `run/nll_loc/GLOBAL_<N>/` folder.
 
-2. **Second (corrections) pass.** Calls `NLL_run/append_station_delays.py` → `append_station_delays()` to read per-station average residuals (LOCDELAY entries) from the first pass and append qualifying station delay corrections to a second-pass run file `run/run_<N>_PR.in`. NLLoc is then launched automatically via `NLL_run/run_zone.py` with `--corrections-pass` (Vel2Grid and Grid2Time are skipped since the grids are already built).
-   - Cleans up `.hdr` files left by NLL in the `loc/GLOBAL_<N>/` folder again, right after this zone's second pass — since `.hdr` files are large, this keeps at most a few zones' worth on disk at a time instead of waiting for all 6 zones to finish.
+2. **Second (corrections) pass.** Calls `NLL_run/append_station_delays.py` → `append_station_delays()` to read per-station average residuals (LOCDELAY entries) from the first pass and append qualifying station delay corrections to a second-pass run file `run/nll/run_<N>_NLL.in`. NLLoc is then launched automatically via `NLL_run/run_zone.py` with `--corrections-pass` (Vel2Grid and Grid2Time are skipped since the grids are already built).
+   - Cleans up `.hdr` files left by NLL in the `run/nll_loc/GLOBAL_<N>/` folder again, right after this zone's second pass — since `.hdr` files are large, this keeps at most a few zones' worth on disk at a time instead of waiting for all 6 zones to finish.
 
 `generate_run()` and `append_station_delays()` reconfigure a shared logger on every call, which isn't safe if two zones call them at the same instant, so `run_NLL.py` serializes just those two (fast, non-NLL) calls behind a lock; the slow NLL subprocess runs themselves are not serialized and run fully in parallel across zones.
 
 #### Diagnostic — `NLL_run/export_locdelay_info.py`
 
-Called automatically by `run_NLL.py` once all zones have completed both passes. Reads the LOCDELAY station corrections from all second-pass run files and exports them to `run/locdelays/locdelay_summary.txt`, keeping only entries with |residual| > 0.3 s. Useful for identifying stations with systematically biased travel-time residuals.
+Called automatically by `run_NLL.py` once all zones have completed both passes. Reads the LOCDELAY station corrections from all second-pass run files and exports them to `run/nll/locdelays/locdelay_summary.txt`, keeping only entries with |residual| > 0.3 s. Useful for identifying stations with systematically biased travel-time residuals.
 
 ---
 
@@ -228,9 +229,9 @@ Called automatically by `run_NLL.py` once all zones have completed both passes. 
 **Script:** `run_NLL.py` (runs after all 6 zones complete)
 **Modules:** `NLL_run/merge_regional_results.py`, `NLL_run/match_pre_post_relocation.py`
 
-1. Reads the 6 per-zone NLL CSV summaries (`loc/GLOBAL_<N>/GLOBAL_<N>.obs.sum.grid0.loc.csv`), deduplicates events that appear in multiple overlapping zones (kept: lowest `pdfVolume`), and writes → `RESULT/FINAL.csv`. True horizontal/vertical errors (`true_erh` / `true_erz`) are derived from the 3-D confidence ellipsoid, rescaled to DOF-appropriate 68% confidence factors: `true_erz` is a 1-DOF marginal standard deviation, `true_erh` is a 2-DOF horizontal error ellipse reduced to the geometric mean of its semi-axes.
+1. Reads the 6 per-zone NLL CSV summaries (`run/nll_loc/GLOBAL_<N>/GLOBAL_<N>.obs.sum.grid0.loc.csv`), deduplicates events that appear in multiple overlapping zones (kept: lowest `pdfVolume`), and writes → `RESULT/NLL_result.csv`. True horizontal/vertical errors (`true_erh` / `true_erz`) are derived from the 3-D confidence ellipsoid, rescaled to DOF-appropriate 68% confidence factors: `true_erz` is a 1-DOF marginal standard deviation, `true_erh` is a 2-DOF horizontal error ellipse reduced to the geometric mean of its semi-axes.
 2. Rematches relocated events back to `obs/GLOBAL.obs` via the `publicId` field to recover metadata absent from NLL output (magnitude, pick details, etc.).
-3. Saves matched events → `obs/FINAL.obs`
+3. Saves matched events → `obs/NLL_result.obs`
 
 ---
 
@@ -261,7 +262,7 @@ Map modules apply a quality filter (erh ≤ 3 km, erv ≤ 3 km, gap ≤ 300°, r
 
 ## External Pick Ingestion (temp_picks)
 
-Scripts in `temp_picks/` implement a self-contained sub-pipeline for ingesting picks from external sources into `obs/FINAL.obs`, producing `obs/FINAL_augmented.obs`. The root-level script **`add_temp_picks.py`** orchestrates steps 1–6 automatically.
+Scripts in `temp_picks/` implement a self-contained sub-pipeline for ingesting picks from external sources into `obs/NLL_result.obs`, producing `obs/NLL_result_augmented.obs`. The root-level script **`add_temp_picks.py`** orchestrates steps 1–6 automatically.
 
 | Step | Script | Description |
 |------|--------|-------------|
@@ -270,7 +271,7 @@ Scripts in `temp_picks/` implement a self-contained sub-pipeline for ingesting p
 | 3 | `merge_omp_picks.py` | Merges all yearly OMP/PhaseNet CSV files from `picks_OMP/` subdirectories → `pick_files/merged_omp.csv`. Station `SMC` and year `2026` are excluded by default; configurable via `--drop-years`. Rows with a PhaseNet `phase_score` below 0.5 (default) are dropped. |
 | 4 | `merge_pyrenees_picks.py` | Concatenates RaspberryShake/PhaseNet `.txt` files from `picks_station_pyrenees/` and `picks_station_pyrenees2/` → `pick_files/merged_pyrenees.txt` and `pick_files/merged_pyrenees2.txt`. Lines with a `prob=` value below 0.5 (default) are dropped. |
 | 5 | `convert_picks.py` | Converts external pick files to the project's `.obs` pick line format; maps short station names to internal codes via `GLOBAL_code_map.txt`. Supports formats `TEMP_OBS`, `TEMP_RSB`, `TEMP_OMP`, and `TEMP_OTH`; new formats are added as handler functions. Unresolved stations are reported as an end-of-run summary. |
-| 6 | `match_picks.py` | For each converted pick, finds candidate events within a 60 s origin-time window, filters by theoretical travel-time residual (±0.1 s P, ±0.3 s S, plus ±2.5 s t0-error margin), and appends matched picks to the bulletin. Chains against `obs/FINAL.obs` → `obs/FINAL_augmented.obs`. Runs `sort_picks` automatically on the output. |
+| 6 | `match_picks.py` | For each converted pick, finds candidate events within a 60 s origin-time window, filters by theoretical travel-time residual (±0.1 s P, ±0.3 s S, plus ±2.5 s t0-error margin), and appends matched picks to the bulletin. Chains against `obs/NLL_result.obs` → `obs/NLL_result_augmented.obs`. Runs `sort_picks` automatically on the output. |
 | 7 | `sort_picks.py` | Sorts all pick lines within each event block by ascending arrival time. Also usable as a standalone script on any bulletin. |
 
 ---

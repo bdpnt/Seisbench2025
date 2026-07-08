@@ -10,9 +10,9 @@ appends the qualifying station delays to a copy of the original run file.
 Usage
 -----
     python NLL_run/append_station_delays.py \\
-        --loc-folder  loc/GLOBAL_1 \\
-        --run-file    run/run_1.in \\
-        --run-save    run/run_1_PR.in \\
+        --loc-folder  run/nll_loc/GLOBAL_1 \\
+        --run-file    run/nll/run_1_DELAYS.in \\
+        --run-save    run/nll/run_1_NLL.in \\
         --min-phases  100
 """
 

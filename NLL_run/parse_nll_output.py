@@ -15,7 +15,7 @@ line in the result bulletin.
 Usage
 -----
     python NLL_run/parse_nll_output.py \\
-        --loc-folder loc/GLOBAL_1 \\
+        --loc-folder run/nll_loc/GLOBAL_1 \\
         --obs-file   GLOBAL_1.obs \\
         --output     RESULT/GLOBAL_1.txt
 """
@@ -209,7 +209,7 @@ def main():
         description='Parse NLL hypo_71 output into a plain-text result bulletin.'
     )
     parser.add_argument('--loc-folder', required=True,
-                        help='NLL loc output folder (e.g. loc/GLOBAL_1)')
+                        help='NLL loc output folder (e.g. run/nll_loc/GLOBAL_1)')
     parser.add_argument('--obs-file',   required=True,
                         help='Base .obs filename, no path (e.g. GLOBAL_1.obs)')
     parser.add_argument('--output',     required=True,

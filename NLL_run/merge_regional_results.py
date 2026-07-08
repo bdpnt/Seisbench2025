@@ -12,9 +12,9 @@ Zones can be supplied in any order; no adjacency constraint is needed.
 Usage
 -----
     python NLL_run/merge_regional_results.py \\
-        loc/GLOBAL_1/GLOBAL_1.obs.sum.grid0.loc.csv \\
-        loc/GLOBAL_2/GLOBAL_2.obs.sum.grid0.loc.csv ... \\
-        -o RESULT/FINAL.csv
+        run/nll_loc/GLOBAL_1/GLOBAL_1.obs.sum.grid0.loc.csv \\
+        run/nll_loc/GLOBAL_2/GLOBAL_2.obs.sum.grid0.loc.csv ... \\
+        -o RESULT/NLL_result.csv
 """
 
 import argparse
@@ -201,8 +201,8 @@ def main():
     )
     parser.add_argument("csv_files", nargs="+", metavar="FILE",
                         help="NLL CSV summary files to merge (any order).")
-    parser.add_argument("-o", "--output", default="RESULT/FINAL.csv",
-                        help="Output CSV file (default: RESULT/FINAL.csv).")
+    parser.add_argument("-o", "--output", default="RESULT/NLL_result.csv",
+                        help="Output CSV file (default: RESULT/NLL_result.csv).")
     parser.add_argument("--log-dir", default=None,
                         help="Log directory (default: NLL_run/console_output/).")
     args = parser.parse_args()

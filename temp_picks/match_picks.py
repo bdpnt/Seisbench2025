@@ -18,10 +18,10 @@ Usage
 -----
     python temp_picks/match_picks.py \\
         --picks      temp_picks/pick_files/viehla_final_converted.obs \\
-        --bulletin   obs/FINAL.obs \\
+        --bulletin   obs/NLL_result.obs \\
         --inventory  stations/GLOBAL_inventory.xml \\
         --tables     temp_picks/tables_Pyr.csv \\
-        --output     obs/FINAL_augmented.obs
+        --output     obs/NLL_result_augmented.obs
 
 Adding support for a new input pick format
 ------------------------------------------

@@ -3,19 +3,19 @@ match_pre_post_relocation.py
 ============================
 Match pre-NLL .obs events to their NonLinLoc-relocated counterparts via publicId.
 
-Reads obs/GLOBAL.obs and the merged NLL result CSV (RESULT/FINAL.csv).
+Reads obs/GLOBAL.obs and the merged NLL result CSV (RESULT/NLL_result.csv).
 For each event in the CSV, the corresponding .obs event is found by its
 publicId, its header is updated with NLL location and uncertainty parameters,
 and its magnitude and picks are preserved unchanged.
 
-Events with no NLL solution (publicId absent from FINAL.csv) are silently dropped.
+Events with no NLL solution (publicId absent from NLL_result.csv) are silently dropped.
 
 Usage
 -----
     python NLL_run/match_pre_post_relocation.py \\
         --obs    obs/GLOBAL.obs \\
-        --final  RESULT/FINAL.csv \\
-        --output obs/FINAL.obs
+        --final  RESULT/NLL_result.csv \\
+        --output obs/NLL_result.obs
 """
 
 import argparse
@@ -44,7 +44,7 @@ logger = logging.getLogger('match_pre_post_relocation')
 @dataclass
 class MatchCatalogsParams:
     file_obs:   str
-    file_final: str   # path to RESULT/FINAL.csv
+    file_final: str   # path to RESULT/NLL_result.csv
     save_file:  str
 
 
@@ -206,7 +206,7 @@ def save_bulletin(parameters, log_dir=None):
 
     n_no_nll = len(public_id_index) - n_matched
     logger.info(f"Matched                       : {n_matched}")
-    logger.info(f"Obs events without NLL solution (not in FINAL.obs): {n_no_nll}")
+    logger.info(f"Obs events without NLL solution (not in NLL_result.obs): {n_no_nll}")
     logger.info(f"NLL rows with no matching obs event (skipped)      : {n_orphan_csv}")
 
     return {
@@ -225,7 +225,7 @@ def main():
         description='Update pre-NLL .obs headers with NLL-relocated parameters via publicId.'
     )
     parser.add_argument('--obs',     required=True, help='Pre-relocation GLOBAL.obs bulletin')
-    parser.add_argument('--final',   required=True, help='Merged NLL result CSV (RESULT/FINAL.csv)')
+    parser.add_argument('--final',   required=True, help='Merged NLL result CSV (RESULT/NLL_result.csv)')
     parser.add_argument('--output',  required=True, help='Output updated bulletin file')
     parser.add_argument('--log-dir', default=None,
                         help='Log directory (default: NLL_run/console_output/)')
