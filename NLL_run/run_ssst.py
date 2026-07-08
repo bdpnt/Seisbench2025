@@ -184,7 +184,10 @@ def _run_checked(params, cmd, label, log_path):
     """Run one foreground command with output to log_path; fail-fast."""
     _print(params, f'Starting {label}')
     with open(log_path, 'w') as log_file:
-        proc = subprocess.Popen(cmd, cwd=_PROJECT_ROOT,
+        # cwd=tmpDir (not _PROJECT_ROOT): all paths in the control files are
+        # absolute, and NLL programs drop fixed-name byproducts (e.g.
+        # Grid2GMT_SSST.cpt) into the cwd — keep those contained in scratch
+        proc = subprocess.Popen(cmd, cwd=params.tmpDir,
                                 stdout=log_file, stderr=subprocess.STDOUT)
     _wait_all(params, [(proc, log_path)], label)
 
@@ -313,7 +316,7 @@ def _run_nlloc_parallel(params, control_file_tmp, out_root, loc_obs, time_root,
         log_path = f'{control_file_idx}.log'
         log_file = open(log_path, 'w')
         proc = subprocess.Popen([_exe('NLLoc'), control_file_idx],
-                                cwd=_PROJECT_ROOT,
+                                cwd=params.tmpDir,
                                 stdout=log_file, stderr=subprocess.STDOUT)
         procs.append((proc, log_path, log_file))
 
@@ -388,7 +391,7 @@ def _run_loc2ssst_parallel(params, ssst_control_file_tmp, iteration):
         log_path = f'{control_file_idx}.log'
         log_file = open(log_path, 'w')
         proc = subprocess.Popen([_exe('Loc2ssst'), control_file_idx],
-                                cwd=_PROJECT_ROOT,
+                                cwd=params.tmpDir,
                                 stdout=log_file, stderr=subprocess.STDOUT)
         procs.append((proc, log_path, log_file))
 
