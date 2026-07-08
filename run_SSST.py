@@ -20,11 +20,13 @@ LOC2SSST_CORES parallel processes):
   3. Builds the initial P and S travel-time grids (skipped when present).
   4. Runs the iterative NLLoc + Loc2ssst workflow (NLL_run/run_ssst.py):
      len(CHAR_DISTS) SSST iterations + one final NLLoc-only relocation.
-  5. Deletes the zone's travel-time grids, the big disk consumers: after the
-     final relocation, the whole chain (run/ssst_time/Pyrenees_<N>/ + every
-     ssst_corr<i>/ grid set); after a partial campaign, everything except the
-     last ssst_corr (kept for the resume, its symlinks materialized) and the
-     initial grids.
+  5. Deletes the zone's travel-time grids, the big disk consumers: every
+     ssst_corr<i>/ grid set except the last one, which is kept with its
+     symlinks materialized (resume input on a partial campaign, reusable
+     final SSST model on a finished one). The initial grids
+     (run/ssst_time/Pyrenees_<N>/) go too once the final relocation ran;
+     on a partial campaign they are kept so build_grids() does not
+     pointlessly rebuild them on resume.
 
 After all zones complete (all final CSVs present):
   6. Merges the zone CSVs into RESULT/SSST_result.csv (zone-overlap
@@ -101,41 +103,37 @@ def _final_csv(key):
 def _cleanup_zone_grids(key, finished):
     """Delete the zone's travel-time grids once they are no longer used.
 
-    finished (the final NLLoc-only relocation ran): the whole grid chain is
-    dead weight — remove every ssst_corr<i> grid set and the initial grids.
+    The LAST ssst_corr set is always kept — it is the resume input of the
+    next iteration on a partial campaign, and the reusable final SSST model
+    (e.g. to relocate extra events) on a finished one. Its symlinks
+    (stations without a correction, resolving into the earlier grid sets)
+    are first replaced by real copies, then the earlier ssst_corr sets are
+    removed.
 
-    not finished (partial campaign): the LAST ssst_corr is the resume input
-    of the next iteration, so it is kept and its symlinks (stations without
-    a correction, resolving into the earlier grid sets) are first replaced
-    by real copies; the earlier ssst_corr sets are then removed. The initial
-    grids are also kept: build_grids() runs again on resume and would
-    otherwise trigger a full, pointless rebuild.
+    The initial grids (run/ssst_time/Pyrenees_<key>/) are deleted only when
+    the final relocation ran: on a partial campaign build_grids() runs
+    again on resume and would otherwise trigger a full, pointless rebuild.
     """
     corr_dirs = sorted(
         glob.glob(os.path.join(_SSST_LOC, RUN_NAME, f'Pyrenees_{key}_SSST',
                                'ssst_corr*')),
         key=lambda path: int(path.rsplit('ssst_corr', 1)[1]))
 
-    if finished:
-        for corr_dir in corr_dirs:
+    if corr_dirs:
+        kept = corr_dirs[-1]
+        for root, _, files in os.walk(kept):
+            for name in files:
+                path = os.path.join(root, name)
+                if os.path.islink(path):
+                    target = os.path.realpath(path)
+                    os.remove(path)
+                    shutil.copy2(target, path)
+        for corr_dir in corr_dirs[:-1]:
             shutil.rmtree(corr_dir)
+
+    if finished:
         shutil.rmtree(os.path.join(_SSST_TIME, f'Pyrenees_{key}'),
                       ignore_errors=True)
-        return
-
-    if not corr_dirs:
-        return
-
-    kept = corr_dirs[-1]
-    for root, _, files in os.walk(kept):
-        for name in files:
-            path = os.path.join(root, name)
-            if os.path.islink(path):
-                target = os.path.realpath(path)
-                os.remove(path)
-                shutil.copy2(target, path)
-    for corr_dir in corr_dirs[:-1]:
-        shutil.rmtree(corr_dir)
 
 
 def _process_zone(key, item, iteration_start, iteration_stop, rebuild_grids):
