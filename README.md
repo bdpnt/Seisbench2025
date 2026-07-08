@@ -34,7 +34,7 @@ Five seismic catalogs are integrated:
 | LDG | French seismological bulletin | Text | 2020–2025 |
 | OMP | Pyrenean Observatory | Text / .mag | 1978–2019 |
 
-All catalogs are converted to a common `.obs` format, magnitudes are harmonized to a common **ML (LDG)** scale, and events are merged into a single `GLOBAL.obs` bulletin. Earthquakes are then relocated using **NonLinLoc** across 6 geographic sub-zones, and final results are compiled into `RESULT/NLL_result.csv` and `obs/NLL_result.obs`.
+All catalogs are converted to a common `.obs` format, magnitudes are harmonized to a common **ML (LDG)** scale, and events are merged into a single `GLOBAL.obs` bulletin. Earthquakes are then relocated using **NonLinLoc** across 6 geographic sub-zones, and final results are compiled into `RESULT/NLL_result.csv` and `obs/NLL_result.obs`. After external picks are ingested (`obs/NLL_result_augmented.obs`), a final **SSST** relocation stage (`run_SSST.py`, iterative NLLoc + Loc2ssst) produces `RESULT/SSST_result.csv` and `obs/SSST_result.obs`.
 
 ---
 
@@ -48,6 +48,7 @@ Shallow_Depth_DL_Catalog/
 ├── build_global_bulletin.py      # Entry point: harmonize & merge catalogs
 ├── run_NLL.py                # Entry point: run NLL relocation (6 zones) and finalize the catalog
 ├── add_temp_picks.py             # Entry point: augment NLL_result.obs with external picks
+├── run_SSST.py               # Entry point: SSST relocation of the augmented catalog
 ├── generate_complem_figures.py   # Entry point: matplotlib figures (seisbench_env)
 ├── generate_complem_maps.py      # Entry point: PyGMT event maps (pygmt_env)
 ├── run_gamma_detection.py        # Entry point: standalone PhaseNet/GaMMA detection
@@ -83,7 +84,10 @@ Shallow_Depth_DL_Catalog/
 │   ├── parse_nll_output.py          (deprecated)
 │   ├── filter_distant_picks.py
 │   ├── match_pre_post_relocation.py
-│   └── merge_regional_results.py
+│   ├── merge_regional_results.py
+│   ├── generate_ssst_runfiles.py    # SSST: derive control files from the NLL run files
+│   ├── reformate_obs.py             # SSST: split a bulletin into per-event .nlloc_obs
+│   └── run_ssst.py                  # SSST: iterative NLLoc + Loc2ssst workflow (one zone)
 │
 ├── complem_figures/          # Visualization & statistical analysis
 │   ├── event_maps.py
@@ -118,10 +122,15 @@ Shallow_Depth_DL_Catalog/
 │   ├── nll/                  # NLL run configuration files (.in) + locdelays/
 │   ├── nll_model/            # Velocity model grids (NLL)
 │   ├── nll_time/             # Travel time grids (NLL)
-│   └── nll_loc/              # NLL output files per zone
+│   ├── nll_loc/              # NLL output files per zone
+│   ├── ssst/                 # SSST control files (.in), per-zone tmp/ and journals
+│   ├── ssst_model/           # Velocity model grids (SSST, P+S)
+│   ├── ssst_time/            # Travel time grids (SSST, P+S)
+│   └── ssst_loc/             # SSST output per campaign (iterations + final locations)
 ├── RESULT/                   # Merged relocation results (.csv)
 └── mag_model/                # Saved magnitude conversion models
 ```
+(`obs/nlloc_obs/GLOBAL_<N>/` holds the per-event `.nlloc_obs` files of the SSST stage.)
 
 ---
 
@@ -273,6 +282,26 @@ Scripts in `temp_picks/` implement a self-contained sub-pipeline for ingesting p
 | 5 | `convert_picks.py` | Converts external pick files to the project's `.obs` pick line format; maps short station names to internal codes via `GLOBAL_code_map.txt`. Supports formats `TEMP_OBS`, `TEMP_RSB`, `TEMP_OMP`, and `TEMP_OTH`; new formats are added as handler functions. Unresolved stations are reported as an end-of-run summary. |
 | 6 | `match_picks.py` | For each converted pick, finds candidate events within a 60 s origin-time window, filters by theoretical travel-time residual (±0.1 s P, ±0.3 s S, plus ±2.5 s t0-error margin), and appends matched picks to the bulletin. Chains against `obs/NLL_result.obs` → `obs/NLL_result_augmented.obs`. Runs `sort_picks` automatically on the output. |
 | 7 | `sort_picks.py` | Sorts all pick lines within each event block by ascending arrival time. Also usable as a standalone script on any bulletin. |
+
+---
+
+## SSST Relocation (run_SSST.py)
+
+Final relocation stage, run **after** `run_NLL.py` and `add_temp_picks.py`. It relocates the augmented catalog (`obs/NLL_result_augmented.obs`) with **Source-Specific Station Terms** (NonLinLoc's `Loc2ssst`): instead of the single static `LOCDELAY` correction per station of the NLL stage, each station/phase gets a 3-D correction grid, smoothed with a characteristic distance that shrinks over iterations (`CHAR_DISTS`, default `[9999, 50, 15, 5, 1]` km — the first, huge value is equivalent to static terms). Each iteration relocates the catalog with the previous iteration's corrected travel-time grids, then recomputes the corrections from the new residuals; a final NLLoc-only pass relocates the catalog with the last grids (saving oct-tree and fmamp output).
+
+Zones are processed **strictly sequentially** (Loc2ssst holds two full correction-grid buffers in RAM per instance), but everything inside a zone runs in parallel: the catalog is split round-robin across `NLLOC_CORES` concurrent NLLoc processes, and the station list across `LOC2SSST_CORES` concurrent Loc2ssst instances (a per-station split is exact — each station's correction depends only on its own residuals).
+
+Per zone:
+
+1. **`NLL_run/generate_ssst_runfiles.py`** — cuts the zone bulletin `obs/GLOBAL_<N>_SSST.obs` from the augmented catalog, writes `stations/GTSRCE_SSST_<N>.txt` (only the stations picked in the zone), and derives both control files from the NLL-stage `run/nll/run_<N>_DELAYS.in` (TRANS, grids, and localization parameters are reused verbatim, so the zone information entered in `run_NLL.py` stays the single source of truth): `run/ssst/run_<N>_NLL.in` (NLLoc) and `run/ssst/run_<N>_SSST.in` (Loc2ssst, with LSGRID/LSOUTGRID derived from the LOCGRID extent at a coarse 1 km spacing).
+2. **`NLL_run/reformate_obs.py`** — splits the zone bulletin into one `.nlloc_obs` file per event in `obs/nlloc_obs/GLOBAL_<N>/` (named and headed by `publicId`, which NLLoc propagates into its output — the rematch key).
+3. **`NLL_run/run_ssst.py`** — builds the initial **P and S** travel-time grids (`VpVs = -9.99`: real S grids, so S station terms are gridded independently; skipped when already present), then runs the iteration loop. Fails fast on any non-zero NLLoc/Loc2ssst exit, on fatal disk/memory errors in the subprocess logs, and on empty obs/grid globs. Supports partial campaigns and resuming (`--iteration-start` / `--iteration-stop`).
+
+Once all zones are complete, the final-iteration CSVs feed the same chain as the NLL stage: `merge_regional_results.merge_bulletins` → `RESULT/SSST_result.csv` (zone-overlap duplicates resolved by lowest `pdfVolume`), then `match_pre_post_relocation.save_bulletin` rematching against `obs/NLL_result_augmented.obs` → `obs/SSST_result.obs`.
+
+The campaign configuration (`RUN_NAME`, `CHAR_DISTS`, `VPVS`, core counts, `LSPHSTAT` — whose `NRdgsMin` doubles as the NLLoc min-phases threshold, read back from the generated Loc2ssst control so the two selections cannot diverge) lives at the top of `run_SSST.py`. Intermediate iteration outputs are deletable after validation (the run journal in `run/ssst/` ends with the ready-to-paste commands); the chunk directories of each iteration are deleted automatically after each merge.
+
+Reference document: `SSST_INTEGRATION.md` (porting notes from the validated CODES_SSST workflow).
 
 ---
 

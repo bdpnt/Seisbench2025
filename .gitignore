@@ -12,6 +12,7 @@ RESULT/
 run/
 stations/
 time/
+Grid2GMT_SSST.cpt
 *.DS_Store
 *.xlsx
 *.dat

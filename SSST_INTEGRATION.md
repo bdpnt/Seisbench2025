@@ -1,5 +1,12 @@
 # SSST_INTEGRATION.md — Porting the NLL-SSST workflow into Shallow_Depth_DL_Catalog
 
+> **STATUS: IMPLEMENTED (2026-07-08).** The port described here now lives in
+> `run_SSST.py` (orchestrator) + `NLL_run/generate_ssst_runfiles.py`,
+> `NLL_run/reformate_obs.py`, `NLL_run/run_ssst.py`. The SSST stage runs
+> AFTER `run_NLL.py` and `add_temp_picks.py`, on the augmented catalog, and
+> writes `RESULT/SSST_result.csv` / `obs/SSST_result.obs`. This document is
+> kept as the reference for the design decisions and pitfalls below.
+
 Reference document for building a new project module from the two scripts
 validated in `/Users/bdupont/Desktop/Codes/CODES_SSST`:
 
