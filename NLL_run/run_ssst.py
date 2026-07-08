@@ -52,7 +52,7 @@ _PROJECT_ROOT = os.path.dirname(_MODULE_DIR)
 # NLL binary directory (same as run_zone.py)
 _NLL_BIN = "/Users/bdupont/Desktop/Codes/NonLinLoc/src/bin"
 
-_MIN_FREE_GB = 5.0
+_MIN_FREE_GB = 50.0
 
 _FATAL_PATTERNS = (
     "no space left on device",
