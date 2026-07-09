@@ -184,7 +184,7 @@ def _process_zone(key, item, iteration_start, iteration_stop, rebuild_grids):
         initTimeRoot = os.path.join(_SSST_TIME, f'Pyrenees_{key}', f'Pyrenees_{key}'),
         outRoot      = _SSST_LOC,
         tmpDir       = os.path.join(_RUN_SSST, f'tmp_{key}'),
-        logFile      = os.path.join(_RUN_SSST, f'run_ssst_{key}.log'),
+        logFile      = os.path.join(_RUN_SSST, 'log', f'run_ssst_{key}.log'),
         ssstListFile = os.path.join(_RUN_SSST, 'ssst.list'),
         charDists    = CHAR_DISTS,
         vpvs         = VPVS,

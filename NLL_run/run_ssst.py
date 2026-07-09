@@ -514,6 +514,7 @@ def run_ssst(params, iteration_start=0, iteration_stop=None):
     shutil.copy2(params.fileRunNLL, out_run_dir)
     shutil.copy2(params.fileRunSSST, out_run_dir)
     os.makedirs(params.tmpDir, exist_ok=True)
+    os.makedirs(os.path.dirname(params.logFile), exist_ok=True)
 
     # --- run journal: fresh on a full run, appended on a resume
     if iteration_start == 0:
