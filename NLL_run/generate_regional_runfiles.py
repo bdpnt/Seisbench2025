@@ -327,7 +327,7 @@ def generate_run(parameters, log_dir=None):
     lines.append('# Localization method\n')
     lines.append(f'LOCGRID {dx} {dy} {dz} 0.0 0.0 -3  0.05 0.05 0.05 PROB_DENSITY SAVE\n')
     lines.append('LOCSEARCH  OCT 50 50 5 0.001 50000 500 1 0\n')
-    lines.append('LOCMETH EDT_OT_WT 9999 4 -1 -1 1.72 6 -1.0 0\n')
+    lines.append('LOCMETH EDT_OT_WT 9999 4 -1 -1 1.72 145 -1.0 0\n')
     lines.append('\n')
 
     lines.append('# Stations coordinates\n')

@@ -78,8 +78,8 @@ RUN_NAME   = 'ssst_run1'            # identifier of this SSST campaign
 CHAR_DISTS = [9999, 50, 15, 5, 1]   # smoothing schedule (km); first huge = static
 VPVS       = -9.99                  # -9.99 = use the real S travel-time grids
 
-NLLOC_CORES    = 10                 # parallel NLLoc chunks per iteration
-LOC2SSST_CORES = 10                 # parallel Loc2ssst instances (~2 LSGRID buffers each)
+NLLOC_CORES    = 4                  # parallel NLLoc chunks per iteration
+LOC2SSST_CORES = 4                  # parallel Loc2ssst instances (~2 LSGRID buffers each)
 
 # LSPHSTAT: RMSMax NRdgsMin GapMax PResidualMax SResidualMax EllLen3Max.
 # NRdgsMin is also the NLLoc min-phases threshold (read back from the

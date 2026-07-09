@@ -306,7 +306,7 @@ def _run_nlloc_parallel(params, control_file_tmp, out_root, loc_obs, time_root,
                     f'loc_ssst_corr{iteration}\n')
             f.write(f'LOCFILES {obsfiles_dir}/*.nlloc_obs NLLOC_OBS  {time_root}  '
                     f'{out_root_idx}/{params.projectName}  0\n')
-            f.write(f'LOCMETH EDT_OT_WT 9999.0 {min_num_phases_loc} -1 -1 {vpvs} -1 -1 1\n')
+            f.write(f'LOCMETH EDT_OT_WT 9999.0 {min_num_phases_loc} -1 -1 {vpvs} 145 -1 1\n')
             f.write(f'LOCHYPOUT SAVE_NLLOC_ALL  NLL_FORMAT_VER_2  '
                     f'{save_nlloc_octree} {save_fmamp}\n')
 
@@ -632,7 +632,7 @@ def run_ssst(params, iteration_start=0, iteration_stop=None):
             f.write(f'LSOUT {ls_out_root}\n')
             f.write(f'LSLOCFILES {out_root}.*.*.grid0.loc.hyp\n')
             f.write(f'LOCFILES {loc_obs} NLLOC_OBS  {time_root}  {out_root}  0\n')
-            f.write(f'LOCMETH EDT_OT_WT 9999.0 {min_num_phases_loc} -1 -1 {vpvs} -1 -1 1\n')
+            f.write(f'LOCMETH EDT_OT_WT 9999.0 {min_num_phases_loc} -1 -1 {vpvs} 145 -1 1\n')
 
         _run_loc2ssst_parallel(params, ssst_control_file_tmp, iteration)
 
