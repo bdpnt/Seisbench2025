@@ -489,23 +489,27 @@ def run_ssst(params, iteration_start=0, iteration_stop=None):
     min_num_phases_loc = _read_min_num_phases(params.fileRunSSST)
     _print(params, f'Min number of phases (LSPHSTAT NRdgsMin): {min_num_phases_loc}')
 
-    # --- fail-fast on missing initial grids (never built / wrong root)
-    if not glob.glob(f'{params.initTimeRoot}*.time.*'):
-        raise FileNotFoundError(
-            f'no travel-time grids match: {params.initTimeRoot}*.time.* '
-            '(run build_grids() first)')
-
     # --- initial state: iteration 0 locates with the original Grid2Time
     # grids and vpvs; resuming at N > 0 uses iteration N-1's corrected grids
     iteration = iteration_start
     iteration_max = iteration_final - 1
-    time_root = params.initTimeRoot
-    vpvs = params.vpvs
-    if iteration > 0:
+    if iteration == 0:
+        time_root = params.initTimeRoot
+        vpvs = params.vpvs
+    else:
         time_root = os.path.join(
             params.outRoot, params.runName, params.ssstModelName,
             f'ssst_corr{iteration - 1}', params.catalog, params.model)
         vpvs = params.vpvsIter
+
+    # --- fail-fast on missing grids at this run's actual starting point
+    # (never built / wrong root on a fresh start, stale iteration_start on
+    # a resume)
+    if not glob.glob(f'{time_root}*.time.*'):
+        raise FileNotFoundError(
+            f'no travel-time grids match: {time_root}*.time.* ' +
+            ('(run build_grids() first)' if iteration == 0 else
+             '(check iteration_start against the last completed iteration)'))
 
     # --- archive the run configuration (both control files) so the run can
     # later be reproduced/understood; the journal joins them at the end
