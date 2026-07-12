@@ -6,11 +6,11 @@ Produce matplotlib-based complementary figures for the final catalog.
 Requires: seisbench_env
 
 Runs in order:
-  1. Depth histograms (GLOBAL.obs and FINAL.obs)
+  1. Depth histograms (GLOBAL.obs and NLL_result.obs)
   2. Gutenberg-Richter distribution (GLOBAL.obs — all events, ML and Mw)
-  3. Gutenberg-Richter distribution (FINAL.obs — relocated events, ML and Mw)
-  4. Depth maps  per 5-year period (RESULT/FINAL.csv)
-  5. Error maps  per 5-year period (RESULT/FINAL.csv)
+  3. Gutenberg-Richter distribution (NLL_result.obs — relocated events, ML and Mw)
+  4. Depth maps  per 5-year period (RESULT/NLL_result.csv)
+  5. Error maps  per 5-year period (RESULT/NLL_result.csv)
 
 For PyGMT event maps, run generate_complem_maps.py with pygmt_env.
 
@@ -45,8 +45,8 @@ def run_pipeline():
 
     # 1 & 2. Depth histograms
     for bulletin, tag in [
-        (os.path.join(_OBS, 'GLOBAL.obs'), 'GLOBAL'),
-        (os.path.join(_OBS, 'FINAL.obs'),  'FINAL'),
+        (os.path.join(_OBS, 'GLOBAL.obs'),     'GLOBAL'),
+        (os.path.join(_OBS, 'NLL_result.obs'), 'NLL_result'),
     ]:
         gen_depth_hist(DepthHistogramParams(
             file_bulletin = bulletin,
@@ -55,8 +55,8 @@ def run_pipeline():
 
     # 3 & 4. Gutenberg-Richter
     for bulletin, tag in [
-        (os.path.join(_OBS, 'GLOBAL.obs'), 'GLOBAL'),
-        (os.path.join(_OBS, 'FINAL.obs'),  'FINAL'),
+        (os.path.join(_OBS, 'GLOBAL.obs'),     'GLOBAL'),
+        (os.path.join(_OBS, 'NLL_result.obs'), 'NLL_result'),
     ]:
         for mag_type in ('ML', 'Mw'):
             gen_gr(GutenbergRichterParams(
@@ -67,14 +67,14 @@ def run_pipeline():
 
     # 3. Depth maps
     gen_depth(DepthMapsParams(
-        file       = os.path.join(_RESULT, 'FINAL.csv'),
+        file       = os.path.join(_RESULT, 'NLL_result.csv'),
         mapFolder  = os.path.join(_FIGS, 'depth_maps') + os.sep,
         time_range = 5,
     ))
 
     # 4. Error maps
     gen_error(ErrorMapsParams(
-        file       = os.path.join(_RESULT, 'FINAL.csv'),
+        file       = os.path.join(_RESULT, 'NLL_result.csv'),
         mapFolder  = os.path.join(_FIGS, 'error_maps') + os.sep,
         time_range = 5,
     ))

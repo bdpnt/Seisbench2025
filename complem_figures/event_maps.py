@@ -22,22 +22,22 @@ Usage
 
     # .obs bulletin — post-relocation, with filter
     python complem_figures/event_maps.py \\
-        --bulletin  obs/FINAL.obs \\
-        --output    complem_figures/event_maps/FINAL.pdf
+        --bulletin  obs/NLL_result.obs \\
+        --output    complem_figures/event_maps/NLL_result.pdf
 
-    # .csv NLL result — single zone from FINAL.csv
+    # .csv NLL result — single zone from NLL_result.csv
     python complem_figures/event_maps.py \\
-        --bulletin      RESULT/FINAL.csv \\
+        --bulletin      RESULT/NLL_result.csv \\
         --output        complem_figures/event_maps/GLOBAL_1.pdf \\
-        --stations      loc/GLOBAL_1/last.stations \\
+        --stations      run/nll_loc/GLOBAL_1/last.stations \\
         --source-filter GLOBAL_1 \\
         --region-in     42.50 -2.00 43.50 -0.75 \\
         --region-out    41.60 -3.22 44.40  0.46
 
     # custom map extent (zoom in on eastern Pyrenees)
     python complem_figures/event_maps.py \\
-        --bulletin  obs/FINAL.obs \\
-        --output    complem_figures/event_maps/FINAL_east.pdf \\
+        --bulletin  obs/NLL_result.obs \\
+        --output    complem_figures/event_maps/NLL_result_east.pdf \\
         --map-region 0.0 3.5 42.0 44.0
 """
 

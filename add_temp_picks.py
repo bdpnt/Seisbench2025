@@ -13,7 +13,7 @@ Pipeline
 3. Merge OMP PhaseNet CSV picks into a single file.
 4. Merge RaspberryShake/PhaseNet picks (pyrenees and pyrenees2) into separate files.
 5. Convert all pick files to GLOBAL.obs pick line format.
-6. Match each converted pick file against obs/FINAL.obs; picks accumulate across runs.
+6. Match each converted pick file against obs/NLL_result.obs; picks accumulate across runs.
 
 Usage
 -----
@@ -44,8 +44,8 @@ _TABLES_CSV       = os.path.join(_TEMP_PICKS,   'tables_Pyr.csv')
 _TABLES_FIG       = os.path.join(_TEMP_PICKS,   'figures', 'tables_Pyr.png')
 _TT_FIGURE        = os.path.join(_TEMP_PICKS,   'figures', 'travel_times_observed.png')
 _INVENTORY        = os.path.join(_PROJECT_ROOT, 'stations', 'GLOBAL_inventory.xml')
-_BULLETIN         = os.path.join(_PROJECT_ROOT, 'obs',      'FINAL.obs')
-_OUTPUT_BULLETIN  = os.path.join(_PROJECT_ROOT, 'obs',      'FINAL_augmented.obs')
+_BULLETIN         = os.path.join(_PROJECT_ROOT, 'obs',      'NLL_result.obs')
+_OUTPUT_BULLETIN  = os.path.join(_PROJECT_ROOT, 'obs',      'NLL_result_augmented.obs')
 
 _VIEHLA_OBS    = os.path.join(_PICK_FILES, 'viehla_final.obs')
 _PYRENEES_TXT  = os.path.join(_PICK_FILES, 'merged_pyrenees.txt')

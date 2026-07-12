@@ -10,7 +10,7 @@ parallel across multiple CPU cores and saved as PDFs in the output folder.
 Usage
 -----
     python complem_figures/error_maps.py \\
-        --file        RESULT/FINAL.csv \\
+        --file        RESULT/NLL_result.csv \\
         --map-folder  complem_figures/error_maps/ \\
         --time-range  5
 """
@@ -50,11 +50,11 @@ class ErrorMapsParams:
 
 def _read_file(file):
     """
-    Parse RESULT/FINAL.csv into a DataFrame.
+    Parse RESULT/NLL_result.csv into a DataFrame.
 
     Parameters
     ----------
-    file : str — path to the merged NLL CSV (RESULT/FINAL.csv)
+    file : str — path to the merged NLL CSV (RESULT/NLL_result.csv)
 
     Returns
     -------
@@ -215,7 +215,7 @@ def main():
         description='Generate per-period ERH/ERV error maps from an NLL result file.'
     )
     parser.add_argument('--file',       required=True,
-                        help='NLL result file (e.g. RESULT/FINAL.csv)')
+                        help='NLL result file (e.g. RESULT/NLL_result.csv)')
     parser.add_argument('--map-folder', required=True,
                         help='Output folder for PDF figures')
     parser.add_argument('--time-range', type=int, default=5,

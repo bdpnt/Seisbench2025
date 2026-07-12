@@ -4,15 +4,15 @@ run_zone.py
 Run the full NonLinLoc pipeline (Vel2Grid → Grid2Time → NLLoc) for a single
 zone given a .in run file.
 
-For a first-pass run file (run_<N>.in) all three programs are executed in
-sequence.  For a corrections-pass file (run_<N>_PR.in) only NLLoc is run
+For a first-pass run file (run_<N>_DELAYS.in) all three programs are executed
+in sequence.  For a corrections-pass file (run_<N>_NLL.in) only NLLoc is run
 because the velocity and travel-time grids were already computed in the first
 pass.
 
 Usage
 -----
-    python NLL_run/run_zone.py run/run_1.in
-    python NLL_run/run_zone.py run/run_1_PR.in
+    python NLL_run/run_zone.py run/nll/run_1_DELAYS.in
+    python NLL_run/run_zone.py run/nll/run_1_NLL.in
 """
 
 import argparse
@@ -71,40 +71,42 @@ def _check_disk(run_in: str) -> None:
         pass
 
 
-def _run(cmd: list[str], label: str) -> None:
-    log.info("Starting %s", label)
+def _run(cmd: list[str], label: str, zone_label: str = "") -> None:
+    prefix = f"[{zone_label}] " if zone_label else ""
+    log.info("%sStarting %s", prefix, label)
     proc = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
     )
     lines: list[str] = []
     for line in proc.stdout:
-        sys.stdout.write(line)
+        sys.stdout.write(f"{prefix}{line}")
         sys.stdout.flush()
         lines.append(line)
     proc.wait()
 
     if proc.returncode != 0:
-        log.error("%s failed (exit %d)", label, proc.returncode)
+        log.error("%s%s failed (exit %d)", prefix, label, proc.returncode)
         sys.exit(proc.returncode)
 
     output_lower = "".join(lines).lower()
     for pattern in _FATAL_PATTERNS:
         if pattern in output_lower:
-            log.error("%s: fatal error detected in output (%r)", label, pattern)
+            log.error("%s%s: fatal error detected in output (%r)", prefix, label, pattern)
             sys.exit(1)
 
-    log.info("%s done", label)
+    log.info("%s%s done", prefix, label)
 
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
-def run_zone(run_in: str, *, corrections_pass: bool = False) -> None:
+def run_zone(run_in: str, *, corrections_pass: bool = False, zone_label: str = "") -> None:
     """Run Vel2Grid → Grid2Time → NLLoc for the zone described by *run_in*.
 
     Set *corrections_pass* to True to skip Vel2Grid and Grid2Time (grids
-    already built during the first pass).
+    already built during the first pass). *zone_label* prefixes log output,
+    useful when multiple zones run concurrently.
     """
     run_in = os.path.abspath(run_in)
     if not os.path.isfile(run_in):
@@ -112,10 +114,10 @@ def run_zone(run_in: str, *, corrections_pass: bool = False) -> None:
 
     if not corrections_pass:
         _check_disk(run_in)
-        _run([_exe("Vel2Grid"),   run_in], "Vel2Grid")
-        _run([_exe("Grid2Time"),  run_in], "Grid2Time")
+        _run([_exe("Vel2Grid"),   run_in], "Vel2Grid",  zone_label)
+        _run([_exe("Grid2Time"),  run_in], "Grid2Time", zone_label)
 
-    _run([_exe("NLLoc"), run_in], "NLLoc")
+    _run([_exe("NLLoc"), run_in], "NLLoc", zone_label)
 
 
 # ---------------------------------------------------------------------------

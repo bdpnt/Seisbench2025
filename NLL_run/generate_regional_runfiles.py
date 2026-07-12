@@ -16,10 +16,10 @@ Usage
         --inventory    stations/GLOBAL_inventory.xml \\
         --code-map     stations/GLOBAL_code_map.txt \\
         --stations     stations/GTSRCE_1.txt \\
-        --run-save     run/run_1.in \\
-        --model        model/Pyrenees_1/Pyrenees_1 \\
-        --time-file    time/Pyrenees_1/Pyrenees_1 \\
-        --bulletin-out loc/GLOBAL_1/GLOBAL_1.obs \\
+        --run-save     run/nll/run_1_DELAYS.in \\
+        --model        run/nll_model/Pyrenees_1/Pyrenees_1 \\
+        --time-file    run/nll_time/Pyrenees_1/Pyrenees_1 \\
+        --bulletin-out run/nll_loc/GLOBAL_1/GLOBAL_1.obs \\
         --lat-min 42.5 --lat-max 43.5 --lon-min -2.0 --lon-max -0.75
 """
 
@@ -257,7 +257,7 @@ def _compute_grid_corners(lat_sw, lon_sw, lat_ne, lon_ne):
     dy = y_ne - y_sw
     nx = round(dx / 0.05)
     ny = round(dy / 0.05)
-    nz = 800
+    nz = 761  # 0.05 km spacing from -3 km -> max grid depth 35 km
 
     logger.info(f"Min. VGGRID points: {math.sqrt(nx**2 + ny**2):.0f}")
 
@@ -327,7 +327,7 @@ def generate_run(parameters, log_dir=None):
     lines.append('# Localization method\n')
     lines.append(f'LOCGRID {dx} {dy} {dz} 0.0 0.0 -3  0.05 0.05 0.05 PROB_DENSITY SAVE\n')
     lines.append('LOCSEARCH  OCT 50 50 5 0.001 50000 500 1 0\n')
-    lines.append('LOCMETH EDT_OT_WT 9999 4 -1 -1 1.72 6 -1.0 0\n')
+    lines.append('LOCMETH EDT_OT_WT 9999 4 -1 -1 1.72 145 -1.0 0\n')
     lines.append('\n')
 
     lines.append('# Stations coordinates\n')

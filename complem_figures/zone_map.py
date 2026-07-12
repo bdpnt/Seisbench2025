@@ -28,8 +28,8 @@ Usage
 
     # With seismicity overlay, quality filter applied (post-relocation)
     python complem_figures/zone_map.py \\
-        --bulletin obs/FINAL.obs \\
-        --output   complem_figures/zone_map/zones_FINAL.pdf
+        --bulletin obs/NLL_result.obs \\
+        --output   complem_figures/zone_map/zones_NLL_result.pdf
 """
 
 import argparse
