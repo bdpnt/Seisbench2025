@@ -200,7 +200,7 @@ def write_catalog_to_obs(parameters, log_dir=None):
                 quality_p = phase_info[23:24]
                 quality_s = phase_info[102:103]
 
-                if quality_p == '4' or quality_s == '0':
+                if quality_p == '4':
                     n_skipped_quality += 1
                     phase_ind += 1
                     continue
