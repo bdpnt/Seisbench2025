@@ -106,6 +106,7 @@ def _build_alternate_code_map(file_map):
     for i, line in enumerate(lines):
         if line.startswith('Alternate'):
             alternate_code = line.split()[-1]
+            network_code   = station_code = None
             j = i + 1
             while j < len(lines):
                 code_line = lines[j]
@@ -115,7 +116,8 @@ def _build_alternate_code_map(file_map):
                     station_code = code_line.split('.')[-1].rstrip('\n')
                     network_code = code_line.split(':')[-1].split('.')[0].strip()
                 j += 1
-            code_map[alternate_code] = (network_code, station_code)
+            if network_code is not None and station_code is not None:
+                code_map[alternate_code] = (network_code, station_code)
     return code_map
 
 

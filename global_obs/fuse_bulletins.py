@@ -300,8 +300,7 @@ def check_similar_picks(main_lines, secondary_lines, main_id, secondary_id):
     secondary_picks = find_pick_lines(secondary_lines, secondary_id)
     all_picks       = main_picks + secondary_picks
 
-    all_phases = {}
-    all_times  = []
+    all_phases = {}   # phase_key -> [count, first phase_time]
 
     for line in all_picks:
         if line[22] == 'S':
@@ -310,12 +309,11 @@ def check_similar_picks(main_lines, secondary_lines, main_id, secondary_id):
         phase_time = line[31:51]
 
         if phase_key not in all_phases:
-            all_phases[phase_key] = 1
-            all_times.append(phase_time)
+            all_phases[phase_key] = [1, phase_time]
         else:
-            i       = list(all_phases.keys()).index(phase_key)
+            first_time = all_phases[phase_key][1]
             date    = pd.to_datetime(
-                f"{all_times[i][:8]} {all_times[i][9:13]}{all_times[i][14:]}",
+                f"{first_time[:8]} {first_time[9:13]}{first_time[14:]}",
                 format="%Y%m%d %H%M%S.%f",
             )
             date_new = pd.to_datetime(
@@ -323,9 +321,9 @@ def check_similar_picks(main_lines, secondary_lines, main_id, secondary_id):
                 format="%Y%m%d %H%M%S.%f",
             )
             if abs(date - date_new) <= pd.Timedelta(seconds=1):
-                all_phases[phase_key] += 1
+                all_phases[phase_key][0] += 1
 
-    return sum(1 for v in all_phases.values() if v > 1)
+    return sum(1 for count, _ in all_phases.values() if count > 1)
 
 
 # ---------------------------------------------------------------------------
@@ -544,13 +542,15 @@ def _concatenate_bulletin(
 
     found_possible = []
 
+    _empty_frame    = pd.DataFrame()
+    strict_by_idx   = ({key: group for key, group in strict_match.groupby('catalog1_idx')}
+                       if not strict_match.empty else {})
+    possible_by_idx = ({key: group for key, group in possible_match.groupby('catalog1_idx')}
+                       if not possible_match.empty else {})
+
     for event_idx1 in main_bulletin.index:
-        if not (strict_match.empty and possible_match.empty):
-            match_row    = strict_match[strict_match.catalog1_idx == event_idx1]
-            possible_row = possible_match[possible_match.catalog1_idx == event_idx1]
-        else:
-            match_row    = pd.DataFrame()
-            possible_row = pd.DataFrame()
+        match_row    = strict_by_idx.get(event_idx1, _empty_frame)
+        possible_row = possible_by_idx.get(event_idx1, _empty_frame)
 
         event_line_main = main_lines[main_ids[event_idx1]]
 
@@ -574,7 +574,7 @@ def _concatenate_bulletin(
 
         elif not possible_row.empty:
             solution_found = False
-            for _, row in possible_row.iterrows():
+            for row_label, row in possible_row.iterrows():
                 event_idx2           = row.catalog2_idx
                 event_line_secondary = secondary_lines[secondary_ids[event_idx2]]
 
@@ -600,7 +600,7 @@ def _concatenate_bulletin(
                     new_lines.append('\n')
                     not_matched_secondary.remove(event_idx2)
                     solution_found = True
-                    found_possible.append(possible_row.index[0])
+                    found_possible.append(row_label)
                     break
 
             if not solution_found:

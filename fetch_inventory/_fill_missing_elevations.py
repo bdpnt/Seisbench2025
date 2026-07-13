@@ -34,7 +34,7 @@ def _get_elevation(lat, lng):
     """
     url = f"https://api.open-elevation.com/api/v1/lookup?locations={lat},{lng}"
     try:
-        response = requests.get(url).json()
+        response = requests.get(url, timeout=10).json()
         if 'results' in response:
             return int(response['results'][0]['elevation'])
         logger.warning(f"API error for ({lat}, {lng}): {response}")

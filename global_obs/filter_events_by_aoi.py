@@ -129,6 +129,43 @@ def _frame_update_in_aoi(frame, line_coords, aoi_above=True):
     return frame
 
 
+def _rebuild_lines(lines, id_to_inaoi):
+    """
+    Rebuild bulletin lines, keeping only events flagged in-AOI.
+
+    Each out-of-AOI event block (header + picks) is dropped atomically
+    together with the blank line separating it from the previous block.
+
+    Parameters
+    ----------
+    lines       : list of str — raw bulletin lines
+    id_to_inaoi : dict[int, bool] — header line index -> event is in AOI
+
+    Returns
+    -------
+    list of str
+    """
+    new_lines = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        line = lines[i]
+        if line.startswith('# '):
+            j = i
+            while j < n and not lines[j].startswith('\n'):
+                j += 1
+            if id_to_inaoi[i]:
+                new_lines.extend(lines[i:j])
+            elif new_lines and new_lines[-1].startswith('\n'):
+                new_lines.pop()
+            i = j
+        else:
+            if line.startswith('###') or line.startswith('\n'):
+                new_lines.append(line)
+            i += 1
+    return new_lines
+
+
 def _remove_outside_aoi(file_name, fig_save):
     """
     Remove events outside the catalog-specific AOI from an .obs file and save a map.
@@ -198,17 +235,8 @@ def _remove_outside_aoi(file_name, fig_save):
 
     events_df['ID'] = [idx for idx, line in enumerate(lines) if line.startswith('# ')]
 
-    new_lines = []
-    for idx, line in enumerate(lines):
-        if line.startswith('###') or line.startswith('\n'):
-            new_lines.append(line)
-        elif line.startswith('# ') and events_df.loc[events_df.ID == idx, 'inAOI'].values[0]:
-            i = idx
-            while not lines[i].startswith('\n'):
-                new_lines.append(lines[i])
-                i += 1
-        elif line.startswith('# '):
-            new_lines.pop(-1)
+    id_to_inaoi = dict(zip(events_df.ID, events_df.inAOI))
+    new_lines   = _rebuild_lines(lines, id_to_inaoi)
 
     with open(file_name, 'w') as f:
         f.writelines(new_lines)

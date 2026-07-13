@@ -83,28 +83,28 @@ def find_unique_stations(inventory):
     -------
     pd.DataFrame with columns: Network, Code, AlternateCode, StartDate, EndDate
     """
-    unique_sta = pd.DataFrame(columns=['Network', 'Code', 'AlternateCode', 'StartDate', 'EndDate'])
+    rows = []
     for net in inventory.networks:
         for sta in net.stations:
-            new_row = {
+            rows.append({
                 'Network':       net.code,
                 'Code':          sta.code.split('_')[0],
                 'AlternateCode': sta.alternate_code,
                 'StartDate':     sta.start_date,
                 'EndDate':       sta.end_date,
-            }
-            unique_sta = pd.concat([unique_sta, pd.DataFrame([new_row])], ignore_index=True)
-    return unique_sta
+            })
+    return pd.DataFrame(rows, columns=['Network', 'Code', 'AlternateCode', 'StartDate', 'EndDate'])
 
 
-def _find_code(line, unique_sta):
+def _find_code(line, unique_sta, code_to_indices):
     """
     Look up the alternate code for the station referenced in a pick line.
 
     Parameters
     ----------
-    line       : str          — raw pick line from an .obs bulletin
-    unique_sta : pd.DataFrame — produced by find_unique_stations()
+    line            : str          — raw pick line from an .obs bulletin
+    unique_sta      : pd.DataFrame — produced by find_unique_stations()
+    code_to_indices : dict         — unique_sta.groupby('Code').indices
 
     Returns
     -------
@@ -116,7 +116,7 @@ def _find_code(line, unique_sta):
         line[:9].lstrip('.').strip() if line.startswith('.')
         else line[:9].split('.')[1].strip()
     )
-    matching = unique_sta.index[unique_sta.Code == station_name].tolist()
+    matching = list(code_to_indices.get(station_name, []))
 
     if not matching:
         return None
@@ -189,7 +189,8 @@ def remap_picks_to_unified_codes(parameters, log_dir=None):
     n_stations = sum(len(net.stations) for net in inventory.networks)
     logger.info(f"Inventory loaded : {n_stations} station(s) across {len(inventory.networks)} network(s)")
 
-    unique_sta = find_unique_stations(inventory)
+    unique_sta      = find_unique_stations(inventory)
+    code_to_indices = unique_sta.groupby('Code').indices
 
     total_removed = 0
     total_picks   = 0
@@ -205,7 +206,7 @@ def remap_picks_to_unified_codes(parameters, log_dir=None):
         for line in lines_bulletin:
             if not line.startswith('#') and line != '\n' and not line.startswith('PUBLIC_ID'):
                 org_length += 1
-                code_line = _find_code(line, unique_sta)
+                code_line = _find_code(line, unique_sta, code_to_indices)
                 if code_line not in (None, False):
                     new_bulletin.append(code_line + line[9:])
                     new_length += 1

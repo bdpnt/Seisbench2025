@@ -158,6 +158,9 @@ def write_catalog_to_obs(parameters, log_dir=None):
             if second >= 60:
                 second -= 60
                 minute += 1
+                if minute >= 60:
+                    minute -= 60
+                    hour   += 1
 
             try:
                 UTCDateTime(f'{year}-{month}-{day}T{hour}:{minute}:{second}Z')
@@ -197,13 +200,14 @@ def write_catalog_to_obs(parameters, log_dir=None):
                 quality_p = phase_info[23:24]
                 quality_s = phase_info[102:103]
 
-                if quality_p == '4' or quality_s == '0':
+                if quality_p == '4':
                     n_skipped_quality += 1
                     phase_ind += 1
                     continue
                 elif quality_p == '9' or station == 'LARF':
                     instrument = '*'.ljust(4)
-                elif int(quality_p) >= 2 or int(quality_s) >= 3:
+                elif ((int(quality_p) if quality_p.isdigit() else 0) >= 2
+                      or (int(quality_s) if quality_s.isdigit() else 0) >= 3):
                     double_error = True
 
                 # --- P phase ---
