@@ -184,8 +184,8 @@ def apply_magnitude_models(parameters, log_dir=None):
             try:
                 file_model  = f'mag_model/{model_name_stem}.joblib'
                 models      = joblib.load(file_model)
-                model_ge_2  = list(models.values())[0]
-                model_lt_2  = list(models.values())[1]
+                model_ge_2  = next(models[k] for k in models if '≥' in k)
+                model_lt_2  = next(models[k] for k in models if '<' in k)
                 logger.info(f"  Model found   : {model_name_stem} ({file_model})")
             except Exception:
                 logger.warning(f"  Model missing : {model_name_stem} ({file_model}) — skipped")
