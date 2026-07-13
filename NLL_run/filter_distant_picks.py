@@ -130,6 +130,10 @@ def remove_far_picks(parameters, log_dir=None):
 
     sta_coords = _get_station_coords(parameters.fileInventory)
     logger.info(f"  {len(sta_coords)} stations loaded.")
+    coords_by_code = dict(zip(
+        sta_coords.AlternateCode,
+        zip(sta_coords.Latitude, sta_coords.Longitude),
+    ))
 
     with open(parameters.fileBulletin, 'r') as f:
         lines = f.readlines()
@@ -146,13 +150,10 @@ def remove_far_picks(parameters, log_dir=None):
         elif event_lat is not None and line.strip() and not line.startswith('#') and not line.startswith('PUBLIC_ID'):
             n_picks  += 1
             alt_code  = line.split()[0]
-            sta_row   = sta_coords[sta_coords.AlternateCode == alt_code]
-            if sta_row.empty:
+            sta_latlon = coords_by_code.get(alt_code)
+            if sta_latlon is None:
                 continue
-            dist = _haversine(
-                sta_row.Latitude.iloc[0], sta_row.Longitude.iloc[0],
-                event_lat, event_lon,
-            )
+            dist = _haversine(sta_latlon[0], sta_latlon[1], event_lat, event_lon)
             if dist > parameters.maxDistance:
                 remove_id.add(i)
 
