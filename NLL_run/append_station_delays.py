@@ -95,7 +95,8 @@ def append_station_delays(parameters, log_dir=None):
     with open(loc_stat_corr, 'r') as f:
         lines = f.readlines()
 
-    statCorr = [line.split()[1:6] for line in lines if line.startswith('LOCDELAY')]
+    locdelay_lines = [line for line in lines if line.startswith('LOCDELAY')]
+    statCorr = [line.split()[1:6] for line in locdelay_lines]
     statCorr_df = pd.DataFrame(
         statCorr,
         columns=['StationCode', 'PhaseType', 'PhaseNum', 'TotCorr', 'StdDev'],
@@ -114,7 +115,7 @@ def append_station_delays(parameters, log_dir=None):
             (statCorr_df.StdDev   >= 0)
         ].index
     )
-    statCorr_list = [lines[i + 3] for i in idx]
+    statCorr_list = [locdelay_lines[i] for i in idx]
 
     with open(parameters.fileRunName, 'r') as f:
         run_lines = f.readlines()
