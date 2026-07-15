@@ -89,9 +89,13 @@ def _find_iteration_dirs(ssst_root, run_name, zone):
 
 
 def _find_hyp_path(iter_dir, event_id):
-    """Locate the .hyp file whose PUBLIC_ID line matches event_id, via grep (fast across thousands of files)."""
+    """Locate the .hyp file whose PUBLIC_ID line matches event_id, via grep (fast across thousands of files).
+
+    Excludes the per-iteration `*.sum.grid0.loc.hyp` file: it concatenates every event's .hyp
+    block for that iteration (so it also matches the grep), but has no companion .scat file.
+    """
     proc = subprocess.run(
-        ['grep', '-rlF', f'PUBLIC_ID {event_id}', iter_dir],
+        ['grep', '-rlF', f'PUBLIC_ID {event_id}', '--exclude=*.sum.*', iter_dir],
         capture_output=True, text=True,
     )
     matches = proc.stdout.strip().splitlines()
