@@ -9,8 +9,6 @@ computes and reports in each .hyp file's STATISTICS line (no re-estimation
 from the scattered samples), plus the raw sample cloud and the point-estimate
 convergence path. Click a legend entry to show/hide that iteration.
 
-Requires: seisbench_env (obspy, pyproj, plotly)
-
 Usage
 -----
     python complem_figures/plot_pdf_cloud.py \\
@@ -28,6 +26,7 @@ import glob
 import os
 import re
 import subprocess
+import sys
 import warnings
 from dataclasses import dataclass
 
@@ -45,6 +44,10 @@ from scipy.stats import chi2
 
 _MODULE_DIR   = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.dirname(_MODULE_DIR)
+
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+from NLL_run.merge_regional_results import _build_covariance, _S3_3DOF  # noqa: E402
 
 _TRANS_RE = re.compile(
     r'TRANSFORM\s+LAMBERT\s+RefEllipsoid\s+(\S+)\s+'
@@ -66,12 +69,13 @@ _STATISTICS_RE = re.compile(
 
 @dataclass
 class PdfCloudParams:
-    ssst_root:  str
-    run_name:   str
-    event_id:   str
-    zone:       str
-    confidence: float = 0.68
-    output:     str = None
+    ssst_root:      str
+    run_name:       str
+    event_id:       str
+    zone:           str
+    nll_result_csv: str = None
+    confidence:     float = 0.68
+    output:       str = None
 
 
 # ---------------------------------------------------------------------------
@@ -181,8 +185,48 @@ def _load_iteration(iter_dir, step, event_id):
     return {
         'step': step,
         'x': cloud['x'], 'y': cloud['y'], 'z': cloud['z'], 'pdf': cloud['pdf'],
-        'center': center, 'cov': cov,
+        'center': center, 'cov': cov, 'to_local': to_local,
         'hyp_x': hyp_x, 'hyp_y': hyp_y, 'hyp_z': hyp_z, 'date': date_str,
+    }
+
+
+def _load_nll_reference(nll_result_csv, event_id, to_local):
+    """Load the pre-SSST NLL-only relocation ellipsoid + hypocenter for one event from
+    RESULT/NLL_result.csv (the merged, zone-deduplicated catalog).
+
+    The ellipsoid axes there (EllipsoidAz1/Dip1/Len1, Az2/Dip2/Len2, Len3) already carry
+    NLLoc's own 3-DOF, 68% chi-square scaling, so the reconstructed covariance is divided by
+    that same factor (`_S3_3DOF`, reused from merge_regional_results.py) to get back a raw,
+    unscaled covariance — matching what `_ellipsoid_surface` expects (it applies its own
+    confidence-level scaling on top).
+
+    `to_local` (an SSST iteration's Lambert-projection transformer) is used to project the
+    row's expectation point / hypocenter from lon/lat into the same local km frame the SSST
+    iterations are plotted in.
+
+    Returns
+    -------
+    dict with keys: zone, center, cov, hyp_x, hyp_y, hyp_z — or None if the event isn't in the CSV.
+    """
+    df = pd.read_csv(nll_result_csv, skipinitialspace=True)
+    row = df.loc[df['publicId'] == event_id]
+    if row.empty:
+        return None
+    row = row.iloc[0]
+
+    ell_args = (row['EllipsoidAz1'], row['EllipsoidDip1'], row['EllipsoidLen1'],
+                row['EllipsoidAz2'], row['EllipsoidDip2'], row['EllipsoidLen2'],
+                row['EllipsoidLen3'])
+    cov = _build_covariance(*ell_args) / _S3_3DOF
+
+    center_x, center_y = to_local.transform(row['expect_lon'], row['expect_lat'])
+    hyp_x, hyp_y = to_local.transform(row['longitude'], row['latitude'])
+
+    return {
+        'zone': row['source'].replace('GLOBAL_', ''),
+        'center': np.array([center_x, center_y, row['expect_z']]),
+        'cov': cov,
+        'hyp_x': hyp_x, 'hyp_y': hyp_y, 'hyp_z': row['depth'],
     }
 
 
@@ -215,8 +259,9 @@ def _ellipsoid_surface(center, cov, confidence, n=24):
     return pts[..., 0], pts[..., 1], pts[..., 2]
 
 
-def _build_figure(iterations, confidence, event_id, zone, run_name):
-    """Build the interactive 3D figure: one confidence ellipsoid + raw cloud + hypocenter per iteration."""
+def _build_figure(iterations, confidence, event_id, zone, run_name, nll_ref=None):
+    """Build the interactive 3D figure: one confidence ellipsoid + raw cloud + hypocenter per
+    iteration, plus the pre-SSST NLL reference ellipsoid (`nll_ref`) if available."""
     steps = [it['step'] for it in iterations]
     n_steps = len(steps)
     colors = pcolors.sample_colorscale('Plasma', [i / max(n_steps - 1, 1) for i in range(n_steps)])
@@ -224,6 +269,24 @@ def _build_figure(iterations, confidence, event_id, zone, run_name):
     traces = []
     hyp_xs, hyp_ys, hyp_zs = [], [], []
     rng = np.random.default_rng(0)
+
+    if nll_ref is not None:
+        label = 'NLL (pre-SSST)' if nll_ref['zone'] == zone else f"NLL (pre-SSST, Zone {nll_ref['zone']})"
+        nx, ny, nz = _ellipsoid_surface(nll_ref['center'], nll_ref['cov'], confidence)
+        traces.append(go.Surface(
+            x=nx, y=ny, z=nz,
+            colorscale=[[0, 'gray'], [1, 'gray']], showscale=False, opacity=0.35,
+            name=label, legendgroup='nll_ref', showlegend=True,
+        ))
+        traces.append(go.Scatter3d(
+            x=[nll_ref['hyp_x']], y=[nll_ref['hyp_y']], z=[nll_ref['hyp_z']],
+            mode='markers',
+            marker=dict(size=6, color='gray', symbol='diamond', line=dict(color='black', width=1)),
+            name=label, legendgroup='nll_ref', showlegend=False,
+        ))
+        hyp_xs.append(nll_ref['hyp_x'])
+        hyp_ys.append(nll_ref['hyp_y'])
+        hyp_zs.append(nll_ref['hyp_z'])
 
     for it, color in zip(iterations, colors):
         label = 'Final' if it['step'] == steps[-1] else f'Iter {it["step"]}'
@@ -264,11 +327,15 @@ def _build_figure(iterations, confidence, event_id, zone, run_name):
         ))
 
     date_str = next((it['date'] for it in iterations if it['date']), 'unknown date')
+    subtitle = f'{confidence:.0%} confidence ellipsoid per iteration'
+    if nll_ref is not None:
+        subtitle += ' + pre-SSST NLL reference (gray)'
+    subtitle += ' — click a legend entry to toggle it'
     fig = go.Figure(data=traces)
     fig.update_layout(
         title=dict(text=(
             f'{event_id} — Zone {zone} ({run_name}) — {date_str}<br>'
-            f'<sub>{confidence:.0%} confidence ellipsoid per iteration — click a legend entry to toggle it</sub>'
+            f'<sub>{subtitle}</sub>'
         )),
         scene=dict(
             xaxis_title='Easting (km, local)', yaxis_title='Northing (km, local)', zaxis_title='Depth (km)',
@@ -337,13 +404,18 @@ def generate_figure(params):
     if not iterations:
         raise ValueError(f'Event {params.event_id} not found in any SSST iteration for zone {params.zone}')
 
+    nll_result_csv = params.nll_result_csv or os.path.join(_PROJECT_ROOT, 'RESULT', 'NLL_result.csv')
+    nll_ref = _load_nll_reference(nll_result_csv, params.event_id, iterations[0]['to_local'])
+    if nll_ref is None:
+        warnings.warn(f'{params.event_id}: not found in {nll_result_csv} — omitting NLL reference ellipsoid.')
+
     output_path = params.output or os.path.join(_MODULE_DIR, 'pdf_cloud', f'{params.event_id}.html')
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    fig = _build_figure(iterations, params.confidence, params.event_id, params.zone, params.run_name)
+    fig = _build_figure(iterations, params.confidence, params.event_id, params.zone, params.run_name, nll_ref=nll_ref)
     fig.write_html(output_path, include_plotlyjs=True)
     print(f'Figure saved @ {output_path} ({len(iterations)} iteration(s) found)')
 
-    return {'output_path': output_path, 'iterations_found': [it['step'] for it in iterations]}
+    return {'output_path': output_path, 'iterations_found': [it['step'] for it in iterations], 'nll_reference_found': nll_ref is not None}
 
 
 # ---------------------------------------------------------------------------
@@ -360,6 +432,8 @@ def main():
                         help='SSST campaign name (default: ssst_run1)')
     parser.add_argument('--result-csv', default=os.path.join(_PROJECT_ROOT, 'RESULT', 'SSST_result.csv'),
                         help='Merged catalog used for --lat/--lon/--date search (default: RESULT/SSST_result.csv)')
+    parser.add_argument('--nll-result-csv', default=os.path.join(_PROJECT_ROOT, 'RESULT', 'NLL_result.csv'),
+                        help='Pre-SSST merged catalog, used for the NLL reference ellipsoid (default: RESULT/NLL_result.csv)')
     parser.add_argument('--event-id', help='Event publicId (requires --zone)')
     parser.add_argument('--zone', help='Zone key, e.g. 1..6 (requires --event-id)')
     parser.add_argument('--lat', type=float, help='Approximate latitude for location search')
@@ -384,12 +458,13 @@ def main():
         parser.error('Provide either --event-id and --zone, or --lat, --lon and --date.')
 
     generate_figure(PdfCloudParams(
-        ssst_root  = args.ssst_root,
-        run_name   = args.run_name,
-        event_id   = event_id,
-        zone       = zone,
-        confidence = args.confidence,
-        output     = args.output,
+        ssst_root      = args.ssst_root,
+        run_name       = args.run_name,
+        event_id       = event_id,
+        zone           = zone,
+        nll_result_csv = args.nll_result_csv,
+        confidence     = args.confidence,
+        output         = args.output,
     ))
 
 
