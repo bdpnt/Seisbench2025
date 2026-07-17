@@ -130,7 +130,8 @@ def build_ranking(nll_result_csv, ssst_result_csv, nll_loc_root, ssst_root, run_
     nll_df = pd.read_csv(nll_result_csv, skipinitialspace=True)
     ssst_df = pd.read_csv(ssst_result_csv, skipinitialspace=True)
 
-    stage_cols = ['publicId', 'source', 'pdfVolume', 'true_erh', 'true_erz']
+    stage_cols = ['publicId', 'source', 'pdfVolume', 'true_erh', 'true_erz',
+                  'EllipsoidLen1', 'EllipsoidLen2', 'EllipsoidLen3']
     context_cols = ['publicId', 'date-time', 'latitude', 'longitude']
     merged = nll_df[stage_cols].merge(
         ssst_df[stage_cols], on='publicId', how='inner', suffixes=('_pre', '_post')
@@ -142,6 +143,15 @@ def build_ranking(nll_result_csv, ssst_result_csv, nll_loc_root, ssst_root, run_
 
     merged['log_ratio'] = np.log(merged['pdfVolume_post'] / merged['pdfVolume_pre'])
     merged['pct_change'] = (merged['pdfVolume_post'] / merged['pdfVolume_pre'] - 1) * 100
+
+    # Gaussian-ellipsoid volume from the confidence-ellipsoid semi-axes, for comparison against
+    # pdfVolume (NLLoc's OCT-tree-integrated, possibly non-Gaussian PDF volume) — the two can
+    # diverge a lot for poorly-constrained/non-Gaussian events. Informational only.
+    for suffix in ('_pre', '_post'):
+        merged[f'ellipsoidVolume{suffix}'] = (
+            4 / 3 * np.pi
+            * merged[f'EllipsoidLen1{suffix}'] * merged[f'EllipsoidLen2{suffix}'] * merged[f'EllipsoidLen3{suffix}']
+        )
 
     raw_nll = _load_raw_zone_pdfvolumes(nll_loc_root, zones)
     raw_ssst = _load_ssst_final_zone_pdfvolumes(ssst_root, run_name, zones)
@@ -164,6 +174,7 @@ def build_ranking(nll_result_csv, ssst_result_csv, nll_loc_root, ssst_root, run_
         'source_pre', 'source_post', 'pdfVolume_pre', 'pdfVolume_post',
         'log_ratio', 'pct_change', 'true_erh_pre', 'true_erh_post',
         'true_erz_pre', 'true_erz_post',
+        'ellipsoidVolume_pre', 'ellipsoidVolume_post',
         'n_zones_pre', 'zones_pre', 'n_zones_post', 'zones_post',
         'multi_zone', 'zone_changed',
     ]
