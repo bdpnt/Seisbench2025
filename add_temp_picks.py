@@ -53,12 +53,23 @@ _PYRENEES2_TXT = os.path.join(_PICK_FILES, 'merged_pyrenees2.txt')
 _OMP_CSV       = os.path.join(_PICK_FILES, 'merged_omp.csv')
 _OTHER_TXT     = os.path.join(_PICK_FILES, 'merged_other.txt')
 
-# Ordered list of (input_file, format) for conversion, then matching
+_PICKS_MARC_DIR = os.path.join(_TEMP_PICKS, 'all_picks', 'PICKS_MARC')
+_STB_OMP_PQ     = os.path.join(_PICKS_MARC_DIR, 'OMP-picks.pq')
+_STB_OROGENX_PQ = os.path.join(_PICKS_MARC_DIR, 'orogenx-renass74-bp4_40.pq')
+_STB_PYROPE_PQ  = os.path.join(_PICKS_MARC_DIR, 'pyrope-renass74-bp4_40.pq')
+
+# Ordered list of (input_file, format) for conversion, then matching.
+# TEMP_STB entries are placed after TEMP_OMP so that, if OMP-picks.pq
+# duplicates picks already ingested via merge_omp_picks.py/TEMP_OMP,
+# match_picks.py's per-event (station_code, phase) dedup silently skips them.
 _PICKS_TO_CONVERT = [
     (_VIEHLA_OBS,    'TEMP_OBS'),
     (_PYRENEES_TXT,  'TEMP_RSB'),
     (_PYRENEES2_TXT, 'TEMP_RSB'),
     (_OMP_CSV,       'TEMP_OMP'),
+    (_STB_OMP_PQ,     'TEMP_STB'),
+    (_STB_OROGENX_PQ, 'TEMP_STB'),
+    (_STB_PYROPE_PQ,  'TEMP_STB'),
     (_OTHER_TXT,     'TEMP_OTH'),
 ]
 
@@ -66,6 +77,13 @@ _PICKS_TO_CONVERT = [
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
+def _converted_output_path(input_path):
+    """Converted-file path for a source, always under _PICK_FILES regardless
+    of where the source itself lives (e.g. the gitignored all_picks/ dir)."""
+    base = os.path.splitext(os.path.basename(input_path))[0]
+    return os.path.join(_PICK_FILES, base + '_converted.obs')
+
 
 def run_pipeline():
     """
@@ -101,14 +119,13 @@ def run_pipeline():
     # Step 5 — Convert all pick files
     print("[5/6] Converting pick files ...")
     for input_path, fmt in _PICKS_TO_CONVERT:
-        base, _ = os.path.splitext(input_path)
-        output_path = base + '_converted.obs'
+        output_path = _converted_output_path(input_path)
         print(f"  {os.path.basename(input_path)} ({fmt}) → {os.path.basename(output_path)}")
         convert_file(input_path, fmt, output_path=output_path)
 
     # Step 6 — Match picks against bulletin (chained: each run augments the previous output)
     converted_files = [
-        os.path.splitext(p)[0] + '_converted.obs'
+        _converted_output_path(p)
         for p, _ in _PICKS_TO_CONVERT
     ]
     print(f"[6/6] Matching {len(converted_files)} pick file(s) against bulletin ...")

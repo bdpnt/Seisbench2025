@@ -266,7 +266,7 @@ Sits between the NLL and SSST relocation stages: a self-contained sub-pipeline f
 | 2 | `plot_travel_times.py` | QC figure: overlays all observed (distance, travel time) picks from a bulletin on top of the theoretical P/S bands. Skipped if the figure already exists. Also usable as a standalone script. |
 | 3 | `merge_omp_picks.py` | Merges all yearly OMP/PhaseNet CSV files from `picks_OMP/` subdirectories → `pick_files/merged_omp.csv`. Station `SMC` and year `2026` are excluded by default; configurable via `--drop-years`. Rows with a PhaseNet `phase_score` below 0.5 (default) are dropped. |
 | 4 | `merge_pyrenees_picks.py` | Concatenates RaspberryShake/PhaseNet `.txt` files from `picks_station_pyrenees/` and `picks_station_pyrenees2/` → `pick_files/merged_pyrenees.txt` and `pick_files/merged_pyrenees2.txt`. Lines with a `prob=` value below 0.5 (default) are dropped. |
-| 5 | `convert_picks.py` | Converts external pick files to the project's `.obs` pick line format; maps short station names to internal codes via `GLOBAL_code_map.txt`. Supports formats `TEMP_OBS`, `TEMP_RSB`, `TEMP_OMP`, and `TEMP_OTH`; new formats are added as handler functions. Unresolved stations are reported as an end-of-run summary. |
+| 5 | `convert_picks.py` | Converts external pick files to the project's `.obs` pick line format; maps short station names to internal codes via `GLOBAL_code_map.txt`. Supports formats `TEMP_OBS`, `TEMP_RSB`, `TEMP_OMP`, `TEMP_OTH`, and `TEMP_STB`; new formats are added as handler functions. `TEMP_STB` (Strasbourg/RENASS-OMP picks, `temp_picks/all_picks/PICKS_MARC/`) reads directories of parquet files instead of a single text file, and drops picks below a `phase_score` threshold (default 0.5). Unresolved stations are reported as an end-of-run summary. |
 | 6 | `match_picks.py` | For each converted pick, finds candidate events within a 60 s origin-time window, filters by theoretical travel-time residual (±0.1 s P, ±0.3 s S, plus ±2.5 s t0-error margin), and appends matched picks to the bulletin. Chains against `obs/NLL_result.obs` → `obs/NLL_result_augmented.obs`. Runs `sort_picks` automatically on the output. |
 | — | `sort_picks.py` | Sorts all pick lines within each event block by ascending arrival time. Invoked automatically by step 6; also usable as a standalone script on any bulletin. |
 
@@ -327,6 +327,7 @@ Map modules apply a quality filter (erh ≤ 3 km, erv ≤ 3 km, gap ≤ 300°, r
 |---------|-----|
 | `obspy` | Seismic data I/O, FDSN client, inventory management |
 | `pandas`, `numpy` | Data manipulation |
+| `pyarrow` | Parquet I/O (`temp_picks/convert_picks.py`'s `TEMP_STB` format) |
 | `scipy` | ODR regression, spatial queries (KDTree), statistics |
 | `scikit-learn` | Regression diagnostics (R²) for magnitude models |
 | `matplotlib`, `seaborn` | Plotting |
