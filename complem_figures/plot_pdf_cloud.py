@@ -172,7 +172,7 @@ def _load_iteration(iter_dir, step, event_id):
     to_local = _geographic_to_local_transformer(_read_lambert_params(hdr_path))
 
     csv_matches = glob.glob(os.path.join(iter_dir, 'Pyrenees_*.sum.grid0.loc.csv'))
-    hyp_x = hyp_y = hyp_z = date_str = None
+    hyp_x = hyp_y = hyp_z = date_str = pdf_volume = ellipsoid_volume = None
     if csv_matches:
         df = pd.read_csv(csv_matches[0], skipinitialspace=True)
         row = df.loc[df['publicId'] == event_id]
@@ -181,12 +181,15 @@ def _load_iteration(iter_dir, step, event_id):
             hyp_x, hyp_y = to_local.transform(row['longitude'], row['latitude'])
             hyp_z = row['depth']
             date_str = row['date-time']
+            pdf_volume = row['pdfVolume']
+            ellipsoid_volume = 4 / 3 * np.pi * row['EllipsoidLen1'] * row['EllipsoidLen2'] * row['EllipsoidLen3']
 
     return {
         'step': step,
         'x': cloud['x'], 'y': cloud['y'], 'z': cloud['z'], 'pdf': cloud['pdf'],
         'center': center, 'cov': cov, 'to_local': to_local,
         'hyp_x': hyp_x, 'hyp_y': hyp_y, 'hyp_z': hyp_z, 'date': date_str,
+        'pdf_volume': pdf_volume, 'ellipsoid_volume': ellipsoid_volume,
     }
 
 
@@ -206,7 +209,8 @@ def _load_nll_reference(nll_result_csv, event_id, to_local):
 
     Returns
     -------
-    dict with keys: zone, center, cov, hyp_x, hyp_y, hyp_z — or None if the event isn't in the CSV.
+    dict with keys: zone, center, cov, hyp_x, hyp_y, hyp_z, pdf_volume, ellipsoid_volume — or None
+    if the event isn't in the CSV.
     """
     df = pd.read_csv(nll_result_csv, skipinitialspace=True)
     row = df.loc[df['publicId'] == event_id]
@@ -218,6 +222,7 @@ def _load_nll_reference(nll_result_csv, event_id, to_local):
                 row['EllipsoidAz2'], row['EllipsoidDip2'], row['EllipsoidLen2'],
                 row['EllipsoidLen3'])
     cov = _build_covariance(*ell_args) / _S3_3DOF
+    ellipsoid_volume = 4 / 3 * np.pi * row['EllipsoidLen1'] * row['EllipsoidLen2'] * row['EllipsoidLen3']
 
     center_x, center_y = to_local.transform(row['expect_lon'], row['expect_lat'])
     hyp_x, hyp_y = to_local.transform(row['longitude'], row['latitude'])
@@ -227,6 +232,7 @@ def _load_nll_reference(nll_result_csv, event_id, to_local):
         'center': np.array([center_x, center_y, row['expect_z']]),
         'cov': cov,
         'hyp_x': hyp_x, 'hyp_y': hyp_y, 'hyp_z': row['depth'],
+        'pdf_volume': row['pdfVolume'], 'ellipsoid_volume': ellipsoid_volume,
     }
 
 
@@ -268,10 +274,12 @@ def _build_figure(iterations, confidence, event_id, zone, run_name, nll_ref=None
 
     traces = []
     hyp_xs, hyp_ys, hyp_zs = [], [], []
+    vol_rows = []
     rng = np.random.default_rng(0)
 
     if nll_ref is not None:
         label = 'NLL (pre-SSST)' if nll_ref['zone'] == zone else f"NLL (pre-SSST, Zone {nll_ref['zone']})"
+        vol_rows.append((label, nll_ref['pdf_volume'], nll_ref['ellipsoid_volume']))
         nx, ny, nz = _ellipsoid_surface(nll_ref['center'], nll_ref['cov'], confidence)
         traces.append(go.Surface(
             x=nx, y=ny, z=nz,
@@ -292,6 +300,7 @@ def _build_figure(iterations, confidence, event_id, zone, run_name, nll_ref=None
         label = 'Final' if it['step'] == steps[-1] else f'Iter {it["step"]}'
         group = f'iter{it["step"]}'
         x, y, z = it['x'], it['y'], it['z']
+        vol_rows.append((label, it['pdf_volume'], it['ellipsoid_volume']))
 
         ex, ey, ez = _ellipsoid_surface(it['center'], it['cov'], confidence)
         traces.append(go.Surface(
@@ -343,6 +352,18 @@ def _build_figure(iterations, confidence, event_id, zone, run_name, nll_ref=None
             aspectmode='data',
         ),
         legend=dict(itemsizing='constant'),
+    )
+
+    def _fmt(v):
+        return f'{v:.3g}' if v is not None else 'n/a'
+
+    table_lines = [f"{'Step':<24}{'pdfVol (km³)':>14}{'ellVol (km³)':>14}"]
+    table_lines += [f'{label:<24}{_fmt(pdf_vol):>14}{_fmt(ell_vol):>14}' for label, pdf_vol, ell_vol in vol_rows]
+    fig.add_annotation(
+        text='<br>'.join(table_lines), xref='paper', yref='paper', x=0.01, y=0.99,
+        xanchor='left', yanchor='top', align='left', showarrow=False,
+        font=dict(family='Courier New, monospace', size=11),
+        bgcolor='rgba(255,255,255,0.75)', bordercolor='black', borderwidth=1,
     )
     return fig
 
