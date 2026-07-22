@@ -9,12 +9,13 @@ winners. Flags events relocated independently in more than one of the 6
 zones (info lost once merge_regional_results.py deduplicates), and events
 whose winning zone changed between the two stages.
 
-Meant as a companion to plot_pdf_cloud.py: the console summary prints a
-ready-to-run plot_pdf_cloud.py command line for each listed event.
+Optionally saves a whole-Pyrenees gridmap PDF of the median pdfVolume/
+ellipsoidVolume change (requires matplotlib/seaborn, e.g. seisbench_env).
 
 Usage
 -----
     python complem_figures/event_ranking.py --run-name ssst_run1
+    python complem_figures/event_ranking.py --run-name ssst_run1 --figures true
 """
 
 import argparse
@@ -46,8 +47,12 @@ class EventRankingParams:
     ssst_root:       str
     run_name:        str
     zones:           list = field(default_factory=lambda: ['1', '2', '3', '4', '5', '6'])
-    top_n:           int = 15
     output:          str = None
+    figures:         bool = False
+    metric:          str = 'pct_change'
+    figure_output:   str = None
+    bin_size:        float = 0.02
+    min_count:       int = 10
 
 
 # ---------------------------------------------------------------------------
@@ -182,65 +187,134 @@ def build_ranking(nll_result_csv, ssst_result_csv, nll_loc_root, ssst_root, run_
 
 
 # ---------------------------------------------------------------------------
-# Console summary
+# Gridmap
 # ---------------------------------------------------------------------------
 
-def _format_plot_cmd(run_name, event_id, zone):
-    zone_key = zone.replace('GLOBAL_', '')
-    return (f'python complem_figures/plot_pdf_cloud.py --run-name {run_name} '
-            f'--event-id {event_id} --zone {zone_key}')
+# Whole-Pyrenees domain, matching complem_figures/error_maps.py and depth_maps.py.
+_LAT_MIN, _LAT_MAX = 42.0, 44.0
+_LON_MIN, _LON_MAX = -2.25, 3.5
 
 
-def _print_event_line(row, run_name, zone_col='source_post'):
-    zone = row[zone_col]
-    print(f"  {row['publicId']}  ({row['date-time']})")
-    print(f"    pdfVolume: {row['pdfVolume_pre']:.4g} -> {row['pdfVolume_post']:.4g}  "
-          f"(log_ratio={row['log_ratio']:+.3f}, {row['pct_change']:+.1f}%)")
-    print(f"    true_erh: {row['true_erh_pre']:.3g} -> {row['true_erh_post']:.3g} km   "
-          f"true_erz: {row['true_erz_pre']:.3g} -> {row['true_erz_post']:.3g} km")
-    print(f"    {_format_plot_cmd(run_name, row['publicId'], zone)}")
+def _metric_series(ranking_df, base_col, metric):
+    """Return a post-minus-pre series for `base_col` (pdfVolume/ellipsoidVolume) under `metric`."""
+    pre, post = ranking_df[f'{base_col}_pre'], ranking_df[f'{base_col}_post']
+    if metric == 'pct_change':
+        return (post / pre - 1) * 100
+    return post - pre
 
 
-def _print_console_summary(ranking_df, dropped_df, top_n, run_name):
-    print(f"\n{'=' * 70}\nBEST IMPROVEMENT (top {top_n}, pdfVolume shrank the most)\n{'=' * 70}")
-    for _, row in ranking_df.head(top_n).iterrows():
-        _print_event_line(row, run_name)
+def _add_gridmap_subplot(events, ax, values, label, bin_size, min_count):
+    """
+    Render a windowed-median diff grid and event scatter onto a matplotlib axis.
 
-    print(f"\n{'=' * 70}\nWORST / DEGRADED (top {top_n}, pdfVolume grew the most)\n{'=' * 70}")
-    for _, row in ranking_df.tail(top_n).iloc[::-1].iterrows():
-        flag = '  [DEGRADED]' if row['log_ratio'] > 0 else ''
-        print(f"{flag}")
-        _print_event_line(row, run_name)
+    Parameters
+    ----------
+    events : pd.DataFrame — events with latitude/longitude columns
+    ax     : matplotlib Axes
+    values : pd.Series    — per-event metric value (post - pre based), aligned with events' index
+    label  : str          — panel label (e.g. 'pdfVolume')
+    bin_size  : float     — grid cell size in degrees
+    min_count : int       — minimum event count for a cell to be shown
 
-    multi = ranking_df[ranking_df['multi_zone']]
-    print(f"\n{'=' * 70}\nMULTI-ZONE EVENTS ({len(multi)} found, showing up to {top_n})\n{'=' * 70}")
-    for _, row in multi.head(top_n).iterrows():
-        print(f"  {row['publicId']}  pre-zones=[{row['zones_pre']}]  post-zones=[{row['zones_post']}]")
-        _print_event_line(row, run_name)
+    Returns
+    -------
+    matplotlib QuadMesh
+    """
+    import seaborn as sns
 
-    changed = ranking_df[ranking_df['zone_changed']]
-    print(f"\n{'=' * 70}\nWINNING ZONE CHANGED ({len(changed)} found, showing up to {top_n})\n{'=' * 70}")
-    for _, row in changed.head(top_n).iterrows():
-        print(f"  {row['publicId']}  {row['source_pre']} -> {row['source_post']}")
-        _print_event_line(row, run_name)
+    bins_lat = max(int(round((_LAT_MAX - _LAT_MIN) / bin_size)), 1)
+    bins_lon = max(int(round((_LON_MAX - _LON_MIN) / bin_size)), 1)
 
-    print(f"\n{'=' * 70}\nDROPPED BY SSST STAGE ({len(dropped_df)} event(s), showing up to {top_n})\n{'=' * 70}")
-    for _, row in dropped_df.head(top_n).iterrows():
-        print(f"  {row['publicId']}  ({row['date-time']})  pdfVolume_pre={row['pdfVolume']:.4g}")
-        print(f"    {_format_plot_cmd(run_name, row['publicId'], row['source'])}  (pre-SSST zone; not in final catalog)")
+    lat_edges   = np.linspace(_LAT_MIN, _LAT_MAX, bins_lat + 1)
+    lon_edges   = np.linspace(_LON_MIN, _LON_MAX, bins_lon + 1)
+    median      = np.zeros((bins_lat, bins_lon))
+    count       = np.zeros((bins_lat, bins_lon), dtype=int)
+    window_size = 4
+
+    lat, lon = events['latitude'], events['longitude']
+    for i in range(bins_lat):
+        for j in range(bins_lon):
+            lat_low  = max(lat_edges[i]   - window_size * (lat_edges[1] - lat_edges[0]), _LAT_MIN)
+            lat_high = min(lat_edges[i+1] + window_size * (lat_edges[1] - lat_edges[0]), _LAT_MAX)
+            lon_low  = max(lon_edges[j]   - window_size * (lon_edges[1] - lon_edges[0]), _LON_MIN)
+            lon_high = min(lon_edges[j+1] + window_size * (lon_edges[1] - lon_edges[0]), _LON_MAX)
+            mask = (lat >= lat_low) & (lat <= lat_high) & (lon >= lon_low) & (lon <= lon_high)
+            window = values[mask]
+            if len(window) > 0:
+                median[i, j] = np.median(window)
+                count[i, j]  = len(window)
+            else:
+                median[i, j] = np.nan
+
+    median_masked = np.ma.masked_where(count < min_count, median)
+    vmax = np.nanpercentile(np.abs(median_masked.filled(np.nan)), 95)
+    vmax = vmax if vmax > 0 else 1.0
+
+    mesh = ax.pcolormesh(lon_edges, lat_edges, median_masked,
+                         vmin=-vmax, vmax=vmax, cmap='coolwarm',
+                         shading='auto', alpha=0.9)
+
+    sns.scatterplot(x=lon, y=lat, s=0.6, color='black', linewidth=0, ax=ax)
+
+    ax.text(0.01, 0.98, label, transform=ax.transAxes,
+            fontweight='bold', color='black', ha='left', va='top')
+
+    ax.set_xlim(_LON_MIN, _LON_MAX)
+    ax.set_ylim(_LAT_MIN, _LAT_MAX)
+    ax.set_xlabel('Longitude')
+    ax.set_ylabel('Latitude')
+    return mesh
+
+
+def _generate_gridmap_figure(ranking_df, metric, output_path, bin_size, min_count):
+    """Build and save the whole-Pyrenees pdfVolume/ellipsoidVolume gridmap PDF."""
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    sns.set_theme()
+    events = ranking_df[['latitude', 'longitude']]
+
+    fig, axes = plt.subplots(2, 1, figsize=(12, 10), layout='constrained')
+
+    pdf_values = _metric_series(ranking_df, 'pdfVolume', metric)
+    ellipsoid_values = _metric_series(ranking_df, 'ellipsoidVolume', metric)
+
+    unit = '%' if metric == 'pct_change' else 'km³'
+    mesh_pdf = _add_gridmap_subplot(events, axes[0], pdf_values, 'pdfVolume', bin_size, min_count)
+    mesh_ellipsoid = _add_gridmap_subplot(events, axes[1], ellipsoid_values, 'ellipsoidVolume', bin_size, min_count)
+
+    fig.colorbar(mesh_pdf, ax=axes[0], label=f'Median pdfVolume change ({unit})', shrink=0.85, pad=0.02)
+    fig.colorbar(mesh_ellipsoid, ax=axes[1], label=f'Median ellipsoidVolume change ({unit})', shrink=0.85, pad=0.02)
+
+    plt.suptitle(f'pdfVolume / ellipsoidVolume change, pre-SSST → post-SSST\nmetric={metric}',
+                 fontweight='bold')
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    plt.savefig(output_path)
+    plt.close(fig)
 
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
+_METRIC_SUFFIXES = {'pct_change': '_pct', 'diff': '_raw'}
+
+
+def _suffixed_path(path, suffix):
+    """Insert `suffix` before the file extension, e.g. ('foo.pdf', '_pct') -> 'foo_pct.pdf'."""
+    root, ext = os.path.splitext(path)
+    return f'{root}{suffix}{ext}'
+
+
 def generate_ranking(params):
     """
-    Build the event ranking, save it to CSV, and print a console summary.
+    Build the event ranking, save it to CSV, and optionally save gridmap figure(s).
 
     Parameters
     ----------
     params : EventRankingParams
+        params.metric selects 'pct_change', 'diff', or 'both' (one gridmap PDF per metric,
+        filenames suffixed '_pct'/'_raw').
 
     Returns
     -------
@@ -258,7 +332,15 @@ def generate_ranking(params):
     ranking_df.to_csv(output_path, index=False)
     print(f'Ranking saved @ {output_path} ({len(ranking_df)} events)')
 
-    _print_console_summary(ranking_df, dropped_df, params.top_n, params.run_name)
+    if params.figures:
+        base_output = params.figure_output or os.path.join(
+            _MODULE_DIR, 'event_ranking', f'{params.run_name}_gridmap.pdf'
+        )
+        metrics = ['pct_change', 'diff'] if params.metric == 'both' else [params.metric]
+        for metric in metrics:
+            figure_output = _suffixed_path(base_output, _METRIC_SUFFIXES[metric])
+            _generate_gridmap_figure(ranking_df, metric, figure_output, params.bin_size, params.min_count)
+            print(f'Gridmap saved @ {figure_output}')
 
     return {
         'output_path': output_path,
@@ -271,6 +353,14 @@ def generate_ranking(params):
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
+def _str2bool(value):
+    if value.lower() in ('true', '1', 'yes'):
+        return True
+    if value.lower() in ('false', '0', 'no'):
+        return False
+    raise argparse.ArgumentTypeError(f"expected true/false, got '{value}'")
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -288,10 +378,20 @@ def main():
                         help='Root folder containing <run-name>/Pyrenees_<zone>_SSST/... (default: run/ssst_loc)')
     parser.add_argument('--zones', nargs='+', default=['1', '2', '3', '4', '5', '6'],
                         help='Zone keys to scan for multi-zone detection (default: 1 2 3 4 5 6)')
-    parser.add_argument('--top-n', type=int, default=15,
-                        help='Number of events to print per console section (default: 15)')
     parser.add_argument('--output', default=None,
                         help='Output CSV path (default: complem_figures/event_ranking/<run-name>_ranking.csv)')
+    parser.add_argument('--figures', type=_str2bool, default=False,
+                        help='Save a whole-Pyrenees pdfVolume/ellipsoidVolume gridmap PDF (default: false)')
+    parser.add_argument('--metric', choices=['pct_change', 'diff', 'both'], default='pct_change',
+                        help="Gridmap metric: 'pct_change' ((post/pre-1)*100), 'diff' (post-pre, km³), "
+                             "or 'both' (one PDF per metric, suffixed _pct/_raw) (default: pct_change)")
+    parser.add_argument('--figure-output', default=None,
+                        help='Gridmap PDF path, suffixed _pct/_raw before the extension '
+                             '(default: complem_figures/event_ranking/<run-name>_gridmap.pdf)')
+    parser.add_argument('--bin-size', type=float, default=0.02,
+                        help='Gridmap cell size in degrees (default: 0.02)')
+    parser.add_argument('--min-count', type=int, default=10,
+                        help='Minimum events per gridmap cell to display (default: 10)')
     args = parser.parse_args()
 
     generate_ranking(EventRankingParams(
@@ -301,8 +401,12 @@ def main():
         ssst_root       = args.ssst_root,
         run_name        = args.run_name,
         zones           = args.zones,
-        top_n           = args.top_n,
         output          = args.output,
+        figures         = args.figures,
+        metric          = args.metric,
+        figure_output   = args.figure_output,
+        bin_size        = args.bin_size,
+        min_count       = args.min_count,
     ))
 
 
