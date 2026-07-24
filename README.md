@@ -99,7 +99,10 @@ Shallow_Depth_DL_Catalog/
 │   ├── gutenberg_richter.py
 │   ├── cross_section.py
 │   ├── station_map.py
-│   └── zone_map.py
+│   ├── zone_map.py
+│   ├── event_ranking.py
+│   ├── plot_pdf_cloud.py
+│   └── ssst_evolution.py
 │
 ├── zone_Arette/              # Focused analysis of the Arette seismic zone
 │
@@ -314,6 +317,11 @@ Each module can also be run standalone:
 | `cross_section.py` | Vertical cross-sections of seismicity |
 | `station_map.py` | Map of seismic stations |
 | `zone_map.py` | Overview map of the 6 NLL relocation zones |
+| `event_ranking.py` | Ranks events by pdfVolume/ellipsoidVolume change (NLL → SSST); flags multi-zone and zone-changed events; optional whole-region gridmap PDF |
+| `plot_pdf_cloud.py` | Interactive 3D Plotly visualization of one event's NLLoc PDF scatter-cloud across SSST iterations |
+| `ssst_evolution.py` | Per-zone plot of pdfVolume/EllipsoidLen3/RMS evolution across SSST iterations (convergence QC) |
+
+`event_ranking.py`, `plot_pdf_cloud.py`, and `ssst_evolution.py` are standalone diagnostics for the SSST stage, run directly rather than wired into `generate_complem_figures.py` / `generate_complem_maps.py`; they read `RESULT/NLL_result.csv`, `RESULT/SSST_result.csv`, and the per-zone `run/nll_loc/` / `run/ssst_loc/<run-name>/` outputs directly.
 
 Map modules apply a quality filter (erh ≤ 3 km, erv ≤ 3 km, gap ≤ 300°, rms ≤ 0.5 s) by default; use `--no-filter` for pre-relocation catalogs where errors are unavailable.
 
@@ -331,6 +339,7 @@ Map modules apply a quality filter (erh ≤ 3 km, erv ≤ 3 km, gap ≤ 300°, r
 | `scipy` | ODR regression, spatial queries (KDTree), statistics |
 | `scikit-learn` | Regression diagnostics (R²) for magnitude models |
 | `matplotlib`, `seaborn` | Plotting |
+| `plotly` | Interactive 3D PDF-cloud visualization — `complem_figures/plot_pdf_cloud.py` |
 | `xarray` | Grid handling for cross-sections |
 | `pygmt` | Geographic maps (requires separate `pygmt_env` conda environment) |
 | `joblib` | Magnitude model serialization |
