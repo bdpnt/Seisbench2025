@@ -68,10 +68,15 @@ Scripts in `complem_figures/` for visualization and statistics:
 - `cross_section.py` — vertical cross-sections
 - `station_map.py` — map of seismic stations
 - `zone_map.py` — overview map of the 6 NLL zones
+- `event_ranking.py` — ranks events by pdfVolume/ellipsoidVolume change (NLL → SSST); flags multi-zone/zone-changed events; optional gridmap PDF
+- `plot_pdf_cloud.py` — interactive 3D PDF scatter-cloud of one event across SSST iterations (Plotly)
+- `ssst_evolution.py` — per-zone pdfVolume/EllipsoidLen3/RMS evolution across SSST iterations (convergence QC)
 
 > **Environments**:
 > - `seisbench_env` → `generate_complem_figures.py` (Gutenberg-Richter, depth maps, error maps)
 > - `pygmt_env`     → `generate_complem_maps.py` (event maps for each zone and final catalog)
+
+`event_ranking.py`, `plot_pdf_cloud.py`, and `ssst_evolution.py` are standalone diagnostics, not wired into the two driver scripts above; they read `RESULT/*.csv` and `run/nll_loc/` / `run/ssst_loc/<run-name>/` directly.
 
 `zone_Arette/` — focused analysis of the Arette seismic zone.
 
