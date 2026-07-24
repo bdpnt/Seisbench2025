@@ -14,6 +14,8 @@ Usage
     python temp_picks/convert_picks.py --input temp_picks/pick_files/merged_pyrenees.txt --format TEMP_RSB
     python temp_picks/convert_picks.py --input temp_picks/pick_files/merged_omp.csv --format TEMP_OMP
     python temp_picks/convert_picks.py --input temp_picks/pick_files/merged_other.txt --format TEMP_OTH
+    python temp_picks/convert_picks.py --input temp_picks/all_picks/PICKS_MARC/OMP-picks.pq \
+        --format TEMP_STB --output temp_picks/pick_files/OMP-picks_converted.obs
 
 Supported formats
 -----------------
@@ -26,6 +28,13 @@ Supported formats
                station_id (fields 0-3), phase_time, phase_type.
     TEMP_OTH : fixed-width quality-coded pick files. One line per P pick, with an
                optional S pick stored as an offset in seconds after the P arrival.
+    TEMP_STB : Strasbourg (RENASS/OMP) pick datasets — a directory of hive-partitioned
+               parquet files. Columns used: station_id ("NETWORK.STATION"), phase_type,
+               phase_time, phase_score. Rows with phase_score below --min-phase-score
+               (default DEFAULT_MIN_PHASE_SCORE) are dropped. --input must point to the
+               dataset's root directory; --output should be given explicitly, since the
+               default naming would otherwise land inside the gitignored source directory
+               instead of temp_picks/pick_files/.
 
 Adding a new format
 -------------------
@@ -35,16 +44,31 @@ Adding a new format
        strings (for formats that pack multiple picks into one source line), or
        None/an empty list to skip.
     2. Register it in FORMAT_HANDLERS with a descriptive key string.
+    3. Most formats are line-based (see step 1). A format may instead be row-based /
+       directory-based (source is a directory of files read into rows, e.g. parquet):
+       the handler then takes a row (a DataFrame.itertuples() namedtuple, accessed by
+       attribute name — column order from pd.read_parquet(columns=[...]) is not
+       guaranteed) instead of a line string, and the format key must also be added to
+       ROW_BASED_FORMATS so convert_file() dispatches it through the parquet-glob/
+       streaming-write path instead of the per-line path. See TEMP_STB /
+       convert_temp_stb / _convert_parquet_dir for the reference implementation.
 """
 
 import argparse
+import glob
 import logging
 import os
 import re
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
+import pandas as pd
+
 logger = logging.getLogger('convert_picks')
+
+DEFAULT_MIN_PHASE_SCORE = 0.5     # mirrors merge_omp_picks.py / merge_pyrenees_picks.py
+ROW_BASED_FORMATS = {'TEMP_STB'}  # formats read from a directory of row-oriented files
+                                  # (parquet) instead of opened as a text file line-by-line
 
 
 # ---------------------------------------------------------------------------
@@ -447,6 +471,45 @@ def convert_temp_oth(line, code_map, skipped_stations=None, fallback_counter=Non
     return results
 
 
+def convert_temp_stb(row, code_map, skipped_stations=None, fallback_counter=None):
+    """
+    Convert a single pick row from Strasbourg (RENASS/OMP) parquet format to
+    GLOBAL.obs format.
+
+    row is a DataFrame.itertuples() namedtuple with attributes station_id
+    ("NETWORK.STATION"), phase_type ('P'/'S'), phase_time (Timestamp, already
+    filtered by min_phase_score upstream). Access by attribute name, not
+    position — pd.read_parquet(columns=[...]) does not guarantee column order
+    matches the requested list.
+
+    Pick uncertainty: 0.05 s for P, 0.15 s for S (matches convert_temp_rsb /
+    convert_temp_omp — phase_score is a detection confidence, already
+    threshold-filtered, not a timing-error estimate).
+    """
+    station_parts = row.station_id.split('.')
+    if len(station_parts) < 2:
+        return None
+    short_name = station_parts[1]
+
+    dt = row.phase_time
+    if pd.isna(dt):
+        return None
+
+    phase       = row.phase_type
+    date        = dt.strftime('%Y%m%d')
+    hhmm        = dt.strftime('%H%M')
+    seconds_str = f"{dt.second + dt.microsecond / 1e6:.3f}"
+    error_str   = '0.05' if phase == 'P' else '0.15'
+
+    internal_code = resolve_station(short_name, date, code_map, fallback_counter)
+    if internal_code is None:
+        if skipped_stations is not None:
+            skipped_stations[short_name] += 1
+        return None
+
+    return _format_pick_line(internal_code, phase, date, hhmm, seconds_str, error_str, 'TEMP_STB')
+
+
 # ---------------------------------------------------------------------------
 # Format dispatch table — register new format handlers here
 # ---------------------------------------------------------------------------
@@ -456,7 +519,48 @@ FORMAT_HANDLERS = {
     'TEMP_RSB': convert_temp_rsb,
     'TEMP_OMP': convert_temp_omp,
     'TEMP_OTH': convert_temp_oth,
+    'TEMP_STB': convert_temp_stb,
 }
+
+
+# ---------------------------------------------------------------------------
+# Row-based (parquet) reader — used for formats in ROW_BASED_FORMATS
+# ---------------------------------------------------------------------------
+
+def _convert_parquet_dir(input_dir, output_path, fmt_handler, code_map,
+                          min_phase_score, skipped_stations, fallback_counter):
+    """
+    Read every *.parquet file under input_dir, filter by phase_score, convert
+    row-by-row, and stream results straight to output_path — one parquet file
+    at a time, so peak memory stays bounded regardless of total dataset size
+    (pyrope-renass74-bp4_40.pq alone is ~72.5M rows).
+
+    Reads each leaf file individually (never pd.read_parquet(input_dir)):
+    some datasets (e.g. OMP-picks.pq) embed year/month as real columns AND as
+    hive-partition directories, which pandas can't merge across files. Since
+    phase_time already carries the full date, year/month are never requested.
+    """
+    parquet_files = sorted(glob.glob(os.path.join(input_dir, '**', '*.parquet'), recursive=True))
+    n_input = n_converted = n_skipped = n_dropped_low_score = 0
+
+    with open(output_path, 'w') as out_f:
+        for fp in parquet_files:
+            df = pd.read_parquet(fp, columns=['station_id', 'phase_type', 'phase_time', 'phase_score'])
+            n_input += len(df)
+
+            keep = df['phase_score'].notna() & (df['phase_score'] >= min_phase_score)
+            n_dropped_low_score += int((~keep).sum())
+            df = df[keep]
+
+            for row in df.itertuples(index=False):
+                result = fmt_handler(row, code_map, skipped_stations, fallback_counter)
+                if result is None:
+                    n_skipped += 1
+                else:
+                    out_f.write(result + '\n')
+                    n_converted += 1
+
+    return n_input, n_converted, n_skipped, n_dropped_low_score
 
 
 # ---------------------------------------------------------------------------
@@ -485,14 +589,16 @@ def _setup_logger(log_dir):
     return log_path
 
 
-def convert_file(input_path, fmt, output_path=None, codemap_path=None, log_dir=None):
+def convert_file(input_path, fmt, output_path=None, codemap_path=None, log_dir=None, min_phase_score=None):
     """
     Convert a pick file to GLOBAL.obs pick line format.
 
     Parameters
     ----------
     input_path : str
-        Path to the source pick file (e.g. 'temp_picks/pick_files/viehla_final.obs').
+        Path to the source pick file (e.g. 'temp_picks/pick_files/viehla_final.obs'),
+        or — for formats in ROW_BASED_FORMATS (e.g. 'TEMP_STB') — a directory of
+        parquet files.
     fmt : str
         Source format type. Must be a key in FORMAT_HANDLERS (e.g. 'TEMP_OBS').
     output_path : str, optional
@@ -502,6 +608,10 @@ def convert_file(input_path, fmt, output_path=None, codemap_path=None, log_dir=N
         relative to this module's location.
     log_dir : str, optional
         Directory where the log file is written. Defaults to temp_picks/console_output/.
+    min_phase_score : float, optional
+        Minimum phase_score required to keep a pick. Only used for formats in
+        ROW_BASED_FORMATS (e.g. 'TEMP_STB'); ignored otherwise. Defaults to
+        DEFAULT_MIN_PHASE_SCORE.
 
     Returns
     -------
@@ -536,36 +646,50 @@ def convert_file(input_path, fmt, output_path=None, codemap_path=None, log_dir=N
     logger.info(f"Code map loaded: {len(code_map)} station names, {n_windows} validity windows.")
 
     fmt_handler      = FORMAT_HANDLERS[fmt]
-    converted        = []
     skipped_stations = Counter()
     fallback_counter = Counter()
-    n_input          = 0
-    n_skipped        = 0
 
-    with open(input_path, 'r') as f:
-        for raw_line in f:
-            line = raw_line.rstrip('\n')
-            if not line.strip() or line.lstrip().startswith('#'):
-                continue
-            n_input += 1
-            result = fmt_handler(line, code_map, skipped_stations, fallback_counter)
-            if result is None:
-                n_skipped += 1
-            elif isinstance(result, list):
-                if result:
-                    converted.extend(result)
-                else:
+    if fmt in ROW_BASED_FORMATS:
+        score_threshold = min_phase_score if min_phase_score is not None else DEFAULT_MIN_PHASE_SCORE
+        logger.info(f"Min phase score  : {score_threshold}")
+        n_input, n_converted, n_skipped, n_dropped_low_score = _convert_parquet_dir(
+            input_path, output_path, fmt_handler, code_map,
+            score_threshold, skipped_stations, fallback_counter,
+        )
+    else:
+        converted = []
+        n_input   = 0
+        n_skipped = 0
+
+        with open(input_path, 'r') as f:
+            for raw_line in f:
+                line = raw_line.rstrip('\n')
+                if not line.strip() or line.lstrip().startswith('#'):
+                    continue
+                n_input += 1
+                result = fmt_handler(line, code_map, skipped_stations, fallback_counter)
+                if result is None:
                     n_skipped += 1
-            else:
-                converted.append(result)
+                elif isinstance(result, list):
+                    if result:
+                        converted.extend(result)
+                    else:
+                        n_skipped += 1
+                else:
+                    converted.append(result)
 
-    with open(output_path, 'w') as f:
-        for line in converted:
-            f.write(line + '\n')
+        with open(output_path, 'w') as f:
+            for line in converted:
+                f.write(line + '\n')
+
+        n_converted         = len(converted)
+        n_dropped_low_score = 0
 
     logger.info(f"Input pick lines : {n_input}")
-    logger.info(f"Converted        : {len(converted)}")
+    logger.info(f"Converted        : {n_converted}")
     logger.info(f"Skipped          : {n_skipped}")
+    if fmt in ROW_BASED_FORMATS:
+        logger.info(f"Rows dropped (low phase_score) : {n_dropped_low_score}")
     logger.info(f"Output           : {output_path}")
     if skipped_stations:
         summary = ', '.join(f"{s} ({n})" for s, n in sorted(skipped_stations.items()))
@@ -578,7 +702,7 @@ def convert_file(input_path, fmt, output_path=None, codemap_path=None, log_dir=N
         'output':      output_path,
         'log':         log_path,
         'n_input':     n_input,
-        'n_converted': len(converted),
+        'n_converted': n_converted,
         'n_skipped':   n_skipped,
     }
 
@@ -611,8 +735,15 @@ def main():
         '--log-dir', default=None,
         help='Directory for log files. Default: temp_picks/console_output/.'
     )
+    parser.add_argument(
+        '--min-phase-score', type=float, default=None, metavar='SCORE',
+        help=f'Minimum phase_score required to keep a pick (TEMP_STB only). Default: {DEFAULT_MIN_PHASE_SCORE}.'
+    )
     args = parser.parse_args()
-    convert_file(args.input, args.format, output_path=args.output, codemap_path=args.codemap, log_dir=args.log_dir)
+    convert_file(
+        args.input, args.format, output_path=args.output, codemap_path=args.codemap,
+        log_dir=args.log_dir, min_phase_score=args.min_phase_score,
+    )
 
 
 if __name__ == '__main__':

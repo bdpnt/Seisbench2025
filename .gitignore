@@ -30,3 +30,5 @@ test.ipynb
 *.csv
 *.log
 *.txt
+*.html
+temp_picks/all_picks/
