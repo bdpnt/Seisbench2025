@@ -53,6 +53,10 @@ class EventRankingParams:
     figure_output:   str = None
     bin_size:        float = 0.02
     min_count:       int = 10
+    max_erh:         float = 3.0
+    max_erz:         float = 3.0
+    corr_matrix:     bool = False
+    corr_matrix_output: str = None
 
 
 # ---------------------------------------------------------------------------
@@ -293,6 +297,51 @@ def _generate_gridmap_figure(ranking_df, metric, output_path, bin_size, min_coun
     plt.close(fig)
 
 
+def _generate_corr_matrix_figure(ranking_df, max_erh, max_erz, output_path):
+    """
+    Build and save a Pearson/Spearman correlation-matrix PDF over
+    ellipsoidVolume_post, pdfVolume_post, true_erh_post, true_erz_post,
+    restricted to events with true_erh_post <= max_erh and true_erz_post <= max_erz.
+    """
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    mask = (ranking_df['true_erh_post'] <= max_erh) & (ranking_df['true_erz_post'] <= max_erz)
+    filtered = ranking_df[mask]
+
+    cols = ['ellipsoidVolume_post', 'pdfVolume_post', 'true_erh_post', 'true_erz_post']
+    labels = {
+        'ellipsoidVolume_post': 'Ellip. Volume',
+        'pdfVolume_post': 'PDF Volume',
+        'true_erh_post': 'Hor. Err.',
+        'true_erz_post': 'Ver. Err.',
+    }
+    pearson = filtered[cols].rename(columns=labels).corr(method='pearson')
+    spearman = filtered[cols].rename(columns=labels).corr(method='spearman')
+
+    sns.set_theme()
+    fig, axes = plt.subplots(1, 2, figsize=(14, 7))
+
+    sns.heatmap(pearson, annot=True, fmt='.2f', cmap='coolwarm', vmin=-1, vmax=1,
+                ax=axes[0], cbar_kws={'label': 'r coefficient'})
+    axes[0].set_title('Pearson')
+
+    sns.heatmap(spearman, annot=True, fmt='.2f', cmap='coolwarm', vmin=-1, vmax=1,
+                ax=axes[1], cbar_kws={'label': r'$\rho$ coefficient'})
+    axes[1].set_title('Spearman')
+
+    fig.suptitle('Correlation matrix (post-SSST)', fontweight='bold', fontsize=14, y=0.98)
+    fig.text(0.5, 0.915,
+             rf'ERH $\leq$ {max_erh} km & ERZ $\leq$ {max_erz} km '
+             rf'— {len(filtered)}/{len(ranking_df)} events',
+             ha='center', va='top', fontsize=10, fontweight='normal')
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    fig.tight_layout(rect=[0, 0, 1, 0.90])
+    plt.savefig(output_path)
+    plt.close(fig)
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -341,6 +390,13 @@ def generate_ranking(params):
             figure_output = _suffixed_path(base_output, _METRIC_SUFFIXES[metric])
             _generate_gridmap_figure(ranking_df, metric, figure_output, params.bin_size, params.min_count)
             print(f'Gridmap saved @ {figure_output}')
+
+    if params.corr_matrix:
+        corr_output = params.corr_matrix_output or os.path.join(
+            _MODULE_DIR, 'event_ranking', f'{params.run_name}_corr_matrix.pdf'
+        )
+        _generate_corr_matrix_figure(ranking_df, params.max_erh, params.max_erz, corr_output)
+        print(f'Correlation matrix saved @ {corr_output}')
 
     return {
         'output_path': output_path,
@@ -392,6 +448,18 @@ def main():
                         help='Gridmap cell size in degrees (default: 0.02)')
     parser.add_argument('--min-count', type=int, default=10,
                         help='Minimum events per gridmap cell to display (default: 10)')
+    parser.add_argument('--corr-matrix', type=_str2bool, default=False,
+                        help='Save a Pearson/Spearman correlation-matrix PDF of ellipsoidVolume_post, '
+                             'pdfVolume_post, true_erh_post, true_erz_post (default: false)')
+    parser.add_argument('--max-erh', type=float, default=3.0,
+                        help='Max true_erh_post (km) for an event to be included in the '
+                             'correlation matrix (default: 3.0)')
+    parser.add_argument('--max-erz', type=float, default=3.0,
+                        help='Max true_erz_post (km) for an event to be included in the '
+                             'correlation matrix (default: 3.0)')
+    parser.add_argument('--corr-matrix-output', default=None,
+                        help='Correlation-matrix PDF path (default: '
+                             'complem_figures/event_ranking/<run-name>_corr_matrix.pdf)')
     args = parser.parse_args()
 
     generate_ranking(EventRankingParams(
@@ -407,6 +475,10 @@ def main():
         figure_output   = args.figure_output,
         bin_size        = args.bin_size,
         min_count       = args.min_count,
+        max_erh         = args.max_erh,
+        max_erz         = args.max_erz,
+        corr_matrix     = args.corr_matrix,
+        corr_matrix_output = args.corr_matrix_output,
     ))
 
 
