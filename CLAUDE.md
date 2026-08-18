@@ -53,6 +53,11 @@ Final stage, run after `add_temp_picks.py`: relocates `obs/NLL_result_augmented.
 
 - **`run_SSST.py`** — orchestrator; campaign configuration (RUN_NAME, CHAR_DISTS, VPVS, core counts, LSPHSTAT) at the top of the file; CLI `--zones`, `--iteration-start`, `--iteration-stop` (partial campaigns/resume). Per zone: cuts `obs/GLOBAL_<N>_SSST.obs` + `stations/GTSRCE_SSST_<N>.txt`, derives `run/ssst/run_<N>_NLL.in` (NLLoc) and `run/ssst/run_<N>_SSST.in` (Loc2ssst) from `run/nll/run_<N>_DELAYS.in` (`NLL_run/generate_ssst_runfiles.py`), splits the bulletin into per-event files in `obs/nlloc_obs/GLOBAL_<N>/` (`NLL_run/reformate_obs.py`), builds P+S grids in `run/ssst_model|ssst_time` (VpVs −9.99, real S grids), and runs the iteration loop (`NLL_run/run_ssst.py`: len(CHAR_DISTS) SSST iterations + final NLLoc-only relocation, outputs under `run/ssst_loc/<RUN_NAME>/`).
 - After all zones: merges the final-iteration CSVs → `RESULT/SSST_result.csv` (dedup by lowest `pdfVolume`), rematches against `obs/NLL_result_augmented.obs` via `publicId` → `obs/SSST_result.obs` (same modules as the NLL stage).
+- **`NLL_run/pdf_metrics.py`** (post-step, run manually in `seisbench_env` — it needs `diptest`, which `run_SSST.py`'s environment lacks): reads the per-event `.scat` clouds of each zone's final SSST iteration and rewrites `RESULT/SSST_result.csv` in place with the location-PDF quality columns. Idempotent; ~80 s for ~46 k events.
+  ```bash
+  conda run -n seisbench_env python NLL_run/pdf_metrics.py --run-name ssst_run1
+  ```
+  Uses its own `.scat` reader — **not** `obspy.io.nlloc.util.read_nlloc_scatter`, which does `np.fromfile(...)[4:]` and silently drops the first 3 samples of every file (4 records dropped where the header is 1).
 - Reference: `SSST_INTEGRATION.md` (porting notes from the validated CODES_SSST workflow).
 
 ---
@@ -68,7 +73,7 @@ Scripts in `complem_figures/` for visualization and statistics:
 - `cross_section.py` — vertical cross-sections
 - `station_map.py` — map of seismic stations
 - `zone_map.py` — overview map of the 6 NLL zones
-- `event_ranking.py` — ranks events by pdfVolume/ellipsoidVolume change (NLL → SSST); flags multi-zone/zone-changed events; optional gridmap PDF
+- `event_ranking.py` — ranks events by pdfVolume/ellipsoidVolume change (NLL → SSST); flags multi-zone/zone-changed events; carries the PDF-quality columns (post-SSST only) when `pdf_metrics.py` has annotated the CSV, and runs without them otherwise; optional gridmap PDF
 - `plot_pdf_cloud.py` — interactive 3D PDF scatter-cloud of one event across SSST iterations (Plotly)
 - `ssst_evolution.py` — per-zone pdfVolume/EllipsoidLen3/RMS evolution across SSST iterations (convergence QC)
 
@@ -111,6 +116,16 @@ The root-level script **`add_temp_picks.py`** orchestrates the full pipeline (st
 - Per-zone CSV summary: `run/nll_loc/GLOBAL_<N>/GLOBAL_<N>.obs.sum.grid0.loc.csv` — relocated hypocenter parameters including `publicId` (links back to the input `.obs` event), `pdfVolume` (location PDF volume; smaller = tighter), the confidence-ellipsoid axes, etc.
 - Merged result: `RESULT/NLL_result.csv` — deduplicated across all 6 zones; horizontal/vertical uncertainties `true_erh` / `true_erz` are derived from the 3-D confidence ellipsoid, rescaled to DOF-appropriate 68% confidence factors (not axis-aligned `errH`/`errZ` projections, and not NLL's raw 3-DOF ellipsoid scaling): `true_erz` is a 1-DOF marginal standard deviation, `true_erh` is a 2-DOF horizontal error ellipse reduced via the geometric mean of its semi-axes
 - Does **not** contain magnitude or full pick metadata → rematching to `obs/GLOBAL.obs` via `publicId` is necessary
+- `ellipsoidVolume` = 4/3·π·Len1·Len2·Len3, written alongside `true_erh`/`true_erz` for direct comparison against `pdfVolume`
+
+### Location-PDF quality columns (`RESULT/SSST_result.csv` only)
+Added by `NLL_run/pdf_metrics.py` from the `.scat` scatter clouds; see `PDF_metrics.md` for derivations and pitfalls.
+- `J` / `Psi` — negentropy `KL(p ‖ N(μ,Σ))` in nats and `Psi = exp(-J)`, the effective-volume ratio. `Psi = 1` is exactly Gaussian. **Directionless — never a rejection criterion on its own.**
+- `C68` — posterior mass inside the nominal 68% ellipsoid. The only directional metric, so it drives keep/reject: `> 0.68` conservative (safe), `< 0.68` over-confident.
+- `dip_stat` / `dip_pval` / `dip_reject` — Hartigan's dip test on the depth marginal, computed at a common subsample of 400 so p-values are comparable across events. A rejection means two competing depth solutions and no defensible scalar depth.
+- `J_null_p95` / `C68_sigma_n` — per-event n-matched Gaussian nulls. **`J` and `C68` are uninterpretable without them**: the k-NN estimator bias depends on n, and the `C68` null spread is not binomial (μ/Σ are fitted on the samples being tested).
+- `n_scat` — sample count backing every metric above.
+- These measure **consistency, not accuracy** — velocity-model bias is invisible to all of them.
 
 ---
 

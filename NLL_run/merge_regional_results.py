@@ -171,6 +171,13 @@ def merge_bulletins(csv_files, output_path, log_dir=None):
         lambda r: _compute_true_erz(*r[_ell_args]), axis=1
     )
 
+    # Volume of the confidence ellipsoid, for comparison against pdfVolume (NLLoc's
+    # OCT-tree-integrated PDF volume) — the two diverge for non-Gaussian events.
+    merged['ellipsoidVolume'] = (
+        4 / 3 * np.pi
+        * merged['EllipsoidLen1'] * merged['EllipsoidLen2'] * merged['EllipsoidLen3']
+    )
+
     merged = merged.sort_values('date-time').rename(columns={'_source': 'source'})
 
     parent = os.path.dirname(output_path)

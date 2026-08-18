@@ -35,7 +35,6 @@ import pandas as pd
 import plotly.colors as pcolors
 import plotly.graph_objects as go
 import pyproj
-from obspy.io.nlloc.util import read_nlloc_scatter
 from scipy.stats import chi2
 
 # ---------------------------------------------------------------------------
@@ -48,6 +47,10 @@ _PROJECT_ROOT = os.path.dirname(_MODULE_DIR)
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 from NLL_run.merge_regional_results import _build_covariance, _S3_3DOF  # noqa: E402
+# Not obspy's read_nlloc_scatter: it does `np.fromfile(...)[4:]`, dropping four
+# 16-byte records where the header is one, so it silently loses the first 3
+# samples of every cloud.
+from NLL_run.pdf_metrics import read_scat as read_nlloc_scatter  # noqa: E402
 
 _TRANS_RE = re.compile(
     r'TRANSFORM\s+LAMBERT\s+RefEllipsoid\s+(\S+)\s+'

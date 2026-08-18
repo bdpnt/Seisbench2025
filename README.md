@@ -89,7 +89,8 @@ Shallow_Depth_DL_Catalog/
 │   ├── merge_regional_results.py
 │   ├── generate_ssst_runfiles.py    # SSST: derive control files from the NLL run files
 │   ├── reformate_obs.py             # SSST: split a bulletin into per-event .nlloc_obs
-│   └── run_ssst.py                  # SSST: iterative NLLoc + Loc2ssst workflow (one zone)
+│   ├── run_ssst.py                  # SSST: iterative NLLoc + Loc2ssst workflow (one zone)
+│   └── pdf_metrics.py               # SSST: location-PDF quality metrics from .scat clouds
 │
 ├── complem_figures/          # Visualization & statistical analysis
 │   ├── event_maps.py
@@ -250,7 +251,7 @@ Called automatically by `run_NLL.py` once all zones have completed both passes. 
 **Script:** `run_NLL.py` (runs after all 6 zones complete)
 **Modules:** `NLL_run/merge_regional_results.py`, `NLL_run/match_pre_post_relocation.py`
 
-1. Reads the 6 per-zone NLL CSV summaries (`run/nll_loc/GLOBAL_<N>/GLOBAL_<N>.obs.sum.grid0.loc.csv`), deduplicates events that appear in multiple overlapping zones (kept: lowest `pdfVolume`), and writes → `RESULT/NLL_result.csv`. True horizontal/vertical errors (`true_erh` / `true_erz`) are derived from the 3-D confidence ellipsoid, rescaled to DOF-appropriate 68% confidence factors: `true_erz` is a 1-DOF marginal standard deviation, `true_erh` is a 2-DOF horizontal error ellipse reduced to the geometric mean of its semi-axes.
+1. Reads the 6 per-zone NLL CSV summaries (`run/nll_loc/GLOBAL_<N>/GLOBAL_<N>.obs.sum.grid0.loc.csv`), deduplicates events that appear in multiple overlapping zones (kept: lowest `pdfVolume`), and writes → `RESULT/NLL_result.csv`. True horizontal/vertical errors (`true_erh` / `true_erz`) are derived from the 3-D confidence ellipsoid, rescaled to DOF-appropriate 68% confidence factors: `true_erz` is a 1-DOF marginal standard deviation, `true_erh` is a 2-DOF horizontal error ellipse reduced to the geometric mean of its semi-axes. `ellipsoidVolume` (4/3·π·Len1·Len2·Len3) is also written, so the Gaussian ellipsoid volume can be compared directly against `pdfVolume`, NLLoc's OCT-tree-integrated PDF volume — the two diverge for non-Gaussian events.
 2. Rematches relocated events back to `obs/GLOBAL.obs` via the `publicId` field to recover metadata absent from NLL output (magnitude, pick details, etc.).
 3. Saves matched events → `obs/NLL_result.obs`
 
@@ -293,6 +294,28 @@ Per zone:
 
 Once all zones are complete, the final-iteration CSVs feed the same chain as the NLL stage: `merge_regional_results.merge_bulletins` → `RESULT/SSST_result.csv` (zone-overlap duplicates resolved by lowest `pdfVolume`), then `match_pre_post_relocation.save_bulletin` rematching against `obs/NLL_result_augmented.obs` → `obs/SSST_result.obs`.
 
+#### Location-PDF quality metrics — `NLL_run/pdf_metrics.py`
+
+A **post-step, run manually in `seisbench_env`** (it needs `diptest`, which `run_SSST.py`'s environment does not carry):
+
+```bash
+conda run -n seisbench_env python NLL_run/pdf_metrics.py --run-name ssst_run1
+```
+
+It reads the per-event `.scat` scatter clouds of each zone's final SSST iteration, joins them to the merged catalog on `(source, publicId)`, and rewrites `RESULT/SSST_result.csv` in place with ten extra columns. The step is idempotent — re-running it replaces the columns rather than duplicating them — so it can be repeated after any new campaign. Runtime is ~80 s for ~46 000 events.
+
+The metrics exist to decide **which events are trustworthy enough to keep**:
+
+- **Ψ** (`Psi`, with `J = −ln Ψ`) — how much of the PDF's shape the confidence ellipsoid actually captures. `Ψ = 1` is an exactly Gaussian PDF; smaller means the true PDF is curved, clustered or heavy-tailed and the ellipsoid is a poor stand-in for it. Published as a quality indicator only: it says the ellipsoid is *wrong*, not whether it is too big or too small, so it never rejects an event on its own.
+- **C_68** (`C68`) — the fraction of the PDF actually inside the nominal 68 % ellipsoid. This is the one metric that carries a direction, so it drives the keep/reject decision: `C_68 > 0.68` means the quoted `ERH`/`ERZ` are **conservative** (safe — the true region is tighter than stated), while `C_68 < 0.68` means they are **over-confident**, i.e. the location is less well constrained than the error bars claim.
+- **`dip_stat` / `dip_pval`** — Hartigan's dip test on the depth marginal. A rejection means the depth PDF has two competing solutions, so no single depth ± error is honest no matter how wide the error bar. Since depth is the target quantity of this catalog, this is the one unconditional reject.
+
+`J` and `C_68` cannot be read on their own: the k-NN entropy estimator is biased in a sample-size-dependent way, and the `C_68` null spread is *not* binomial (μ and Σ are fitted on the very samples being tested, which suppresses the scatter — 0.013 simulated vs 0.021 binomial at n≈479). Each event therefore also carries `J_null_p95` and `C68_sigma_n`, simulated from Gaussian clouds of that event's own sample count, so a cut is a one-line comparison: `C68 < 0.68 − 3·C68_sigma_n` (over-confident) or `J > J_null_p95` (non-Gaussian).
+
+> All three measure whether the reported uncertainty is **self-consistent**, not whether the location is **accurate**. Velocity-model error is a bias none of them can see: an event can score perfectly and still be systematically mislocated. Thresholds are not established values — see `PDF_metrics.md` for the derivations, the pitfalls, and the literature.
+
+Observed over the current catalog: `C_68` is over-confident for only 0.1 % of events and conservative for 57 %, while the dip test rejects 11.5 %. Both degrade monotonically with azimuthal gap (median Ψ 0.90 at gap < 90° falling to 0.17 above 270°) and with falling phase count.
+
 The campaign configuration (`RUN_NAME`, `CHAR_DISTS`, `VPVS`, core counts, `LSPHSTAT` — whose `NRdgsMin` doubles as the NLLoc min-phases threshold, read back from the generated Loc2ssst control so the two selections cannot diverge) lives at the top of `run_SSST.py`. Per-zone run journals are written to `run/ssst/log/`; intermediate location outputs (`loc_ssst_corr<i>/`) are deletable after validation (each journal ends with the ready-to-paste commands), and the chunk directories of each iteration are deleted automatically after each merge.
 
 Reference document: `SSST_INTEGRATION.md` (porting notes from the validated CODES_SSST workflow).
@@ -317,11 +340,11 @@ Each module can also be run standalone:
 | `cross_section.py` | Vertical cross-sections of seismicity |
 | `station_map.py` | Map of seismic stations |
 | `zone_map.py` | Overview map of the 6 NLL relocation zones |
-| `event_ranking.py` | Ranks events by pdfVolume/ellipsoidVolume change (NLL → SSST); flags multi-zone and zone-changed events; optional whole-region gridmap PDF |
+| `event_ranking.py` | Ranks events by pdfVolume/ellipsoidVolume change (NLL → SSST); flags multi-zone and zone-changed events; carries the PDF-quality columns (Ψ, C_68, dip test) when present; optional whole-region gridmap PDF |
 | `plot_pdf_cloud.py` | Interactive 3D Plotly visualization of one event's NLLoc PDF scatter-cloud across SSST iterations |
 | `ssst_evolution.py` | Per-zone plot of pdfVolume/EllipsoidLen3/RMS evolution across SSST iterations (convergence QC) |
 
-`event_ranking.py`, `plot_pdf_cloud.py`, and `ssst_evolution.py` are standalone diagnostics for the SSST stage, run directly rather than wired into `generate_complem_figures.py` / `generate_complem_maps.py`; they read `RESULT/NLL_result.csv`, `RESULT/SSST_result.csv`, and the per-zone `run/nll_loc/` / `run/ssst_loc/<run-name>/` outputs directly.
+`event_ranking.py`, `plot_pdf_cloud.py`, and `ssst_evolution.py` are standalone diagnostics for the SSST stage, run directly rather than wired into `generate_complem_figures.py` / `generate_complem_maps.py`; they read `RESULT/NLL_result.csv`, `RESULT/SSST_result.csv`, and the per-zone `run/nll_loc/` / `run/ssst_loc/<run-name>/` outputs directly. `event_ranking.py` picks up the PDF-quality columns (Ψ, C_68, dip test) automatically once `NLL_run/pdf_metrics.py` has annotated `SSST_result.csv`, and runs without them otherwise — they are post-SSST only, since `run/nll_loc/` holds no `.scat` clouds to compare against.
 
 Map modules apply a quality filter (erh ≤ 3 km, erv ≤ 3 km, gap ≤ 300°, rms ≤ 0.5 s) by default; use `--no-filter` for pre-relocation catalogs where errors are unavailable.
 
@@ -340,6 +363,7 @@ Map modules apply a quality filter (erh ≤ 3 km, erv ≤ 3 km, gap ≤ 300°, r
 | `scikit-learn` | Regression diagnostics (R²) for magnitude models |
 | `matplotlib`, `seaborn` | Plotting |
 | `plotly` | Interactive 3D PDF-cloud visualization — `complem_figures/plot_pdf_cloud.py` |
+| `diptest` | Hartigan's dip test for depth multimodality — `NLL_run/pdf_metrics.py` (installed in `seisbench_env` only) |
 | `xarray` | Grid handling for cross-sections |
 | `pygmt` | Geographic maps (requires separate `pygmt_env` conda environment) |
 | `joblib` | Magnitude model serialization |

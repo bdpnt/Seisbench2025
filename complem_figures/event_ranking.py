@@ -19,9 +19,8 @@ Usage
 """
 
 import argparse
-import glob
 import os
-import re
+import sys
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -33,6 +32,15 @@ import pandas as pd
 
 _MODULE_DIR   = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.dirname(_MODULE_DIR)
+
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+from NLL_run.pdf_metrics import METRIC_COLUMNS, final_iteration_dir  # noqa: E402
+
+# Post-SSST only: these come from the .scat clouds of the final SSST relocation,
+# and run/nll_loc/ holds no .scat, so there is no pre-stage counterpart to pair
+# them with. Carried unsuffixed for exactly that reason.
+_PDF_METRIC_COLUMNS = [c for c in METRIC_COLUMNS if c != 'ellipsoidVolume']
 
 
 # ---------------------------------------------------------------------------
@@ -80,14 +88,9 @@ def _load_raw_zone_pdfvolumes(nll_loc_root, zones):
 
 def _final_ssst_zone_csv(ssst_root, run_name, zone):
     """Return the final (highest loc_ssst_corr<N>) per-zone SSST CSV path, or None if absent."""
-    pattern = os.path.join(ssst_root, run_name, f'Pyrenees_{zone}_SSST', 'loc_ssst_corr*', f'GLOBAL_{zone}')
-    step_dirs = []
-    for d in glob.glob(pattern):
-        match = re.search(r'loc_ssst_corr(\d+)', d)
-        step_dirs.append((int(match.group(1)), d))
-    if not step_dirs:
+    last_dir = final_iteration_dir(ssst_root, run_name, zone)
+    if last_dir is None:
         return None
-    _, last_dir = max(step_dirs)
     csv_path = os.path.join(last_dir, f'Pyrenees_{zone}.sum.grid0.loc.csv')
     return csv_path if os.path.exists(csv_path) else None
 
@@ -147,6 +150,12 @@ def build_ranking(nll_result_csv, ssst_result_csv, nll_loc_root, ssst_root, run_
     )
     merged = merged.merge(ssst_df[context_cols], on='publicId', how='left')
 
+    # PDF-quality metrics, post-SSST only. Absent until NLL_run/pdf_metrics.py has
+    # annotated SSST_result.csv, so take whatever is there rather than assuming.
+    metric_cols = [c for c in _PDF_METRIC_COLUMNS if c in ssst_df.columns]
+    if metric_cols:
+        merged = merged.merge(ssst_df[['publicId'] + metric_cols], on='publicId', how='left')
+
     dropped_ids = set(nll_df['publicId']) - set(ssst_df['publicId'])
     dropped_df = nll_df[nll_df['publicId'].isin(dropped_ids)][context_cols + ['source', 'pdfVolume']].copy()
 
@@ -186,7 +195,7 @@ def build_ranking(nll_result_csv, ssst_result_csv, nll_loc_root, ssst_root, run_
         'ellipsoidVolume_pre', 'ellipsoidVolume_post',
         'n_zones_pre', 'zones_pre', 'n_zones_post', 'zones_post',
         'multi_zone', 'zone_changed',
-    ]
+    ] + metric_cols
     return merged[ordered_cols], dropped_df
 
 
@@ -333,7 +342,15 @@ def _generate_corr_matrix_figure(ranking_df, max_erh, max_erz, output_path):
         'pdfVolume_post': 'PDF Volume',
         'true_erh_post': 'Hor. Err.',
         'true_erz_post': 'Ver. Err.',
+        'Psi': r'$\Psi$',
+        'C68': r'$C_{68}$',
+        'dip_stat': 'Dip stat.',
     }
+    # Exploratory screening only. PDF_metrics.md (Bland & Altman 1986; Janse et al.
+    # 2021) is explicit that correlation is the wrong tool for assessing agreement
+    # between these metrics — this panel must not be cited as evidence that they do
+    # or do not agree.
+    cols += [c for c in ('Psi', 'C68', 'dip_stat') if c in ranking_df.columns]
     pearson = filtered[cols].rename(columns=labels).corr(method='pearson')
     spearman = filtered[cols].rename(columns=labels).corr(method='spearman')
 
