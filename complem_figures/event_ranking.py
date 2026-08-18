@@ -198,6 +198,9 @@ def build_ranking(nll_result_csv, ssst_result_csv, nll_loc_root, ssst_root, run_
 _LAT_MIN, _LAT_MAX = 42.0, 44.0
 _LON_MIN, _LON_MAX = -2.25, 3.5
 
+_MIN_CHANGE_KM3 = 1.0    # diff gridmap: |median| below this is negligible -> left blank
+_PCT_VMAX       = 100.0  # pct gridmap: full scale; pct_change is bounded at -100 %
+
 
 def _metric_series(ranking_df, base_col, metric):
     """Return a post-minus-pre series for `base_col` (pdfVolume/ellipsoidVolume) under `metric`."""
@@ -207,7 +210,7 @@ def _metric_series(ranking_df, base_col, metric):
     return post - pre
 
 
-def _add_gridmap_subplot(events, ax, values, label, bin_size, min_count):
+def _add_gridmap_subplot(events, ax, values, label, metric, bin_size, min_count):
     """
     Render a windowed-median diff grid and event scatter onto a matplotlib axis.
 
@@ -217,6 +220,8 @@ def _add_gridmap_subplot(events, ax, values, label, bin_size, min_count):
     ax     : matplotlib Axes
     values : pd.Series    — per-event metric value (post - pre based), aligned with events' index
     label  : str          — panel label (e.g. 'pdfVolume')
+    metric : str          — 'diff' (symlog km³ scale, cells below _MIN_CHANGE_KM3 left blank)
+                            or 'pct_change' (linear ±_PCT_VMAX scale)
     bin_size  : float     — grid cell size in degrees
     min_count : int       — minimum event count for a cell to be shown
 
@@ -225,6 +230,7 @@ def _add_gridmap_subplot(events, ax, values, label, bin_size, min_count):
     matplotlib QuadMesh
     """
     import seaborn as sns
+    from matplotlib.colors import SymLogNorm
 
     bins_lat = max(int(round((_LAT_MAX - _LAT_MIN) / bin_size)), 1)
     bins_lon = max(int(round((_LON_MAX - _LON_MIN) / bin_size)), 1)
@@ -250,13 +256,25 @@ def _add_gridmap_subplot(events, ax, values, label, bin_size, min_count):
             else:
                 median[i, j] = np.nan
 
-    median_masked = np.ma.masked_where(count < min_count, median)
-    vmax = np.nanpercentile(np.abs(median_masked.filled(np.nan)), 95)
-    vmax = vmax if vmax > 0 else 1.0
+    if metric == 'diff':
+        # Volume changes span several decades, so colour them on a signed log scale; below
+        # _MIN_CHANGE_KM3 the change is negligible, so blank the cell instead of colouring it.
+        # Masking the sub-threshold cells is also what keeps the log safe: every displayed
+        # |value| is >= linthresh, so the norm never enters its linear region around zero.
+        median_masked = np.ma.masked_where(
+            (count < min_count) | (np.abs(median) < _MIN_CHANGE_KM3), median)
+        vmax = np.nanmax(np.abs(median_masked.filled(np.nan)))
+        vmax = vmax if vmax > 0 else 1.0
+        linthresh = min(_MIN_CHANGE_KM3, vmax / 10)  # keep a log region if every cell is tiny
+        scale_kwargs = {'norm': SymLogNorm(linthresh, vmin=-vmax, vmax=vmax, base=10)}
+        ax.set_facecolor('white')  # blanked cells read as white, not the seaborn background
+    else:
+        median_masked = np.ma.masked_where(count < min_count, median)
+        scale_kwargs = {'vmin': -_PCT_VMAX, 'vmax': _PCT_VMAX}
 
     mesh = ax.pcolormesh(lon_edges, lat_edges, median_masked,
-                         vmin=-vmax, vmax=vmax, cmap='coolwarm',
-                         shading='auto', alpha=0.9)
+                         cmap='coolwarm', shading='auto', alpha=0.9,
+                         **scale_kwargs)
 
     sns.scatterplot(x=lon, y=lat, s=0.6, color='black', linewidth=0, ax=ax)
 
@@ -283,9 +301,9 @@ def _generate_gridmap_figure(ranking_df, metric, output_path, bin_size, min_coun
     pdf_values = _metric_series(ranking_df, 'pdfVolume', metric)
     ellipsoid_values = _metric_series(ranking_df, 'ellipsoidVolume', metric)
 
-    unit = '%' if metric == 'pct_change' else 'km³'
-    mesh_pdf = _add_gridmap_subplot(events, axes[0], pdf_values, 'pdfVolume', bin_size, min_count)
-    mesh_ellipsoid = _add_gridmap_subplot(events, axes[1], ellipsoid_values, 'ellipsoidVolume', bin_size, min_count)
+    unit = '%' if metric == 'pct_change' else f'km³, symlog, |Δ| < {_MIN_CHANGE_KM3:g} blank'
+    mesh_pdf = _add_gridmap_subplot(events, axes[0], pdf_values, 'pdfVolume', metric, bin_size, min_count)
+    mesh_ellipsoid = _add_gridmap_subplot(events, axes[1], ellipsoid_values, 'ellipsoidVolume', metric, bin_size, min_count)
 
     fig.colorbar(mesh_pdf, ax=axes[0], label=f'Median pdfVolume change ({unit})', shrink=0.85, pad=0.02)
     fig.colorbar(mesh_ellipsoid, ax=axes[1], label=f'Median ellipsoidVolume change ({unit})', shrink=0.85, pad=0.02)
