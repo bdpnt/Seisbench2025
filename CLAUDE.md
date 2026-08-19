@@ -53,11 +53,20 @@ Final stage, run after `add_temp_picks.py`: relocates `obs/NLL_result_augmented.
 
 - **`run_SSST.py`** — orchestrator; campaign configuration (RUN_NAME, CHAR_DISTS, VPVS, core counts, LSPHSTAT) at the top of the file; CLI `--zones`, `--iteration-start`, `--iteration-stop` (partial campaigns/resume). Per zone: cuts `obs/GLOBAL_<N>_SSST.obs` + `stations/GTSRCE_SSST_<N>.txt`, derives `run/ssst/run_<N>_NLL.in` (NLLoc) and `run/ssst/run_<N>_SSST.in` (Loc2ssst) from `run/nll/run_<N>_DELAYS.in` (`NLL_run/generate_ssst_runfiles.py`), splits the bulletin into per-event files in `obs/nlloc_obs/GLOBAL_<N>/` (`NLL_run/reformate_obs.py`), builds P+S grids in `run/ssst_model|ssst_time` (VpVs −9.99, real S grids), and runs the iteration loop (`NLL_run/run_ssst.py`: len(CHAR_DISTS) SSST iterations + final NLLoc-only relocation, outputs under `run/ssst_loc/<RUN_NAME>/`).
 - After all zones: merges the final-iteration CSVs → `RESULT/SSST_result.csv` (dedup by lowest `pdfVolume`), rematches against `obs/NLL_result_augmented.obs` via `publicId` → `obs/SSST_result.obs` (same modules as the NLL stage).
-- **`NLL_run/pdf_metrics.py`** — last step of `run_SSST.py` (after the merge and the rematch): reads the per-event `.scat` clouds of each zone's final SSST iteration and rewrites `RESULT/SSST_result.csv` in place with the location-PDF quality columns. Non-fatal there (the results are already written) and idempotent, so it can be rerun standalone on any campaign; ~80 s for ~46 k events.
+- **`NLL_run/pdf_metrics.py`** — last step of `run_SSST.py` (after the merge and the rematch): reads the per-event `.scat` clouds of each zone's final SSST iteration and rewrites `RESULT/SSST_result.csv` in place with the location-PDF quality columns, then saves the diagnostic figures below. Non-fatal there (the results are already written) and idempotent, so it can be rerun standalone on any campaign; ~65 s for ~46 k events (~50 s metrics, ~15 s figures).
   ```bash
   python NLL_run/pdf_metrics.py --run-name ssst_run1
+  python NLL_run/pdf_metrics.py --run-name ssst_run1 --figures false   # metrics only
   ```
   Uses its own `.scat` reader — **not** `obspy.io.nlloc.util.read_nlloc_scatter`, which does `np.fromfile(...)[4:]` and silently drops the first 3 samples of every file (4 records dropped where the header is 1).
+
+  Figures land in `complem_figures/pdf_metrics/` (plotting is wrapped: a failure there never touches the already-written CSV):
+  - `<run>_metrics_vs_quality.pdf` — Ψ / `C68` / `dip_stat` against depth, RMS, Nphs, Gap, Dist (hexbin density + median/IQR over equal-count bins + the per-bin Gaussian null)
+  - `<run>_gridmap.pdf` — the same three metrics as lon/lat windowed-median maps
+  - `<run>_gridmap_depth.pdf` — those maps split into depth quartiles, colour scale shared per row
+  - `<run>_voxels_<metric>.html` — interactive 3-D lat/lon/depth cells (Plotly)
+
+  The maps colour by `C68_z = (C68 − 0.68) / C68_sigma_n` rather than raw `C68`, and the 1-D nulls are per bin: both are read from each event's own `J_null_p95` / `C68_sigma_n`, so nothing breaks when `n_scat` is not near-constant as it happens to be in `ssst_run1`.
 
 ---
 
@@ -75,6 +84,8 @@ Scripts in `complem_figures/` for visualization and statistics:
 - `event_ranking.py` — ranks events by pdfVolume/ellipsoidVolume change (NLL → SSST); flags multi-zone/zone-changed events; carries the PDF-quality columns (post-SSST only) when `pdf_metrics.py` has annotated the CSV, and runs without them otherwise; optional gridmap PDF
 - `plot_pdf_cloud.py` — interactive 3D PDF scatter-cloud of one event across SSST iterations (Plotly)
 - `ssst_evolution.py` — per-zone pdfVolume/EllipsoidLen3/RMS evolution across SSST iterations (convergence QC)
+
+`complem_figures/pdf_metrics/` holds figures too, but they are written by `NLL_run/pdf_metrics.py` (see above), not by a module living here.
 
 > **Environments**: `seisbench_env` is the project default — the whole pipeline (`build_global_inventory.py` → `run_SSST.py`) runs in it unprefixed. `pygmt_env` is the only exception, for the modules importing PyGMT or `xarray`.
 > - `seisbench_env` → `generate_complem_figures.py` (Gutenberg-Richter, depth maps, error maps)

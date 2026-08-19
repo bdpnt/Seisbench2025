@@ -89,7 +89,7 @@ Shallow_Depth_DL_Catalog/
 │   ├── generate_ssst_runfiles.py    # SSST: derive control files from the NLL run files
 │   ├── reformate_obs.py             # SSST: split a bulletin into per-event .nlloc_obs
 │   ├── run_ssst.py                  # SSST: iterative NLLoc + Loc2ssst workflow (one zone)
-│   └── pdf_metrics.py               # SSST: location-PDF quality metrics from .scat clouds
+│   └── pdf_metrics.py               # SSST: location-PDF quality metrics from .scat clouds + their figures
 │
 ├── complem_figures/          # Visualization & statistical analysis
 │   ├── event_maps.py
@@ -295,7 +295,7 @@ Once all zones are complete, the final-iteration CSVs feed the same chain as the
 
 #### Location-PDF quality metrics — `NLL_run/pdf_metrics.py`
 
-Run automatically by `run_SSST.py` as its last step, once the merge and the rematch are done. It reads the per-event `.scat` scatter clouds of each zone's final SSST iteration, joins them to the merged catalog on `(source, publicId)`, and rewrites `RESULT/SSST_result.csv` in place with ten extra columns. Runtime is ~80 s for ~46 000 events.
+Run automatically by `run_SSST.py` as its last step, once the merge and the rematch are done. It reads the per-event `.scat` scatter clouds of each zone's final SSST iteration, joins them to the merged catalog on `(source, publicId)`, rewrites `RESULT/SSST_result.csv` in place with ten extra columns, and saves the diagnostic figures described below. Runtime is ~65 s for ~46 000 events (~50 s for the metrics, ~15 s for the figures).
 
 The step is deliberately **non-fatal**: at that point the campaign's results are already written, so a metrics failure prints a warning instead of making a multi-hour run look like it failed. It is also idempotent — re-running replaces the columns rather than duplicating them — so it can be repeated standalone at any time, on any campaign.
 
@@ -310,6 +310,21 @@ The metrics exist to decide **which events are trustworthy enough to keep**:
 > All three measure whether the reported uncertainty is **self-consistent**, not whether the location is **accurate**. Velocity-model error is a bias none of them can see: an event can score perfectly and still be systematically mislocated. Thresholds are not established values.
 
 Observed over the current catalog: `C_68` is over-confident for only 0.1 % of events and conservative for 57 %, while the dip test rejects 11.5 %. Both degrade monotonically with azimuthal gap (median Ψ 0.90 at gap < 90° falling to 0.17 above 270°) and with falling phase count.
+
+##### Diagnostic figures
+
+The same run writes four outputs to `complem_figures/pdf_metrics/`, which is what makes the statements above checkable rather than asserted. Plotting is wrapped in its own guard, so a failure there leaves the annotated CSV untouched; `--figures false` skips it entirely.
+
+| File | Answers |
+|------|---------|
+| `<run>_metrics_vs_quality.pdf` | How do Ψ, `C_68` and the dip statistic relate to the classical quality indicators? 3 metrics × depth, RMS, Nphs, Gap, Dist — hexbin density, median + IQR over equal-count bins of the indicator, and the Gaussian null of that same bin |
+| `<run>_gridmap.pdf` | Where in the Pyrenees is the reported uncertainty least trustworthy? Windowed-median lon/lat maps, 0.02° cells |
+| `<run>_gridmap_depth.pdf` | Does that pattern change with depth? The same maps split into depth quartiles, colour scale shared across the slices of a row |
+| `<run>_voxels_<metric>.html` | Interactive lat/lon/depth cells for each metric (Plotly, self-contained) |
+
+Two details keep the figures honest when the catalog changes. The maps colour by `C68_z = (C_68 − 0.68) / C68_sigma_n` instead of raw `C_68` — a cell median mixes events with different sample counts, and only the z-score puts them on a common scale — and the 1-D null overlays are computed per bin from the `J_null_p95` / `C68_sigma_n` of the events *in that bin*, so they bend by themselves if `n_scat` correlates with the indicator. Nothing is hardcoded from the near-constant `n_scat` of `ssst_run1`.
+
+Latitude and longitude are deliberately absent from the 1-D grid: a 1-D latitude panel marginalizes over longitude and hides exactly the structure the maps are there to show.
 
 The campaign configuration (`RUN_NAME`, `CHAR_DISTS`, `VPVS`, core counts, `LSPHSTAT` — whose `NRdgsMin` doubles as the NLLoc min-phases threshold, read back from the generated Loc2ssst control so the two selections cannot diverge) lives at the top of `run_SSST.py`. Per-zone run journals are written to `run/ssst/log/`; intermediate location outputs (`loc_ssst_corr<i>/`) are deletable after validation (each journal ends with the ready-to-paste commands), and the chunk directories of each iteration are deleted automatically after each merge.
 
@@ -337,7 +352,9 @@ Each module can also be run standalone:
 | `plot_pdf_cloud.py` | Interactive 3D Plotly visualization of one event's NLLoc PDF scatter-cloud across SSST iterations |
 | `ssst_evolution.py` | Per-zone plot of pdfVolume/EllipsoidLen3/RMS evolution across SSST iterations (convergence QC) |
 
-`event_ranking.py`, `plot_pdf_cloud.py`, and `ssst_evolution.py` are standalone diagnostics for the SSST stage, run directly rather than wired into `generate_complem_figures.py` / `generate_complem_maps.py`; they read `RESULT/NLL_result.csv`, `RESULT/SSST_result.csv`, and the per-zone `run/nll_loc/` / `run/ssst_loc/<run-name>/` outputs directly. `event_ranking.py` picks up the PDF-quality columns (Ψ, C_68, dip test) automatically once `NLL_run/pdf_metrics.py` has annotated `SSST_result.csv`, and runs without them otherwise — they are post-SSST only, since `run/nll_loc/` holds no `.scat` clouds to compare against.
+`event_ranking.py`, `plot_pdf_cloud.py`, and `ssst_evolution.py` are standalone diagnostics for the SSST stage, run directly rather than wired into `generate_complem_figures.py` / `generate_complem_maps.py`; they read `RESULT/NLL_result.csv`, `RESULT/SSST_result.csv`, and the per-zone `run/nll_loc/` / `run/ssst_loc/<run-name>/` outputs directly. `event_ranking.py` picks up the PDF-quality columns (Ψ, C_68, dip test) automatically once `NLL_run/pdf_metrics.py` has annotated `SSST_result.csv`, and runs without them otherwise — they are post-SSST only, since `run/nll_loc/` holds no `.scat` clouds to compare against. It also shares that module's windowed-grid helper (`windowed_stat_grid`), so its gridmaps and the PDF-metric maps bin space identically.
+
+One folder here has no script of its own: `complem_figures/pdf_metrics/` receives the figures written by `NLL_run/pdf_metrics.py` (see [above](#location-pdf-quality-metrics--nll_runpdf_metricspy)).
 
 Map modules apply a quality filter (erh ≤ 3 km, erv ≤ 3 km, gap ≤ 300°, rms ≤ 0.5 s) by default; use `--no-filter` for pre-relocation catalogs where errors are unavailable.
 

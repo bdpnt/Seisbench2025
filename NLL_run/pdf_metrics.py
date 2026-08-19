@@ -22,16 +22,24 @@ suppresses the scatter). `gaussian_null` simulates both per distinct n; the
 resulting `J_null_p95` / `C68_sigma_n` columns are what make a later cut a
 one-line comparison.
 
+Once the columns are written, the same run also saves the diagnostic figures that
+show how the metrics relate to the classical quality indicators (RMS, Nphs, Gap,
+Dist, depth) and how they vary in space, in complem_figures/pdf_metrics/.
+
 Environment: needs `diptest` (imported lazily, only by depth_dip) -> seisbench_env.
+The figures additionally need matplotlib/seaborn/plotly, all imported lazily so a
+missing plotting stack can never cost the metrics.
 
 Usage
 -----
     python NLL_run/pdf_metrics.py --run-name ssst_run1
     python NLL_run/pdf_metrics.py --run-name ssst_run1 --output /tmp/annotated.csv
+    python NLL_run/pdf_metrics.py --run-name ssst_run1 --figures false
 """
 
 import argparse
 import glob
+import itertools
 import logging
 import os
 import re
@@ -45,6 +53,7 @@ import pandas as pd
 from scipy.spatial import cKDTree
 from scipy.special import digamma, gammaln
 from scipy.stats import chi2 as chi2dist
+from scipy.stats import spearmanr
 
 # ---------------------------------------------------------------------------
 # Module paths
@@ -53,6 +62,7 @@ from scipy.stats import chi2 as chi2dist
 _MODULE_DIR      = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT    = os.path.dirname(_MODULE_DIR)
 _DEFAULT_LOG_DIR = os.path.join(_MODULE_DIR, 'console_output')
+_DEFAULT_FIG_DIR = os.path.join(_PROJECT_ROOT, 'complem_figures', 'pdf_metrics')
 
 logger = logging.getLogger('pdf_metrics')
 
@@ -68,7 +78,8 @@ _NULL_SIMS    = 500    # Gaussian clouds simulated per distinct n
 _DIP_COMMON_N = 400    # common subsample size for the dip test (< observed min n)
 _DIP_ALPHA    = 0.05
 
-_CHI2_68_3DOF = chi2dist.ppf(0.68, df=3)
+_NOMINAL_COVERAGE = 0.68   # coverage the confidence ellipsoid is built for
+_CHI2_68_3DOF = chi2dist.ppf(_NOMINAL_COVERAGE, df=3)
 _GAUSS_ENTROPY_3D = 0.5 * 3 * np.log(2 * np.pi * np.e)   # 4.2568 nats
 
 
@@ -84,6 +95,8 @@ class PdfMetricsParams:
     zones:      list = field(default_factory=lambda: ['1', '2', '3', '4', '5', '6'])
     output:     str = None      # None -> rewrite result_csv in place
     log_dir:    str = None
+    figures:    bool = True
+    figure_dir: str = None      # None -> complem_figures/pdf_metrics/
 
 
 # ---------------------------------------------------------------------------
@@ -353,6 +366,488 @@ def event_metrics(scat_path, public_id):
 
 
 # ---------------------------------------------------------------------------
+# Figures — shared gridding
+# ---------------------------------------------------------------------------
+
+# Whole-Pyrenees domain, matching complem_figures/error_maps.py, depth_maps.py
+# and event_ranking.py.
+_LAT_RANGE = (42.0, 44.0)
+_LON_RANGE = (-2.25, 3.5)
+
+_MAP_BIN_SIZE    = 0.02          # degrees, 2-D gridmap cell
+_MAP_WINDOW      = 4             # cells of smoothing added on each side
+_MAP_MIN_COUNT   = 10            # events below which a cell is left blank
+_SLICE_WINDOW    = 8             # depth slices hold ~1/4 of the events: smooth wider
+_N_DEPTH_SLICES  = 4
+_VOXEL_BIN_SIZE  = (0.1, 0.1, 2.5)   # lat deg, lon deg, depth km
+_VOXEL_WINDOW    = 1
+_VOXEL_MIN_COUNT = 5
+_N_CURVE_BINS    = 20            # equal-count bins behind each median curve
+_CLIP_PCT        = (0.5, 99.5)   # x-axis clip of the 1-D panels
+
+
+def windowed_stat_grid(coords, values, ranges, bin_sizes,
+                       window_size=_MAP_WINDOW, stat=np.median):
+    """
+    Windowed per-cell statistic of `values` over a regular N-D grid.
+
+    Each cell's statistic is taken over every sample inside the cell *plus*
+    `window_size` cells of padding in each direction (clipped at the domain
+    edges), which is what smooths a sparse catalog into a readable map.
+    Generic in the number of dimensions: 2 for the maps, 3 for the voxels.
+
+    Parameters
+    ----------
+    coords    : sequence of per-dimension coordinate arrays (all same length)
+    values    : array of the quantity to reduce, aligned with `coords`
+    ranges    : sequence of (low, high) per dimension
+    bin_sizes : sequence of cell sizes per dimension (same units as `ranges`)
+    stat      : reducer applied to each window (np.median, np.mean, ...)
+
+    Returns
+    -------
+    (edges, statistic, count)
+        edges     : list of per-dimension bin-edge arrays
+        statistic : N-D array, NaN where the window is empty
+        count     : N-D int array of samples per window
+
+    Non-finite samples are dropped up front, so `count` is the number of
+    samples actually behind the statistic.
+    """
+    values = np.asarray(values, dtype=float)
+    coords = [np.asarray(c, dtype=float) for c in coords]
+
+    finite = np.isfinite(values)
+    for coord in coords:
+        finite &= np.isfinite(coord)
+    values = values[finite]
+    coords = [coord[finite] for coord in coords]
+
+    edges = []
+    for (low, high), bin_size in zip(ranges, bin_sizes):
+        n_bins = max(int(round((high - low) / bin_size)), 1)
+        edges.append(np.linspace(low, high, n_bins + 1))
+
+    # The window of a cell only depends on its index along one axis, so the
+    # per-axis membership masks are built once and combined per cell — the
+    # alternative (rebuilding them inside the cell loop) repeats the same
+    # comparisons thousands of times.
+    axis_masks = []
+    for axis, edge in enumerate(edges):
+        step = edge[1] - edge[0]
+        masks = []
+        for index in range(len(edge) - 1):
+            low  = max(edge[index]     - window_size * step, edge[0])
+            high = min(edge[index + 1] + window_size * step, edge[-1])
+            masks.append((coords[axis] >= low) & (coords[axis] <= high))
+        axis_masks.append(masks)
+
+    shape = tuple(len(edge) - 1 for edge in edges)
+    statistic = np.full(shape, np.nan)
+    count = np.zeros(shape, dtype=int)
+
+    for cell in itertools.product(*(range(size) for size in shape)):
+        mask = axis_masks[0][cell[0]]
+        for axis in range(1, len(cell)):
+            mask = mask & axis_masks[axis][cell[axis]]
+        window = values[mask]
+        if len(window):
+            statistic[cell] = stat(window)
+            count[cell] = len(window)
+
+    return edges, statistic, count
+
+
+# ---------------------------------------------------------------------------
+# Figures — what gets plotted
+# ---------------------------------------------------------------------------
+
+# 1-D panels: one row per metric, one column per quality indicator. Latitude and
+# longitude are deliberately absent — a 1-D latitude panel marginalizes over
+# longitude and hides exactly the structure the maps below are there to show.
+_METRIC_ROWS = [
+    ('Psi',      r'$\Psi$'),
+    ('C68',      r'$C_{68}$'),
+    ('dip_stat', 'Dip statistic'),
+]
+
+_PREDICTORS = [
+    ('depth', 'Depth (km)',                     'linear'),
+    ('RMS',   'RMS (s)',                        'log'),     # a 4912 s outlier lives here
+    ('Nphs',  'Phase count',                    'linear'),
+    ('Gap',   'Azimuthal gap (°)',              'linear'),
+    ('Dist',  'Nearest station distance (km)',  'linear'),
+]
+
+# Map panels. C68 is mapped as its null-normalized z-score and not as the raw
+# fraction: a cell median mixes events with different sample counts, and only
+# the z-score puts them on a common scale (see _add_null_columns).
+_MAP_METRICS = [
+    {'column': 'Psi',        'stat': np.median, 'scale': 1.0,
+     'label': r'median $\Psi$',
+     'cmap': 'viridis', 'vmin': 0.0, 'vmax': 1.0,
+     'plotly_cmap': 'Viridis', 'plotly_reverse': False},
+    {'column': 'C68_z',      'stat': np.median, 'scale': 1.0,
+     'label': r'median $(C_{68}-0.68)\,/\,\sigma_n$',
+     'cmap': 'RdBu', 'vmin': -10.0, 'vmax': 10.0,
+     'plotly_cmap': 'RdBu', 'plotly_reverse': False},
+    {'column': 'dip_reject', 'stat': np.mean,   'scale': 100.0,
+     'label': 'dip-test reject rate (%)',
+     'cmap': 'magma_r', 'vmin': 0.0, 'vmax': None,
+     'plotly_cmap': 'Magma', 'plotly_reverse': True},
+]
+
+
+def _add_null_columns(df):
+    """
+    Working copy carrying the null-normalized quantities the maps colour by.
+
+    J and C68 are only readable against the Gaussian null simulated at the
+    event's own sample count, so the maps never plot them raw:
+
+      J_ratio = J / J_null_p95            > 1 -> non-Gaussian beyond the null
+      C68_z   = (C68 - 0.68) / C68_sigma_n  < 0 -> over-confident, in null sigmas
+
+    Both nulls come from the event's own row, never from a catalog-wide
+    constant: n_scat happens to be near-constant in the current run, but a
+    different LOCSEARCH setting or catalog will not be that uniform.
+
+    Kept out of the CSV on purpose — METRIC_COLUMNS is a documented contract.
+    """
+    data = df.copy()
+    data['J_ratio'] = data['J'] / data['J_null_p95']
+    data['C68_z'] = (data['C68'] - _NOMINAL_COVERAGE) / data['C68_sigma_n']
+    return data
+
+
+def _quantile_bins(x, n_bins=_N_CURVE_BINS):
+    """
+    Equal-count bin assignment for x, with the bin centres.
+
+    Quantile edges rather than equal-width ones: Nphs, Dist and RMS are all
+    strongly skewed, and equal-width bins would put nearly every event in the
+    first bin and one event in the last.
+
+    Returns (bin_index, centres), or (None, None) if x cannot be split.
+    """
+    edges = np.unique(np.nanquantile(x, np.linspace(0, 1, n_bins + 1)))
+    if len(edges) < 3:
+        return None, None
+    index = np.clip(np.digitize(x, edges[1:-1]), 0, len(edges) - 2)
+    return index, 0.5 * (edges[:-1] + edges[1:])
+
+
+def _metric_ylim(metric, y):
+    """y-axis limits for a 1-D panel: fixed for the bounded Psi, robust otherwise."""
+    if metric == 'Psi':
+        return 0.0, 1.05
+    if metric == 'C68':
+        return float(np.nanpercentile(y, 0.2)), float(min(1.0, np.nanpercentile(y, 99.8)))
+    return 0.0, float(np.nanpercentile(y, 99.5))
+
+
+def _plot_panel(ax, data, metric, predictor, log_x, twin_label):
+    """
+    One metric-vs-indicator panel: density + median curve + the event-wise null.
+
+    Density is a log-count hexbin (46 k events make a raw scatter a solid
+    block), the blue curve is the median with its IQR band over equal-count
+    bins of the predictor, and the red overlay is the Gaussian null of that
+    same bin — computed from the J_null_p95 / C68_sigma_n of the events *in
+    the bin*, so it bends by itself if n_scat correlates with the predictor.
+
+    The dip row has no null line (the dip test is already n-controlled by the
+    common subsample in depth_dip); it carries the per-bin reject rate on a
+    right-hand axis instead, which is the directional quantity there.
+    """
+    columns = [predictor, metric, 'J_null_p95', 'C68_sigma_n', 'dip_reject']
+    panel = data[columns].dropna(subset=[predictor, metric])
+    if log_x:
+        panel = panel[panel[predictor] > 0]
+    if panel.empty:
+        ax.text(0.5, 0.5, 'no data', transform=ax.transAxes, ha='center', va='center')
+        return
+
+    # Clip the predictor tails (RMS carries a 4912 s outlier) and keep everything
+    # else — density, curve, rho — on that one visible window, so the median curve
+    # cannot run off the edge of the panel it summarizes.
+    x_lo, x_hi = np.nanpercentile(panel[predictor], _CLIP_PCT)
+    panel = panel[(panel[predictor] >= x_lo) & (panel[predictor] <= x_hi)]
+
+    x = panel[predictor].to_numpy(dtype=float)
+    y = panel[metric].to_numpy(dtype=float)
+    y_lo, y_hi = _metric_ylim(metric, y)
+    extent = ((np.log10(x_lo), np.log10(x_hi)) if log_x else (x_lo, x_hi)) + (y_lo, y_hi)
+
+    ax.set_facecolor('white')       # sparse hexes are invisible on seaborn grey
+    ax.hexbin(x, y, gridsize=45, bins='log', cmap='Greys', mincnt=1,
+              xscale='log' if log_x else 'linear', extent=extent, zorder=1)
+
+    bin_index, centres = _quantile_bins(x)
+    if bin_index is not None:
+        binned = pd.DataFrame({
+            'bin':    bin_index,
+            'metric': y,
+            'null_j': panel['J_null_p95'].to_numpy(dtype=float),
+            'null_c': panel['C68_sigma_n'].to_numpy(dtype=float),
+            'reject': panel['dip_reject'].to_numpy(dtype=float),
+        }).groupby('bin')
+
+        centre = centres[binned['metric'].median().index.to_numpy()]
+        ax.fill_between(centre, binned['metric'].quantile(0.25), binned['metric'].quantile(0.75),
+                        color='tab:blue', alpha=0.25, lw=0, zorder=3)
+        ax.plot(centre, binned['metric'].median(), color='tab:blue', lw=2, zorder=4)
+
+        if metric == 'Psi':
+            # Psi of a genuinely Gaussian cloud of the same size: exp(-J_null_p95).
+            ax.plot(centre, np.exp(-binned['null_j'].median()),
+                    color='crimson', ls='--', lw=1.2, zorder=5)
+        elif metric == 'C68':
+            sigma = binned['null_c'].median().to_numpy()
+            ax.axhline(_NOMINAL_COVERAGE, color='crimson', ls='--', lw=1.2, zorder=5)
+            ax.fill_between(centre,
+                            _NOMINAL_COVERAGE - 3 * sigma, _NOMINAL_COVERAGE + 3 * sigma,
+                            color='crimson', alpha=0.15, lw=0, zorder=2)
+        else:
+            twin = ax.twinx()
+            twin.plot(centre, 100 * binned['reject'].mean(),
+                      color='crimson', ls='--', lw=1.2, zorder=5)
+            twin.set_ylim(0, 100)
+            twin.grid(False)
+            if twin_label:
+                twin.set_ylabel('dip-test reject rate (%)', color='crimson')
+            else:
+                twin.set_yticklabels([])
+
+    # Exploratory screening only — a monotone association, not evidence that the
+    # two quantities agree (same caveat as event_ranking.py's correlation matrix).
+    rho = spearmanr(x, y).statistic
+    ax.text(0.97, 0.97, f'$\\rho$ = {rho:+.2f}\nN = {len(x):,}',
+            transform=ax.transAxes, ha='right', va='top', fontsize=8,
+            bbox=dict(boxstyle='round,pad=0.25', facecolor='white', alpha=0.75, lw=0))
+
+    ax.set_xlim(x_lo, x_hi)
+    ax.set_ylim(y_lo, y_hi)
+
+
+def _generate_predictor_figure(data, run_name, output_path):
+    """3 metrics x 5 quality indicators, one PDF."""
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    sns.set_theme()
+    fig, axes = plt.subplots(len(_METRIC_ROWS), len(_PREDICTORS),
+                             figsize=(4.2 * len(_PREDICTORS), 3.4 * len(_METRIC_ROWS)),
+                             layout='constrained', squeeze=False)
+
+    for row, (metric, ylabel) in enumerate(_METRIC_ROWS):
+        for col, (predictor, xlabel, scale) in enumerate(_PREDICTORS):
+            ax = axes[row][col]
+            _plot_panel(ax, data, metric, predictor, scale == 'log',
+                        twin_label=(col == len(_PREDICTORS) - 1))
+            if row == len(_METRIC_ROWS) - 1:
+                ax.set_xlabel(xlabel)
+            if col == 0:
+                ax.set_ylabel(ylabel)
+
+    fig.suptitle(f'Location-PDF quality metrics vs. classical quality indicators — {run_name}\n'
+                 r'grey = event density (log counts) · blue = median + IQR over equal-count bins · '
+                 'red = per-bin Gaussian null (dip row: reject rate, right axis)',
+                 fontweight='bold')
+    plt.savefig(output_path)
+    plt.close(fig)
+
+
+def _draw_map_panel(ax, edges, statistic, count, spec, vmax, events, title):
+    """One lon/lat panel of a windowed statistic; returns the QuadMesh."""
+    masked = np.ma.masked_where(count < _MAP_MIN_COUNT, statistic)
+    ax.set_facecolor('white')       # blanked cells read as white, not seaborn grey
+    mesh = ax.pcolormesh(edges[1], edges[0], masked, cmap=spec['cmap'],
+                         shading='auto', vmin=spec['vmin'], vmax=vmax)
+    ax.scatter(events['longitude'], events['latitude'],
+               s=0.3, color='black', linewidth=0, alpha=0.35, zorder=2)
+    ax.set_xlim(*_LON_RANGE)
+    ax.set_ylim(*_LAT_RANGE)
+    ax.set_title(title, fontsize=10)
+    return mesh
+
+
+def _map_vmax(spec, statistic, count):
+    """Colour-scale top: the spec's own, or the largest displayed cell."""
+    if spec['vmax'] is not None:
+        return spec['vmax']
+    shown = statistic[count >= _MAP_MIN_COUNT]
+    top = np.nanmax(shown) if shown.size and np.any(np.isfinite(shown)) else None
+    return float(top) if top else 1.0
+
+
+def _map_grid(data, spec, window_size):
+    """Windowed lon/lat grid of one map metric over `data`."""
+    return windowed_stat_grid(
+        [data['latitude'], data['longitude']],
+        data[spec['column']].astype(float) * spec['scale'],
+        [_LAT_RANGE, _LON_RANGE], [_MAP_BIN_SIZE, _MAP_BIN_SIZE],
+        window_size=window_size, stat=spec['stat'],
+    )
+
+
+def _generate_gridmap_figure(data, run_name, output_path):
+    """Whole-depth lon/lat map of the three metrics, one row each."""
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    sns.set_theme()
+    fig, axes = plt.subplots(len(_MAP_METRICS), 1, figsize=(12, 5 * len(_MAP_METRICS)),
+                             layout='constrained', squeeze=False)
+
+    for row, spec in enumerate(_MAP_METRICS):
+        ax = axes[row][0]
+        edges, statistic, count = _map_grid(data, spec, _MAP_WINDOW)
+        vmax = _map_vmax(spec, statistic, count)
+        mesh = _draw_map_panel(ax, edges, statistic, count, spec, vmax, data, spec['label'])
+        fig.colorbar(mesh, ax=ax, label=spec['label'], shrink=0.85, pad=0.02)
+        ax.set_xlabel('Longitude')
+        ax.set_ylabel('Latitude')
+
+    fig.suptitle(f'Location-PDF quality metrics across the Pyrenees — {run_name}\n'
+                 f'windowed median over {_MAP_BIN_SIZE}° cells '
+                 f'(±{_MAP_WINDOW} cells), cells with < {_MAP_MIN_COUNT} events blank',
+                 fontweight='bold')
+    plt.savefig(output_path)
+    plt.close(fig)
+
+
+def _depth_slices(depths, n_slices=_N_DEPTH_SLICES):
+    """Depth-quartile edges, so the slicing adapts to whatever catalog is passed."""
+    return np.unique(np.nanquantile(depths, np.linspace(0, 1, n_slices + 1)))
+
+
+def _generate_depth_slice_figure(data, run_name, output_path):
+    """The same three maps, one column per depth slice, colour scale shared per row."""
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    edges_z = _depth_slices(data['depth'])
+    slices = []
+    for low, high in zip(edges_z[:-1], edges_z[1:]):
+        in_slice = (data['depth'] >= low) & (data['depth'] <= high)
+        slices.append((f'{low:.1f} – {high:.1f} km', data[in_slice]))
+
+    sns.set_theme()
+    fig, axes = plt.subplots(len(_MAP_METRICS), len(slices),
+                             figsize=(5.5 * len(slices), 4.2 * len(_MAP_METRICS)),
+                             layout='constrained', squeeze=False)
+
+    for row, spec in enumerate(_MAP_METRICS):
+        grids = [_map_grid(subset, spec, _SLICE_WINDOW) for _, subset in slices]
+        # One scale per row, taken over every slice: otherwise each panel gets its
+        # own top value and the slices stop being comparable, which is the point.
+        vmax = max(_map_vmax(spec, statistic, count) for _, statistic, count in grids)
+        mesh = None
+        for col, ((label, subset), (grid_edges, statistic, count)) in enumerate(zip(slices, grids)):
+            ax = axes[row][col]
+            title = f'{label} — N = {len(subset):,}' if row == 0 else ''
+            mesh = _draw_map_panel(ax, grid_edges, statistic, count, spec, vmax, subset, title)
+            if row == len(_MAP_METRICS) - 1:
+                ax.set_xlabel('Longitude')
+            if col == 0:
+                ax.set_ylabel('Latitude')
+        fig.colorbar(mesh, ax=axes[row], label=spec['label'], shrink=0.85, pad=0.02)
+
+    fig.suptitle(f'Location-PDF quality metrics by depth slice (depth quartiles) — {run_name}\n'
+                 f'windowed median over {_MAP_BIN_SIZE}° cells (±{_SLICE_WINDOW} cells), '
+                 f'colour scale shared across the slices of a row',
+                 fontweight='bold')
+    plt.savefig(output_path)
+    plt.close(fig)
+
+
+def _generate_voxel_html(data, spec, run_name, output_path):
+    """Interactive lat/lon/depth voxel view of one metric (Plotly, self-contained)."""
+    import plotly.graph_objects as go
+
+    depth_range = (float(np.floor(np.nanpercentile(data['depth'], _CLIP_PCT[0]))),
+                   float(np.ceil(np.nanpercentile(data['depth'], _CLIP_PCT[1]))))
+    edges, statistic, count = windowed_stat_grid(
+        [data['latitude'], data['longitude'], data['depth']],
+        data[spec['column']].astype(float) * spec['scale'],
+        [_LAT_RANGE, _LON_RANGE, depth_range], _VOXEL_BIN_SIZE,
+        window_size=_VOXEL_WINDOW, stat=spec['stat'],
+    )
+
+    centres = [0.5 * (edge[:-1] + edge[1:]) for edge in edges]
+    lat_i, lon_i, depth_i = np.nonzero(count >= _VOXEL_MIN_COUNT)
+    values = statistic[lat_i, lon_i, depth_i]
+    counts = count[lat_i, lon_i, depth_i]
+
+    vmax = spec['vmax'] if spec['vmax'] is not None else float(np.nanmax(values))
+    figure = go.Figure(go.Scatter3d(
+        x=centres[1][lon_i], y=centres[0][lat_i], z=centres[2][depth_i],
+        mode='markers',
+        marker=dict(
+            size=4 + 8 * np.sqrt(counts / counts.max()),
+            color=values, colorscale=spec['plotly_cmap'], reversescale=spec['plotly_reverse'],
+            cmin=spec['vmin'], cmax=vmax, opacity=0.6,
+            colorbar=dict(title=spec['column']),
+        ),
+        customdata=np.column_stack([values, counts]),
+        hovertemplate=('lon %{x:.2f}° · lat %{y:.2f}° · depth %{z:.1f} km<br>'
+                       f"{spec['column']} " '%{customdata[0]:.3f} · %{customdata[1]} events'
+                       '<extra></extra>'),
+    ))
+    figure.update_layout(
+        title=dict(text=(f'{spec["label"]} in 3-D — {run_name}<br>'
+                         f'<sub>{_VOXEL_BIN_SIZE[0]}° × {_VOXEL_BIN_SIZE[1]}° × '
+                         f'{_VOXEL_BIN_SIZE[2]} km cells (±{_VOXEL_WINDOW} cell window), '
+                         f'≥ {_VOXEL_MIN_COUNT} events, marker size ∝ √count</sub>')),
+        scene=dict(
+            xaxis_title='Longitude (°)',
+            yaxis_title='Latitude (°)',
+            zaxis=dict(title='Depth (km)', autorange='reversed'),
+            aspectmode='manual', aspectratio=dict(x=2.0, y=1.0, z=0.6),
+        ),
+    )
+    figure.write_html(output_path, include_plotlyjs=True)
+
+
+def generate_figures(df, run_name, figure_dir=None):
+    """
+    Save every diagnostic figure of the annotated catalog.
+
+    Parameters
+    ----------
+    df         : pd.DataFrame — the catalog as written by compute_metrics
+    run_name   : str          — campaign name, used in titles and filenames
+    figure_dir : str          — output folder (default complem_figures/pdf_metrics/)
+
+    Returns
+    -------
+    list of the paths written. Takes ~30 s for ~46 k events.
+    """
+    figure_dir = figure_dir or _DEFAULT_FIG_DIR
+    os.makedirs(figure_dir, exist_ok=True)
+    data = _add_null_columns(df)
+
+    outputs = []
+    for name, builder in (('metrics_vs_quality', _generate_predictor_figure),
+                          ('gridmap',            _generate_gridmap_figure),
+                          ('gridmap_depth',      _generate_depth_slice_figure)):
+        path = os.path.join(figure_dir, f'{run_name}_{name}.pdf')
+        builder(data, run_name, path)
+        outputs.append(path)
+
+    for spec in _MAP_METRICS:
+        path = os.path.join(figure_dir, f'{run_name}_voxels_{spec["column"]}.html')
+        _generate_voxel_html(data, spec, run_name, path)
+        outputs.append(path)
+
+    for path in outputs:
+        logger.info(f'Figure           : {path!r}')
+    print(f'Figures saved @ {figure_dir} ({len(outputs)} files)')
+    return outputs
+
+
+# ---------------------------------------------------------------------------
 # Catalog-scale plumbing
 # ---------------------------------------------------------------------------
 
@@ -451,11 +946,25 @@ def compute_metrics(params):
     logger.info(f'Output            : {output_path!r}')
 
     print(f'Metrics saved @ {output_path} ({len(df)} events, {len(missing)} without a .scat)')
+
+    # Non-fatal, exactly like this whole step is inside run_SSST.py: the annotated
+    # CSV is already on disk, so a plotting failure must not make it look lost.
+    figures = []
+    if params.figures:
+        try:
+            figures = generate_figures(df, params.run_name, params.figure_dir)
+        except Exception as exc:
+            logger.warning(f'figures failed ({exc.__class__.__name__}: {exc})')
+            print(f'Figures failed ({exc.__class__.__name__}: {exc})\n'
+                  f'  {output_path} is complete; rerun with:\n'
+                  f'    python NLL_run/pdf_metrics.py --run-name {params.run_name}')
+
     return {
         'output':    output_path,
         'log':       log_path,
         'n_events':  len(df),
         'n_missing': len(missing),
+        'figures':   figures,
     }
 
 
@@ -463,10 +972,18 @@ def compute_metrics(params):
 # CLI
 # ---------------------------------------------------------------------------
 
+def _str2bool(value):
+    if value.lower() in ('true', '1', 'yes'):
+        return True
+    if value.lower() in ('false', '0', 'no'):
+        return False
+    raise argparse.ArgumentTypeError(f"expected true/false, got '{value}'")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Append location-PDF quality metrics (J, Psi, C68, dip test) '
-                    'to a merged NLLoc result CSV.')
+                    'to a merged NLLoc result CSV, and save their diagnostic figures.')
     parser.add_argument('--run-name', default='ssst_run1',
                         help='SSST campaign name (default: ssst_run1)')
     parser.add_argument('--result-csv',
@@ -480,6 +997,10 @@ def main():
                         help='Output CSV path (default: rewrite --result-csv in place)')
     parser.add_argument('--log-dir', default=None,
                         help='Log directory (default: NLL_run/console_output/)')
+    parser.add_argument('--figures', type=_str2bool, default=True,
+                        help='Save the diagnostic figures (default: true)')
+    parser.add_argument('--figure-dir', default=None,
+                        help='Figure directory (default: complem_figures/pdf_metrics/)')
     args = parser.parse_args()
 
     compute_metrics(PdfMetricsParams(
@@ -489,6 +1010,8 @@ def main():
         zones      = args.zones,
         output     = args.output,
         log_dir    = args.log_dir,
+        figures    = args.figures,
+        figure_dir = args.figure_dir,
     ))
 
 

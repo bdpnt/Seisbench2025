@@ -35,7 +35,8 @@ _PROJECT_ROOT = os.path.dirname(_MODULE_DIR)
 
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
-from NLL_run.pdf_metrics import METRIC_COLUMNS, final_iteration_dir  # noqa: E402
+from NLL_run.pdf_metrics import (METRIC_COLUMNS, final_iteration_dir,  # noqa: E402
+                                 windowed_stat_grid)
 
 # Post-SSST only: these come from the .scat clouds of the final SSST relocation,
 # and run/nll_loc/ holds no .scat, so there is no pre-stage counterpart to pair
@@ -241,29 +242,11 @@ def _add_gridmap_subplot(events, ax, values, label, metric, bin_size, min_count)
     import seaborn as sns
     from matplotlib.colors import SymLogNorm
 
-    bins_lat = max(int(round((_LAT_MAX - _LAT_MIN) / bin_size)), 1)
-    bins_lon = max(int(round((_LON_MAX - _LON_MIN) / bin_size)), 1)
-
-    lat_edges   = np.linspace(_LAT_MIN, _LAT_MAX, bins_lat + 1)
-    lon_edges   = np.linspace(_LON_MIN, _LON_MAX, bins_lon + 1)
-    median      = np.zeros((bins_lat, bins_lon))
-    count       = np.zeros((bins_lat, bins_lon), dtype=int)
-    window_size = 4
-
-    lat, lon = events['latitude'], events['longitude']
-    for i in range(bins_lat):
-        for j in range(bins_lon):
-            lat_low  = max(lat_edges[i]   - window_size * (lat_edges[1] - lat_edges[0]), _LAT_MIN)
-            lat_high = min(lat_edges[i+1] + window_size * (lat_edges[1] - lat_edges[0]), _LAT_MAX)
-            lon_low  = max(lon_edges[j]   - window_size * (lon_edges[1] - lon_edges[0]), _LON_MIN)
-            lon_high = min(lon_edges[j+1] + window_size * (lon_edges[1] - lon_edges[0]), _LON_MAX)
-            mask = (lat >= lat_low) & (lat <= lat_high) & (lon >= lon_low) & (lon <= lon_high)
-            window = values[mask]
-            if len(window) > 0:
-                median[i, j] = np.median(window)
-                count[i, j]  = len(window)
-            else:
-                median[i, j] = np.nan
+    (lat_edges, lon_edges), median, count = windowed_stat_grid(
+        [events['latitude'], events['longitude']], values,
+        [(_LAT_MIN, _LAT_MAX), (_LON_MIN, _LON_MAX)], [bin_size, bin_size],
+        window_size=4,
+    )
 
     if metric == 'diff':
         # Volume changes span several decades, so colour them on a signed log scale; below
@@ -285,7 +268,8 @@ def _add_gridmap_subplot(events, ax, values, label, metric, bin_size, min_count)
                          cmap='coolwarm', shading='auto', alpha=0.9,
                          **scale_kwargs)
 
-    sns.scatterplot(x=lon, y=lat, s=0.6, color='black', linewidth=0, ax=ax)
+    sns.scatterplot(x=events['longitude'], y=events['latitude'],
+                    s=0.6, color='black', linewidth=0, ax=ax)
 
     ax.text(0.01, 0.98, label, transform=ax.transAxes,
             fontweight='bold', color='black', ha='left', va='top')
