@@ -53,9 +53,9 @@ Final stage, run after `add_temp_picks.py`: relocates `obs/NLL_result_augmented.
 
 - **`run_SSST.py`** — orchestrator; campaign configuration (RUN_NAME, CHAR_DISTS, VPVS, core counts, LSPHSTAT) at the top of the file; CLI `--zones`, `--iteration-start`, `--iteration-stop` (partial campaigns/resume). Per zone: cuts `obs/GLOBAL_<N>_SSST.obs` + `stations/GTSRCE_SSST_<N>.txt`, derives `run/ssst/run_<N>_NLL.in` (NLLoc) and `run/ssst/run_<N>_SSST.in` (Loc2ssst) from `run/nll/run_<N>_DELAYS.in` (`NLL_run/generate_ssst_runfiles.py`), splits the bulletin into per-event files in `obs/nlloc_obs/GLOBAL_<N>/` (`NLL_run/reformate_obs.py`), builds P+S grids in `run/ssst_model|ssst_time` (VpVs −9.99, real S grids), and runs the iteration loop (`NLL_run/run_ssst.py`: len(CHAR_DISTS) SSST iterations + final NLLoc-only relocation, outputs under `run/ssst_loc/<RUN_NAME>/`).
 - After all zones: merges the final-iteration CSVs → `RESULT/SSST_result.csv` (dedup by lowest `pdfVolume`), rematches against `obs/NLL_result_augmented.obs` via `publicId` → `obs/SSST_result.obs` (same modules as the NLL stage).
-- **`NLL_run/pdf_metrics.py`** (post-step, run manually in `seisbench_env` — it needs `diptest`, which `run_SSST.py`'s environment lacks): reads the per-event `.scat` clouds of each zone's final SSST iteration and rewrites `RESULT/SSST_result.csv` in place with the location-PDF quality columns. Idempotent; ~80 s for ~46 k events.
+- **`NLL_run/pdf_metrics.py`** — last step of `run_SSST.py` (after the merge and the rematch): reads the per-event `.scat` clouds of each zone's final SSST iteration and rewrites `RESULT/SSST_result.csv` in place with the location-PDF quality columns. Non-fatal there (the results are already written) and idempotent, so it can be rerun standalone on any campaign; ~80 s for ~46 k events.
   ```bash
-  conda run -n seisbench_env python NLL_run/pdf_metrics.py --run-name ssst_run1
+  python NLL_run/pdf_metrics.py --run-name ssst_run1
   ```
   Uses its own `.scat` reader — **not** `obspy.io.nlloc.util.read_nlloc_scatter`, which does `np.fromfile(...)[4:]` and silently drops the first 3 samples of every file (4 records dropped where the header is 1).
 - Reference: `SSST_INTEGRATION.md` (porting notes from the validated CODES_SSST workflow).
@@ -77,9 +77,9 @@ Scripts in `complem_figures/` for visualization and statistics:
 - `plot_pdf_cloud.py` — interactive 3D PDF scatter-cloud of one event across SSST iterations (Plotly)
 - `ssst_evolution.py` — per-zone pdfVolume/EllipsoidLen3/RMS evolution across SSST iterations (convergence QC)
 
-> **Environments**:
+> **Environments**: `seisbench_env` is the project default — the whole pipeline (`build_global_inventory.py` → `run_SSST.py`) runs in it unprefixed. `pygmt_env` is the only exception, for the modules importing PyGMT or `xarray`.
 > - `seisbench_env` → `generate_complem_figures.py` (Gutenberg-Richter, depth maps, error maps)
-> - `pygmt_env`     → `generate_complem_maps.py` (event maps for each zone and final catalog)
+> - `pygmt_env`     → `generate_complem_maps.py` (event maps for each zone and final catalog), `cross_section.py`, and the two `build_global_bulletin.py` steps it launches itself via `conda run` (`filter_events_by_aoi.py`, `plot_global_catalog_map.py`)
 
 `event_ranking.py`, `plot_pdf_cloud.py`, and `ssst_evolution.py` are standalone diagnostics, not wired into the two driver scripts above; they read `RESULT/*.csv` and `run/nll_loc/` / `run/ssst_loc/<run-name>/` directly.
 

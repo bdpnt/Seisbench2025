@@ -147,6 +147,8 @@ All Python scripts in this project share the same interface contract:
 - **Public API**: every module is importable as a Python package (e.g. `from temp_picks.match_picks import match_picks`)
 - **Logging**: timestamped log files are written to a `console_output/` directory local to each sub-pipeline
 
+**Environments.** `seisbench_env` is the project's default: the entire pipeline (`build_global_inventory.py` → `run_SSST.py`) and `generate_complem_figures.py` run in it, unprefixed. `pygmt_env` is the only exception, needed by the two modules that import PyGMT or `xarray`: `generate_complem_maps.py` and the standalone `complem_figures/cross_section.py`. Two steps of `build_global_bulletin.py` (`filter_events_by_aoi.py`, `plot_global_catalog_map.py`) also draw PyGMT maps, but the script launches them in `pygmt_env` itself via `conda run` — nothing to do manually.
+
 ---
 
 ## Pipeline
@@ -296,13 +298,13 @@ Once all zones are complete, the final-iteration CSVs feed the same chain as the
 
 #### Location-PDF quality metrics — `NLL_run/pdf_metrics.py`
 
-A **post-step, run manually in `seisbench_env`** (it needs `diptest`, which `run_SSST.py`'s environment does not carry):
+Run automatically by `run_SSST.py` as its last step, once the merge and the rematch are done. It reads the per-event `.scat` scatter clouds of each zone's final SSST iteration, joins them to the merged catalog on `(source, publicId)`, and rewrites `RESULT/SSST_result.csv` in place with ten extra columns. Runtime is ~80 s for ~46 000 events.
+
+The step is deliberately **non-fatal**: at that point the campaign's results are already written, so a metrics failure prints a warning instead of making a multi-hour run look like it failed. It is also idempotent — re-running replaces the columns rather than duplicating them — so it can be repeated standalone at any time, on any campaign:
 
 ```bash
-conda run -n seisbench_env python NLL_run/pdf_metrics.py --run-name ssst_run1
+python NLL_run/pdf_metrics.py --run-name ssst_run1
 ```
-
-It reads the per-event `.scat` scatter clouds of each zone's final SSST iteration, joins them to the merged catalog on `(source, publicId)`, and rewrites `RESULT/SSST_result.csv` in place with ten extra columns. The step is idempotent — re-running it replaces the columns rather than duplicating them — so it can be repeated after any new campaign. Runtime is ~80 s for ~46 000 events.
 
 The metrics exist to decide **which events are trustworthy enough to keep**:
 
@@ -324,8 +326,8 @@ Reference document: `SSST_INTEGRATION.md` (porting notes from the validated CODE
 
 ## Complementary Analysis
 
-Two driver scripts run the `complem_figures/` modules in **different conda environments**:
-- `generate_complem_figures.py` (`seisbench_env`) — matplotlib figures: depth histograms, Gutenberg-Richter distributions, and per-period depth and error maps
+Two driver scripts run the `complem_figures/` modules:
+- `generate_complem_figures.py` (`seisbench_env`, the project default) — matplotlib figures: depth histograms, Gutenberg-Richter distributions, and per-period depth and error maps
 - `generate_complem_maps.py` (`pygmt_env`) — PyGMT event maps for each of the 6 NLL zones and the final catalog
 
 Each module can also be run standalone:
@@ -363,8 +365,8 @@ Map modules apply a quality filter (erh ≤ 3 km, erv ≤ 3 km, gap ≤ 300°, r
 | `scikit-learn` | Regression diagnostics (R²) for magnitude models |
 | `matplotlib`, `seaborn` | Plotting |
 | `plotly` | Interactive 3D PDF-cloud visualization — `complem_figures/plot_pdf_cloud.py` |
-| `diptest` | Hartigan's dip test for depth multimodality — `NLL_run/pdf_metrics.py` (installed in `seisbench_env` only) |
-| `xarray` | Grid handling for cross-sections |
+| `diptest` | Hartigan's dip test for depth multimodality — `NLL_run/pdf_metrics.py` |
+| `xarray` | Grid handling for cross-sections (`pygmt_env`) |
 | `pygmt` | Geographic maps (requires separate `pygmt_env` conda environment) |
 | `joblib` | Magnitude model serialization |
 | `requests` | ICGC catalog fetching |
