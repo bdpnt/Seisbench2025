@@ -51,9 +51,8 @@ Shallow_Depth_DL_Catalog/
 ├── run_NLL.py                # Entry point: run NLL relocation (6 zones) and finalize the catalog
 ├── add_temp_picks.py             # Entry point: augment NLL_result.obs with external picks
 ├── run_SSST.py               # Entry point: SSST relocation of the augmented catalog
-├── generate_complem_figures.py   # Entry point: matplotlib figures (seisbench_env)
-├── generate_complem_maps.py      # Entry point: PyGMT event maps (pygmt_env)
-├── run_gamma_detection.py        # Entry point: standalone PhaseNet/GaMMA detection
+├── generate_complem_figures.py   # Entry point: matplotlib figures
+├── generate_complem_maps.py      # Entry point: PyGMT event maps
 │
 ├── fetch_obs/                # Catalog fetching & .obs conversion modules
 │   ├── RESIF.py
@@ -146,8 +145,6 @@ All Python scripts in this project share the same interface contract:
 - **CLI**: every script accepts `--help` and can be run directly from the command line
 - **Public API**: every module is importable as a Python package (e.g. `from temp_picks.match_picks import match_picks`)
 - **Logging**: timestamped log files are written to a `console_output/` directory local to each sub-pipeline
-
-**Environments.** `seisbench_env` is the project's default: the entire pipeline (`build_global_inventory.py` → `run_SSST.py`) and `generate_complem_figures.py` run in it, unprefixed. `pygmt_env` is the only exception, needed by the two modules that import PyGMT or `xarray`: `generate_complem_maps.py` and the standalone `complem_figures/cross_section.py`. Two steps of `build_global_bulletin.py` (`filter_events_by_aoi.py`, `plot_global_catalog_map.py`) also draw PyGMT maps, but the script launches them in `pygmt_env` itself via `conda run` — nothing to do manually.
 
 ---
 
@@ -300,11 +297,7 @@ Once all zones are complete, the final-iteration CSVs feed the same chain as the
 
 Run automatically by `run_SSST.py` as its last step, once the merge and the rematch are done. It reads the per-event `.scat` scatter clouds of each zone's final SSST iteration, joins them to the merged catalog on `(source, publicId)`, and rewrites `RESULT/SSST_result.csv` in place with ten extra columns. Runtime is ~80 s for ~46 000 events.
 
-The step is deliberately **non-fatal**: at that point the campaign's results are already written, so a metrics failure prints a warning instead of making a multi-hour run look like it failed. It is also idempotent — re-running replaces the columns rather than duplicating them — so it can be repeated standalone at any time, on any campaign:
-
-```bash
-python NLL_run/pdf_metrics.py --run-name ssst_run1
-```
+The step is deliberately **non-fatal**: at that point the campaign's results are already written, so a metrics failure prints a warning instead of making a multi-hour run look like it failed. It is also idempotent — re-running replaces the columns rather than duplicating them — so it can be repeated standalone at any time, on any campaign.
 
 The metrics exist to decide **which events are trustworthy enough to keep**:
 
@@ -314,21 +307,19 @@ The metrics exist to decide **which events are trustworthy enough to keep**:
 
 `J` and `C_68` cannot be read on their own: the k-NN entropy estimator is biased in a sample-size-dependent way, and the `C_68` null spread is *not* binomial (μ and Σ are fitted on the very samples being tested, which suppresses the scatter — 0.013 simulated vs 0.021 binomial at n≈479). Each event therefore also carries `J_null_p95` and `C68_sigma_n`, simulated from Gaussian clouds of that event's own sample count, so a cut is a one-line comparison: `C68 < 0.68 − 3·C68_sigma_n` (over-confident) or `J > J_null_p95` (non-Gaussian).
 
-> All three measure whether the reported uncertainty is **self-consistent**, not whether the location is **accurate**. Velocity-model error is a bias none of them can see: an event can score perfectly and still be systematically mislocated. Thresholds are not established values — see `PDF_metrics.md` for the derivations, the pitfalls, and the literature.
+> All three measure whether the reported uncertainty is **self-consistent**, not whether the location is **accurate**. Velocity-model error is a bias none of them can see: an event can score perfectly and still be systematically mislocated. Thresholds are not established values.
 
 Observed over the current catalog: `C_68` is over-confident for only 0.1 % of events and conservative for 57 %, while the dip test rejects 11.5 %. Both degrade monotonically with azimuthal gap (median Ψ 0.90 at gap < 90° falling to 0.17 above 270°) and with falling phase count.
 
 The campaign configuration (`RUN_NAME`, `CHAR_DISTS`, `VPVS`, core counts, `LSPHSTAT` — whose `NRdgsMin` doubles as the NLLoc min-phases threshold, read back from the generated Loc2ssst control so the two selections cannot diverge) lives at the top of `run_SSST.py`. Per-zone run journals are written to `run/ssst/log/`; intermediate location outputs (`loc_ssst_corr<i>/`) are deletable after validation (each journal ends with the ready-to-paste commands), and the chunk directories of each iteration are deleted automatically after each merge.
-
-Reference document: `SSST_INTEGRATION.md` (porting notes from the validated CODES_SSST workflow).
 
 ---
 
 ## Complementary Analysis
 
 Two driver scripts run the `complem_figures/` modules:
-- `generate_complem_figures.py` (`seisbench_env`, the project default) — matplotlib figures: depth histograms, Gutenberg-Richter distributions, and per-period depth and error maps
-- `generate_complem_maps.py` (`pygmt_env`) — PyGMT event maps for each of the 6 NLL zones and the final catalog
+- `generate_complem_figures.py` — matplotlib figures: depth histograms, Gutenberg-Richter distributions, and per-period depth and error maps
+- `generate_complem_maps.py` — PyGMT event maps for each of the 6 NLL zones and the final catalog
 
 Each module can also be run standalone:
 
@@ -366,12 +357,10 @@ Map modules apply a quality filter (erh ≤ 3 km, erv ≤ 3 km, gap ≤ 300°, r
 | `matplotlib`, `seaborn` | Plotting |
 | `plotly` | Interactive 3D PDF-cloud visualization — `complem_figures/plot_pdf_cloud.py` |
 | `diptest` | Hartigan's dip test for depth multimodality — `NLL_run/pdf_metrics.py` |
-| `xarray` | Grid handling for cross-sections (`pygmt_env`) |
-| `pygmt` | Geographic maps (requires separate `pygmt_env` conda environment) |
+| `xarray` | Grid handling for cross-sections |
+| `pygmt` | Geographic maps |
 | `joblib` | Magnitude model serialization |
 | `requests` | ICGC catalog fetching |
-| `seisbench`, `torch` | PhaseNet phase detection — `run_gamma_detection.py` |
-| `gamma` | GaMMA event association — `run_gamma_detection.py` |
 | `pyproj` | Coordinate transformations |
 | **NonLinLoc** | Probabilistic earthquake location — Vel2Grid, Grid2Time, NLLoc, Loc2ssst (external tool, invoked automatically by `run_NLL.py` / `run_SSST.py`) |
 | **Pyrocko** / **cake** | Theoretical travel-time computation (`temp_picks/build_theoretical_tables.py`) |

@@ -58,7 +58,6 @@ Final stage, run after `add_temp_picks.py`: relocates `obs/NLL_result_augmented.
   python NLL_run/pdf_metrics.py --run-name ssst_run1
   ```
   Uses its own `.scat` reader — **not** `obspy.io.nlloc.util.read_nlloc_scatter`, which does `np.fromfile(...)[4:]` and silently drops the first 3 samples of every file (4 records dropped where the header is 1).
-- Reference: `SSST_INTEGRATION.md` (porting notes from the validated CODES_SSST workflow).
 
 ---
 
@@ -119,7 +118,7 @@ The root-level script **`add_temp_picks.py`** orchestrates the full pipeline (st
 - `ellipsoidVolume` = 4/3·π·Len1·Len2·Len3, written alongside `true_erh`/`true_erz` for direct comparison against `pdfVolume`
 
 ### Location-PDF quality columns (`RESULT/SSST_result.csv` only)
-Added by `NLL_run/pdf_metrics.py` from the `.scat` scatter clouds; see `PDF_metrics.md` for derivations and pitfalls.
+Added by `NLL_run/pdf_metrics.py` from the `.scat` scatter clouds.
 - `J` / `Psi` — negentropy `KL(p ‖ N(μ,Σ))` in nats and `Psi = exp(-J)`, the effective-volume ratio. `Psi = 1` is exactly Gaussian. **Directionless — never a rejection criterion on its own.**
 - `C68` — posterior mass inside the nominal 68% ellipsoid. The only directional metric, so it drives keep/reject: `> 0.68` conservative (safe), `< 0.68` over-confident.
 - `dip_stat` / `dip_pval` / `dip_reject` — Hartigan's dip test on the depth marginal, computed at a common subsample of 400 so p-values are comparable across events. A rejection means two competing depth solutions and no defensible scalar depth.
