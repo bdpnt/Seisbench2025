@@ -68,6 +68,20 @@ Final stage, run after `add_temp_picks.py`: relocates `obs/NLL_result_augmented.
 
   The maps colour by `C68_z = (C68 − 0.68) / C68_sigma_n` rather than raw `C68`, and the 1-D nulls are per bin: both are read from each event's own `J_null_p95` / `C68_sigma_n`, so nothing breaks when `n_scat` is not near-constant as it happens to be in `ssst_run1`.
 
+### 7. Final Bulletin Export
+Last stage, run after `run_SSST.py`. Merges `obs/SSST_result.obs` (magnitudes + picks) and `RESULT/SSST_result.csv` (full-precision hypocentres + PDF metrics) on `publicId` into `RESULT/FINAL.xml`, a QuakeML 1.2 bulletin.
+
+- **`final_steps.py`** — orchestrator; the post-SSST finalization stage. Currently one step, further steps get appended as `[n/N]`.
+- **`NLL_run/export_quakeml.py`** — the export. All 46 224 events, all 1 001 095 picks. ~5 min, ~3.4 GB peak RAM, ~0.86 GB output. Serializes in chunks of 5 000 events and splices the bodies into one file (obspy has no streaming QuakeML writer).
+  ```bash
+  python final_steps.py
+  python NLL_run/export_quakeml.py --obs obs/SSST_result.obs --csv RESULT/SSST_result.csv \
+      --inventory stations/GLOBAL_inventory.xml --output RESULT/FINAL.xml
+  ```
+- Each event carries `pyr:usable` = `(C68 − 0.68)/C68_sigma_n ≥ −2` **and** `not dip_reject` **and** metrics present → 40 793 usable / 5 431 unusable, plus a `pyr:rejectReason` string. **Ψ is exported but never rejects** (directionless; 81 % of the catalog exceeds its own `J` null). The `C68` cut is against the simulated null, not raw 0.68 — that difference is 155 events flagged instead of 2 944.
+- Station codes are resolved to real `NET.STA` via inventory `alternate_code`, epoch-aware; the unified code is kept as `pyr:unifiedCode` on every pick.
+- `Mag 0.00` (5 010 events) is an OMP placeholder, written through unchanged because magnitudes are recomputed later — do not fit it as data.
+
 ---
 
 ## Complementary Analysis

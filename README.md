@@ -18,6 +18,7 @@ The workflow covers catalog fetching, station inventory fusion, magnitude harmon
   - [5. Post-relocation Processing](#5-post-relocation-processing)
   - [6. External Pick Ingestion (temp_picks)](#6-external-pick-ingestion-temp_picks)
   - [7. SSST Relocation](#7-ssst-relocation)
+  - [8. Final Bulletin Export](#8-final-bulletin-export)
 - [Complementary Analysis](#complementary-analysis)
 - [Dependencies](#dependencies)
 - [A note on AI assistance](#a-note-on-ai-assistance)
@@ -51,6 +52,7 @@ Shallow_Depth_DL_Catalog/
 ├── run_NLL.py                # Entry point: run NLL relocation (6 zones) and finalize the catalog
 ├── add_temp_picks.py             # Entry point: augment NLL_result.obs with external picks
 ├── run_SSST.py               # Entry point: SSST relocation of the augmented catalog
+├── final_steps.py                # Entry point: export the final QuakeML bulletin
 ├── generate_complem_figures.py   # Entry point: matplotlib figures
 ├── generate_complem_maps.py      # Entry point: PyGMT event maps
 │
@@ -89,7 +91,8 @@ Shallow_Depth_DL_Catalog/
 │   ├── generate_ssst_runfiles.py    # SSST: derive control files from the NLL run files
 │   ├── reformate_obs.py             # SSST: split a bulletin into per-event .nlloc_obs
 │   ├── run_ssst.py                  # SSST: iterative NLLoc + Loc2ssst workflow (one zone)
-│   └── pdf_metrics.py               # SSST: location-PDF quality metrics from .scat clouds + their figures
+│   ├── pdf_metrics.py               # SSST: location-PDF quality metrics from .scat clouds + their figures
+│   └── export_quakeml.py            # Final: merge .obs + result CSV into a QuakeML bulletin
 │
 ├── complem_figures/          # Visualization & statistical analysis
 │   ├── event_maps.py
@@ -154,7 +157,7 @@ Entry points, in execution order:
 
 ```
 build_global_inventory.py → fetch_all_bulletins.py → build_global_bulletin.py
-→ run_NLL.py → add_temp_picks.py → run_SSST.py
+→ run_NLL.py → add_temp_picks.py → run_SSST.py → final_steps.py
 ```
 
 ### 1. Station Inventory Fusion
@@ -327,6 +330,54 @@ Two details keep the figures honest when the catalog changes. The maps colour by
 Latitude and longitude are deliberately absent from the 1-D grid: a 1-D latitude panel marginalizes over longitude and hides exactly the structure the maps are there to show.
 
 The campaign configuration (`RUN_NAME`, `CHAR_DISTS`, `VPVS`, core counts, `LSPHSTAT` — whose `NRdgsMin` doubles as the NLLoc min-phases threshold, read back from the generated Loc2ssst control so the two selections cannot diverge) lives at the top of `run_SSST.py`. Per-zone run journals are written to `run/ssst/log/`; intermediate location outputs (`loc_ssst_corr<i>/`) are deletable after validation (each journal ends with the ready-to-paste commands), and the chunk directories of each iteration are deleted automatically after each merge.
+
+---
+
+### 8. Final Bulletin Export
+
+`final_steps.py` — the last entry point, run once `run_SSST.py` has finished. Everything it needs already exists but is split across two files, each holding half the catalog:
+
+| Input | Holds | Missing |
+|-------|-------|---------|
+| `obs/SSST_result.obs` | magnitudes, all 1 001 095 phase picks | numbers rounded to the header's display precision |
+| `RESULT/SSST_result.csv` | full-precision hypocentres, confidence ellipsoid, PDF quality metrics | magnitude, picks |
+
+The stage merges them on `publicId` (1:1 across 46 224 events) into **`RESULT/FINAL.xml`**, a QuakeML 1.2 bulletin — the first output of this project in a format readable outside it. Hypocentres, uncertainties and quality come from the CSV at full precision; the `.obs` supplies only the magnitude and the picks. Runtime ~5 min, peak ~3.4 GB RAM, ~0.86 GB output.
+
+Every event is exported, each carrying a boolean **`pyr:usable`** flag plus the metrics behind it, so a consumer can filter without recomputing anything and can re-tune the cut without rerunning the stage.
+
+```
+usable = (C68 − 0.68) / C68_sigma_n ≥ −2   and   not dip_reject   and   metrics present
+```
+
+Measured on the current catalog: **40 793 usable / 5 431 unusable** — 5 329 `dip_bimodal`, 155 `c68_overconfident`, 4 `no_pdf_metrics` (some events fail on two counts). The reason string is exported alongside the flag.
+
+Two things that rule deliberately does *not* do. **Ψ never rejects**: it is directionless, and 81 % of this catalog exceeds its own Gaussian null on `J`, so gating on it would discard 85 % of the events — it is exported as an indicator only. And the `C_68` cut is taken **against the simulated null, not against 0.68**: with the median `C68_sigma_n ≈ 0.0124` the −2 σ cut sits at `C_68 < 0.655`, flagging 155 events where a raw `C_68 < 0.68` would flag 2 944 — the 2 789 in between are within sampling noise of perfect coverage.
+
+Station codes are resolved back to real network/station names: the picks carry the project's unified code (`FR.0041`), which is matched against `alternate_code` in `GLOBAL_inventory.xml` and resolved by the pick's own date. 80 codes cover more than one station (near-duplicates merged within 20 m); 79 have disjoint epochs and resolve cleanly, one lists two entries that both span all time and is logged as ambiguous (1 331 picks, 0.13 %). The unified code is kept on every pick, so nothing is lost either way.
+
+#### QuakeML output
+
+Standard QuakeML carries the hypocentre, the `OriginQuality`, the `OriginUncertainty` with its full `ConfidenceEllipsoid`, the magnitude, and one `Pick` + `Arrival` per phase. Everything QuakeML has no element for goes into the `pyr:` namespace (`http://shallow-depth-dl-catalog/quakeml/1.0`):
+
+| Level | Field | Meaning |
+|-------|-------|---------|
+| event | `usable` | `true` / `false` — the rule above |
+| event | `rejectReason` | `''`, or `dip_bimodal` / `c68_overconfident` / `no_pdf_metrics`, comma-joined |
+| event | `Psi`, `J`, `C68`, `C68Z` | the quality metrics; `C68Z` is the null-normalized z-score the cut uses |
+| event | `JNullP95`, `C68SigmaN`, `nScat` | the per-event Gaussian null and the sample count backing it |
+| event | `dipStat`, `dipPval`, `dipReject` | Hartigan's dip test on the depth marginal |
+| event | `publicId`, `sourceZone` | the catalog's join key, and which NLL zone won the dedup |
+| origin | `pdfVolume`, `ellipsoidVolume` | the two volume measures, for direct comparison |
+| origin | `ellipsoidAz1` … `ellipsoidLen3` | the raw NLLoc ellipsoid columns, so the QuakeML conversion stays auditable |
+| pick | `unifiedCode` | the project's internal station code, before resolution |
+| pick | `pickOrigin` | provenance: `OMP`, `FDSN`, `LDG`, `IGN`, `ICGC`, `TEMP_*` |
+| pick | `relativeTiming` | `true` when NLLoc used the pick via S−P relative timing (the `*` flag), not its absolute time |
+
+Two caveats a reader of `FINAL.xml` needs:
+
+- **The DOF scaling is mixed inside `OriginUncertainty`, by design.** The `ConfidenceEllipsoid` axes keep NLLoc's 3-DOF 68 % scaling, while `horizontalUncertainty` and the depth uncertainty carry the catalog's own `true_erh` (2-DOF) and `true_erz` (1-DOF). Those are the values the rest of the catalog uses, but neither is a projection of the other. NLLoc reports azimuth/dip for axes 1 and 2 only, so the major-axis orientation QuakeML requires is reconstructed from their cross product.
+- **`Mag 0.00` on 5 010 events is a placeholder, not a measurement**, and is written through unchanged because magnitudes are recomputed later. The raw OMP `.mag` files hold the literal string `0.0` for ~19 % of events; the neighbouring `0.1` bin holds 148, and the zero fraction falls from ~40 % to 0.3 % in 2013 when OMP began computing ML systematically. All 5 010 are `(ML, OMP)` — `LDG.py` and `RESIF.py` skip magnitude-less events instead of filling them. Do not fit that bin as data.
 
 ---
 
