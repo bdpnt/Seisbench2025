@@ -89,6 +89,8 @@ _NSMAP = {'pyr': _NS}
 _C68_Z_MIN        = -2.0    # null sigmas below Gaussian coverage before rejection
 _NOMINAL_COVERAGE = 0.68    # coverage the confidence ellipsoid is built for
 _CHUNK_SIZE       = 5000    # events serialized per pass (bounds peak memory)
+_SPLIT_YEARS      = 5       # calendar length of each split part
+
 _KM_PER_DEGREE    = 111.195 # NLL reports Dist in km, QuakeML wants degrees
 _UNKNOWN_NETWORK  = 'XX'    # placeholder network; a real code always wins over it
 
@@ -120,6 +122,14 @@ class ExportQuakeMLParams:
     file_csv:       str   # path to RESULT/SSST_result.csv
     file_inventory: str
     save_file:      str
+    write_catalog:  bool = True   # also emit <save_file stem>_catalog.xml, picks stripped
+    write_parts:    bool = True   # also emit year-range parts sized to _SPLIT_BUDGET_GB
+
+
+def _companion_path(save_file, suffix):
+    """Path of a companion file next to save_file, e.g. FINAL.xml -> FINAL_catalog.xml."""
+    stem, extension = os.path.splitext(save_file)
+    return f'{stem}_{suffix}{extension}'
 
 
 # ---------------------------------------------------------------------------
@@ -548,6 +558,48 @@ def _serialize(events):
     return buffer.getvalue().decode('utf-8')
 
 
+class _QuakeMLWriter:
+    """
+    Assemble one QuakeML file from independently serialized chunks.
+
+    The envelope of the first chunk is kept, every chunk's events are appended,
+    and the closing tags are written by close().
+    """
+
+    def __init__(self, path):
+        self.path     = path
+        self.n_events = 0
+        self._handle  = open(path, 'w', encoding='utf-8')
+        self._tail    = None
+
+    def append(self, serialized, n_events):
+        head, body, tail = _split_envelope(serialized)
+        if self._tail is None:
+            self._handle.write(head)
+            self._tail = tail
+        self._handle.write(body)
+        self.n_events += n_events
+
+    def close(self):
+        self._handle.write(self._tail or '')
+        self._handle.close()
+
+
+def year_period(year, span=_SPLIT_YEARS):
+    """
+    Calendar period a year belongs to, e.g. 2023 -> (2020, 2024).
+
+    A read_events() call on the whole catalog peaks around 15 GB, because every
+    event and pick becomes a Python object. The parts exist so a reader never
+    has to pay that: each covers a fixed calendar span, so which file holds a
+    given event is obvious from its date alone, and stays obvious as the catalog
+    grows. Parts are not equal in size — pick density rises from ~7 picks/event
+    in the 1980s to ~28 in the 2020s, so the recent ones are the heavy ones.
+    """
+    start = (year // span) * span
+    return start, start + span - 1
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -595,45 +647,76 @@ def write_quakeml(parameters, log_dir=None):
     if parent:
         os.makedirs(parent, exist_ok=True)
 
-    with open(parameters.save_file, 'w', encoding='utf-8') as output:
-        tail  = None
+    # The complete bulletin, plus the two companions that keep a reader from
+    # ever having to load all of it at once.
+    full_writer    = _QuakeMLWriter(parameters.save_file)
+    catalog_writer = (_QuakeMLWriter(_companion_path(parameters.save_file, 'catalog'))
+                      if parameters.write_catalog else None)
+    part_writers   = {}
+
+    chunk       = []
+    chunk_group = None
+
+    def flush():
+        """Serialize the pending chunk into every output it belongs to."""
+        nonlocal chunk
+        if not chunk:
+            return
+        serialized = _serialize(chunk)
+        full_writer.append(serialized, len(chunk))
+
+        if chunk_group is not None:
+            writer = part_writers.get(chunk_group)
+            if writer is None:
+                writer = _QuakeMLWriter(_companion_path(
+                    parameters.save_file, f'{chunk_group[0]}_{chunk_group[1]}'))
+                part_writers[chunk_group] = writer
+            writer.append(serialized, len(chunk))
+
+        if catalog_writer is not None:
+            # Picks and arrivals are 83% of the load cost, so the catalog-only
+            # companion drops them. The chunk is discarded right after, so the
+            # events are stripped in place rather than copied.
+            for event in chunk:
+                event.picks = []
+                for origin in event.origins:
+                    origin.arrivals = []
+            catalog_writer.append(_serialize(chunk), len(chunk))
+
         chunk = []
 
-        def flush():
-            """Serialize the pending chunk and append its events to the file."""
-            nonlocal tail, chunk
-            if not chunk:
-                return
-            head, body, chunk_tail = _split_envelope(_serialize(chunk))
-            if tail is None:
-                output.write(head)
-                tail = chunk_tail
-            output.write(body)
-            chunk = []
+    for obs_event in obs_events:
+        public_id = obs_event.public_id
+        if public_id is None or public_id not in results.index:
+            logger.warning(f"publicId {public_id!r} absent from result CSV — skipping")
+            n_orphan += 1
+            continue
 
-        for obs_event in obs_events:
-            public_id = obs_event.public_id
-            if public_id is None or public_id not in results.index:
-                logger.warning(f"publicId {public_id!r} absent from result CSV — skipping")
-                n_orphan += 1
-                continue
+        row     = results.loc[public_id]
+        verdict = classify(row)
+        event   = build_event(obs_event, row, verdict, epochs, unresolved)
 
-            row     = results.loc[public_id]
-            verdict = classify(row)
-            event   = build_event(obs_event, row, verdict, epochs, unresolved)
+        usable, reason = verdict
+        reasons[reason or 'usable'] += 1
+        n_usable += usable
+        n_picks  += len(event.picks)
+        n_events += 1
 
-            usable, reason = verdict
-            reasons[reason or 'usable'] += 1
-            n_usable += usable
-            n_picks  += len(event.picks)
-            n_events += 1
+        # The bulletin is chronological, so a part is a contiguous run of
+        # events; flushing on a part change keeps every chunk single-part.
+        group = (year_period(event.origins[0].time.year)
+                 if parameters.write_parts else None)
+        if chunk and (group != chunk_group or len(chunk) >= _CHUNK_SIZE):
+            flush()
+        chunk_group = group
+        chunk.append(event)
 
-            chunk.append(event)
-            if len(chunk) >= _CHUNK_SIZE:
-                flush()
+    flush()
 
-        flush()
-        output.write(tail if tail is not None else '')
+    outputs = [full_writer] + ([catalog_writer] if catalog_writer else []) \
+              + [part_writers[key] for key in sorted(part_writers)]
+    for writer in outputs:
+        writer.close()
 
     logger.info(f"Events written             : {n_events}")
     logger.info(f"Picks written              : {n_picks}")
@@ -650,7 +733,15 @@ def write_quakeml(parameters, log_dir=None):
     else:
         logger.info("Unresolved station codes   : 0")
 
+    logger.info("Files written:")
+    for writer in outputs:
+        size_mb = os.path.getsize(writer.path) / 1e6
+        logger.info(f"  {os.path.basename(writer.path):<28s} "
+                    f"{writer.n_events:6d} events  {size_mb:8.1f} MB")
+
     return {
+        'files':      [{'path': w.path, 'n_events': w.n_events,
+                        'size': os.path.getsize(w.path)} for w in outputs],
         'output':     parameters.save_file,
         'log':        log_path,
         'n_events':   n_events,
@@ -673,6 +764,10 @@ def main():
     parser.add_argument('--csv',       required=True, help='Merged result CSV (RESULT/SSST_result.csv)')
     parser.add_argument('--inventory', required=True, help='Station inventory (stations/GLOBAL_inventory.xml)')
     parser.add_argument('--output',    required=True, help='Output QuakeML file (RESULT/FINAL.xml)')
+    parser.add_argument('--no-catalog', action='store_true',
+                        help='Skip the picks-free <output>_catalog.xml companion')
+    parser.add_argument('--no-parts',   action='store_true',
+                        help='Skip the year-range parts')
     parser.add_argument('--log-dir',   default=None,
                         help='Log directory (default: NLL_run/console_output/)')
     args = parser.parse_args()
@@ -682,6 +777,8 @@ def main():
         file_csv       = args.csv,
         file_inventory = args.inventory,
         save_file      = args.output,
+        write_catalog  = not args.no_catalog,
+        write_parts    = not args.no_parts,
     ), log_dir=args.log_dir)
 
 

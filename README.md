@@ -379,18 +379,34 @@ Everything QuakeML has no element for goes into a custom namespace, `http://shal
 | pick | `pickOrigin` | provenance: `OMP`, `FDSN`, `LDG`, `IGN`, `ICGC`, `TEMP_*` |
 | pick | `relativeTiming` | `true` when NLLoc used the pick via S−P relative timing (the `*` flag), not its absolute time |
 
-Reading it back:
+#### Which file to read
+
+`read_events('RESULT/FINAL.xml')` loads the whole catalog in one call — 46 224 events in 255 s, zero warnings, every field surviving the round trip — **but it peaks at ~15 GB of RAM**, because 46 224 events and 1 001 095 picks become roughly two million Python objects, each with a registered `ResourceIdentifier`. Measured per object: 12.5 KB per pick+arrival and 55.8 KB per event, so **the picks are 83 % of the cost**.
+
+The stage therefore writes the same catalog three ways. They are redundant on purpose: pick whichever matches what you are doing.
+
+| File | Holds | Size | `read_events` cost |
+|------|-------|------|--------------------|
+| `FINAL.xml` | everything, one file | 834 MB | 15.1 GB / 255 s |
+| `FINAL_catalog.xml` | all 46 224 events, **no picks or arrivals** | 178 MB | 2.5 GB / 33 s |
+| `FINAL_<from>_<to>.xml` | the full bulletin cut into 5-year calendar periods | 0.1–322 MB | 0.05–6.0 GB |
+
+- **Want a catalog?** `FINAL_catalog.xml` — origins, magnitudes, quality, uncertainties and the `pyr:` usability fields, minus the phases. This is the FDSN convention (`includearrivals=false`), and it is what most analyses need.
+- **Want phases for a period?** the matching `FINAL_<from>_<to>.xml`. Which file holds an event follows from its date alone. The parts partition `FINAL.xml` exactly — no event appears twice, none is missing — and each is independently schema-valid, so `read_events` accepts a glob to recombine any subset.
+- **Want everything at once?** `FINAL.xml`, on a machine with the memory for it.
+
+Parts are far from equal, and five-year bins do not make them so: pick density rises from ~7 picks/event in the 1980s to ~28 in the 2020s, and the network densified on top of that. `FINAL_2020_2024.xml` alone holds **14 537 events and 401 295 picks — 40 % of every pick in the catalog** — and measures 6.0 GB to load, against 88 KB and 0.05 GB for `FINAL_1975_1979.xml`. So the split removes the 15 GB requirement but leaves one genuinely heavy file. If a harder ceiling is ever needed, `_SPLIT_YEARS` in `NLL_run/export_quakeml.py` is the single knob: setting it to 2 or 1 re-cuts the dense years without touching anything else.
 
 ```python
 from obspy import read_events
-cat = read_events('RESULT/FINAL.xml')      # 46 224 events in 255 s, 0 warnings — but 15 GB RAM
-cat[0].extra['usable'].value               # 'true' / 'false'
-cat[0].picks[0].extra['alternateStations'].value
+cat = read_events('RESULT/FINAL_catalog.xml')   # ~2.6 GB, seconds
+cat[0].extra['usable'].value                    # 'true' / 'false'
+
+phases = read_events('RESULT/FINAL_2020_2024.xml')
+phases[0].picks[0].extra['alternateStations'].value
 ```
 
-The whole file loads through ObsPy in one call and every field survives the round trip — preferred origin and magnitude resolve, arrivals link to picks, and all 27 `pyr:` fields come back under `.extra`. **But it peaks at ~15 GB of RAM**, because 46 224 events and 1 001 095 picks become roughly two million Python objects, each with a registered `ResourceIdentifier`.
-
-Unless the whole catalog is needed in memory at once, **stream it instead**: `lxml.etree.iterparse` over the same file walks every event in seconds at flat memory, and the `pyr:` fields are plain child elements of `<event>` and `<pick>` (namespace `{http://shallow-depth-dl-catalog/quakeml/1.0}`). That is how every verification of this file was run.
+For anything that does not need objects in memory, **stream instead**: `lxml.etree.iterparse` walks all 46 224 events of the full file in seconds at flat memory, and the `pyr:` fields are plain child elements of `<event>` and `<pick>` (namespace `{http://shallow-depth-dl-catalog/quakeml/1.0}`). That is how every verification of this file was run.
 
 Two caveats a reader of `FINAL.xml` needs:
 

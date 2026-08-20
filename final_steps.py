@@ -13,6 +13,10 @@ Pipeline
 --------
 1. Export RESULT/FINAL.xml — a QuakeML 1.2 bulletin holding every event with its
    picks, and a boolean usability flag plus the quality metrics behind it.
+   Two companions are written alongside it, so that reading the catalog never
+   requires loading all of it at once: FINAL_catalog.xml (same events without
+   picks) and FINAL_<from>_<to>.xml (the complete bulletin cut into 5-year
+   calendar periods).
 
 Usage
 -----
@@ -76,8 +80,12 @@ def run_pipeline():
         print(f"  Unresolved station codes: {len(summary['unresolved'])} "
               f"(see {summary['log']})")
 
-    size_gb = os.path.getsize(_FINAL_XML) / 1e9
-    print(f"\nDone. Final bulletin: {_FINAL_XML} ({size_gb:.2f} GB)")
+    print("\n  Files:")
+    for entry in summary['files']:
+        print(f"    {os.path.basename(entry['path']):<26s} "
+              f"{entry['n_events']:6d} events {entry['size']/1e6:8.1f} MB")
+
+    print(f"\nDone. Final bulletin: {_FINAL_XML}")
     return {'output': _FINAL_XML}
 
 
