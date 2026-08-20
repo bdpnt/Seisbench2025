@@ -90,6 +90,7 @@ _C68_Z_MIN        = -2.0    # null sigmas below Gaussian coverage before rejecti
 _NOMINAL_COVERAGE = 0.68    # coverage the confidence ellipsoid is built for
 _CHUNK_SIZE       = 5000    # events serialized per pass (bounds peak memory)
 _KM_PER_DEGREE    = 111.195 # NLL reports Dist in km, QuakeML wants degrees
+_UNKNOWN_NETWORK  = 'XX'    # placeholder network; a real code always wins over it
 
 # The .obs event header fields, counted after stripping the leading '# '.
 _H_MAG        = 9
@@ -170,6 +171,12 @@ def load_station_epochs(path):
     more than one real station (near-duplicates merged within 20 m), so each maps
     to a list of epochs rather than a single station.
 
+    Candidates are ordered with the XX network last, since XX is the placeholder
+    for uncalled or unknown networks: whenever a real network code is available
+    for the same pick, it is the better label. This only decides cases where
+    several candidates match the same date -- disjoint epochs still resolve on
+    the date alone.
+
     Returns
     -------
     dict[str, list[(network_code, station_code, start_date, end_date)]]
@@ -182,29 +189,42 @@ def load_station_epochs(path):
                 epochs[station.alternate_code].append(
                     (network.code, station.code, station.start_date, station.end_date)
                 )
-    return dict(epochs)
+    return {code: sorted(entries, key=lambda entry: entry[0] == _UNKNOWN_NETWORK)
+            for code, entries in epochs.items()}
 
 
 def resolve_station(epochs, unified_code, when):
     """
     Resolve a unified station code to a real (network, station) pair.
 
-    Picks the epoch containing `when`; falls back to the first entry when no
-    epoch matches (open-ended entries have start_date/end_date None).
+    Picks the first candidate whose epoch contains `when`, and falls back to the
+    first candidate when none matches (open-ended entries have start_date and
+    end_date None). Candidates arrive XX-last from load_station_epochs(), so a
+    real network code wins whenever both cover the pick.
+
+    The stations that were *not* picked are returned alongside, including those
+    whose epoch does not cover the pick. They are exported with the pick so that
+    waveform retrieval can fall back on them: the stations behind one unified
+    code sit within 20 m of each other, so if the resolved one turns out to be
+    the wrong label, the others are the places to look.
 
     Returns
     -------
-    (str, str) or None — None when the code is absent from the inventory.
+    ((str, str), list[(str, str)]) or None
+        The resolved (network, station) and the other candidates, in inventory
+        order. None when the code is absent from the inventory.
     """
     candidates = epochs.get(unified_code)
     if not candidates:
         return None
 
-    for network_code, station_code, start, end in candidates:
-        if (start is None or when >= start) and (end is None or when <= end):
-            return network_code, station_code
+    names = [(network_code, station_code) for network_code, station_code, _, _ in candidates]
 
-    return candidates[0][0], candidates[0][1]
+    for index, (_, _, start, end) in enumerate(candidates):
+        if (start is None or when >= start) and (end is None or when <= end):
+            return names[index], names[:index] + names[index + 1:]
+
+    return names[0], names[1:]
 
 
 def _ambiguous_codes(epochs):
@@ -212,9 +232,9 @@ def _ambiguous_codes(epochs):
     Unified codes whose real station cannot be recovered from the dates.
 
     Most codes covering several stations have disjoint epochs and resolve
-    cleanly; a few list two entries that both span all time, so the first is
-    taken arbitrarily. The stations behind one code sit within 20 m of each
-    other, so this only affects which of two near-identical names is reported.
+    cleanly; a few list entries that all span all time, so the ordering decides
+    (XX last, then inventory order). The stations behind one code sit within
+    20 m of each other, so this only picks between near-identical names.
     """
     def spans_all(epoch):
         _, _, start, end = epoch
@@ -336,8 +356,9 @@ def _build_pick(line, index, public_id, epochs, unresolved):
         unresolved[unified_code] += 1
         network_code, station_code = unified_code.split('.', 1) if '.' in unified_code \
                                      else ('', unified_code)
+        alternates = []
     else:
-        network_code, station_code = resolved
+        (network_code, station_code), alternates = resolved
 
     channel     = parts[_P_CHANNEL]
     pick_origin = parts[_P_PICK_ORIGIN]
@@ -359,6 +380,9 @@ def _build_pick(line, index, public_id, epochs, unresolved):
         ('unifiedCode',    _x(unified_code)),
         ('pickOrigin',     _x(pick_origin)),
         ('relativeTiming', _x('true' if parts[_P_INS] == '*' else 'false')),
+        # Fallbacks for waveform retrieval, omitted when the code is unique.
+        ('alternateStations',
+         _x(','.join(f'{net}.{sta}' for net, sta in alternates)) if alternates else None),
     ])
 
     arrival = Arrival(
@@ -550,8 +574,9 @@ def write_quakeml(parameters, log_dir=None):
     epochs = load_station_epochs(parameters.file_inventory)
     logger.info(f"Station codes in inventory : {len(epochs)}")
     for code in _ambiguous_codes(epochs):
-        names = ', '.join(f'{net}.{sta}' for net, sta, _, _ in epochs[code])
-        logger.warning(f"Ambiguous station code {code}: {names} — first entry used")
+        chosen, *rest = (f'{net}.{sta}' for net, sta, _, _ in epochs[code])
+        logger.warning(f"Ambiguous station code {code}: {chosen} used "
+                       f"over {', '.join(rest)} (dates do not separate them)")
 
     _, obs_events = load_bulletin(parameters.file_obs)
     logger.info(f"Events in obs bulletin     : {len(obs_events)}")

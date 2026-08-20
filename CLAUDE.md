@@ -79,7 +79,9 @@ Last stage, run after `run_SSST.py`. Merges `obs/SSST_result.obs` (magnitudes + 
       --inventory stations/GLOBAL_inventory.xml --output RESULT/FINAL.xml
   ```
 - Each event carries `pyr:usable` = `(C68 − 0.68)/C68_sigma_n ≥ −2` **and** `not dip_reject` **and** metrics present → 40 793 usable / 5 431 unusable, plus a `pyr:rejectReason` string. **Ψ is exported but never rejects** (directionless; 81 % of the catalog exceeds its own `J` null). The `C68` cut is against the simulated null, not raw 0.68 — that difference is 155 events flagged instead of 2 944.
-- Station codes are resolved to real `NET.STA` via inventory `alternate_code`, epoch-aware; the unified code is kept as `pyr:unifiedCode` on every pick.
+- Station codes are resolved to real `NET.STA` via inventory `alternate_code`, epoch-aware; when several candidates cover the same date the `XX` network loses (placeholder for uncalled/unknown networks — currently decides only `FR.0013` → `FR.MTHF`). Resolution is never destructive: every pick keeps `pyr:unifiedCode`, and codes covering several stations also carry `pyr:alternateStations` (the non-chosen ones, **including date-mismatched entries**) as waveform-retrieval fallbacks — ~15% of picks.
+- The `pyr:` prefix is bound to `http://shallow-depth-dl-catalog/quakeml/1.0`. QuakeML 1.2's schema is closed, so every non-standard field lives in that namespace; validators skip foreign namespaces, which is why the file still validates.
+- `read_events('RESULT/FINAL.xml')` works (46 224 events in 255 s, 0 warnings) but peaks at **~15 GB RAM** — ~2M objects. Prefer `lxml.etree.iterparse` for anything that does not need the whole catalog resident; it walks the file in seconds at flat memory.
 - `Mag 0.00` (5 010 events) is an OMP placeholder, written through unchanged because magnitudes are recomputed later — do not fit it as data.
 
 ---

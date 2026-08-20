@@ -354,11 +354,15 @@ Measured on the current catalog: **40 793 usable / 5 431 unusable** — 5 329 `d
 
 Two things that rule deliberately does *not* do. **Ψ never rejects**: it is directionless, and 81 % of this catalog exceeds its own Gaussian null on `J`, so gating on it would discard 85 % of the events — it is exported as an indicator only. And the `C_68` cut is taken **against the simulated null, not against 0.68**: with the median `C68_sigma_n ≈ 0.0124` the −2 σ cut sits at `C_68 < 0.655`, flagging 155 events where a raw `C_68 < 0.68` would flag 2 944 — the 2 789 in between are within sampling noise of perfect coverage.
 
-Station codes are resolved back to real network/station names: the picks carry the project's unified code (`FR.0041`), which is matched against `alternate_code` in `GLOBAL_inventory.xml` and resolved by the pick's own date. 80 codes cover more than one station (near-duplicates merged within 20 m); 79 have disjoint epochs and resolve cleanly, one lists two entries that both span all time and is logged as ambiguous (1 331 picks, 0.13 %). The unified code is kept on every pick, so nothing is lost either way.
+Station codes are resolved back to real network/station names: the picks carry the project's unified code (`FR.0041`), which is matched against `alternate_code` in `GLOBAL_inventory.xml` and resolved by the pick's own date. 80 codes cover more than one station (near-duplicates merged within 20 m); 79 have disjoint epochs and resolve on the date alone. When several candidates cover the same date, the **`XX` network loses** — `XX` is the placeholder for uncalled or unknown networks, so a real network code is always the better label (this currently decides one code, `FR.0013` → `FR.MTHF`, 1 331 picks; it is logged).
+
+Resolution is a judgement, so it is never destructive. Every pick keeps its unified code in `pyr:unifiedCode`, and whenever the code covers more than one station the **stations that were not chosen are exported too**, in `pyr:alternateStations` — including those whose epoch does not cover the pick, since an epoch that excludes a real pick is itself a sign the metadata may be wrong. The stations behind one unified code sit within 20 m of each other, so if the resolved label turns out to be wrong, those are exactly the places to fetch waveforms from instead. This affects ~15 % of picks (150 395 on multi-station codes).
 
 #### QuakeML output
 
-Standard QuakeML carries the hypocentre, the `OriginQuality`, the `OriginUncertainty` with its full `ConfidenceEllipsoid`, the magnitude, and one `Pick` + `Arrival` per phase. Everything QuakeML has no element for goes into the `pyr:` namespace (`http://shallow-depth-dl-catalog/quakeml/1.0`):
+Standard QuakeML carries the hypocentre, the `OriginQuality`, the `OriginUncertainty` with its full `ConfidenceEllipsoid`, the magnitude, and one `Pick` + `Arrival` per phase.
+
+Everything QuakeML has no element for goes into a custom namespace, `http://shallow-depth-dl-catalog/quakeml/1.0`, carried by the prefix **`pyr`** (for Pyrenees). This is not decoration: QuakeML 1.2's schema is closed, so a bare `<usable>` element inside the standard namespace would make the file invalid. Foreign namespaces are skipped under lax processing, which is how `FINAL.xml` validates against the QuakeML 1.2 schema while carrying fields the standard has never heard of. The prefix itself is cosmetic — consumers match on the URI — and the URI is an identifier, not a resolvable address.
 
 | Level | Field | Meaning |
 |-------|-------|---------|
@@ -371,8 +375,22 @@ Standard QuakeML carries the hypocentre, the `OriginQuality`, the `OriginUncerta
 | origin | `pdfVolume`, `ellipsoidVolume` | the two volume measures, for direct comparison |
 | origin | `ellipsoidAz1` … `ellipsoidLen3` | the raw NLLoc ellipsoid columns, so the QuakeML conversion stays auditable |
 | pick | `unifiedCode` | the project's internal station code, before resolution |
+| pick | `alternateStations` | the other real stations sharing that unified code, comma-joined — fallbacks for waveform retrieval; absent when the code maps to one station |
 | pick | `pickOrigin` | provenance: `OMP`, `FDSN`, `LDG`, `IGN`, `ICGC`, `TEMP_*` |
 | pick | `relativeTiming` | `true` when NLLoc used the pick via S−P relative timing (the `*` flag), not its absolute time |
+
+Reading it back:
+
+```python
+from obspy import read_events
+cat = read_events('RESULT/FINAL.xml')      # 46 224 events in 255 s, 0 warnings — but 15 GB RAM
+cat[0].extra['usable'].value               # 'true' / 'false'
+cat[0].picks[0].extra['alternateStations'].value
+```
+
+The whole file loads through ObsPy in one call and every field survives the round trip — preferred origin and magnitude resolve, arrivals link to picks, and all 27 `pyr:` fields come back under `.extra`. **But it peaks at ~15 GB of RAM**, because 46 224 events and 1 001 095 picks become roughly two million Python objects, each with a registered `ResourceIdentifier`.
+
+Unless the whole catalog is needed in memory at once, **stream it instead**: `lxml.etree.iterparse` over the same file walks every event in seconds at flat memory, and the `pyr:` fields are plain child elements of `<event>` and `<pick>` (namespace `{http://shallow-depth-dl-catalog/quakeml/1.0}`). That is how every verification of this file was run.
 
 Two caveats a reader of `FINAL.xml` needs:
 
