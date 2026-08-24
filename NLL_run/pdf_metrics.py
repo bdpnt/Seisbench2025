@@ -32,7 +32,8 @@ one-line comparison.
 
 Once the columns are written, the same run also saves the diagnostic figures that
 show how the metrics relate to the classical quality indicators (RMS, Nphs, Gap,
-Dist, depth) and how they vary in space, in complem_figures/pdf_metrics/.
+Dist, depth), how the published error (true_erh/true_erz) relates to both, and
+how everything varies in space, in complem_figures/pdf_metrics/.
 
 Environment: needs `diptest` (imported lazily, only by depth_dip) -> seisbench_env.
 The figures additionally need matplotlib/seaborn/plotly, all imported lazily so a
@@ -61,7 +62,7 @@ import pandas as pd
 from scipy.spatial import cKDTree
 from scipy.special import digamma, gammaln
 from scipy.stats import chi2 as chi2dist
-from scipy.stats import spearmanr
+from scipy.stats import rankdata, spearmanr
 
 # ---------------------------------------------------------------------------
 # Module paths
@@ -519,6 +520,30 @@ _PREDICTORS = [
     ('Dist',  'Nearest station distance (km)',  'linear'),
 ]
 
+# The inverse view: the error the catalog actually publishes, against every
+# indicator that might predict it — the classical three plus the PDF metrics.
+#
+# Psi rather than J: Psi = exp(-J) is monotone in J, so the rank correlation is
+# identical up to sign, and Psi is bounded (0, 1]. Raw C68 rather than the
+# null-normalized C68_z the maps use: here C68 is an x-axis, not a cell median
+# mixing sample counts, and the raw fraction carries a readable reference at
+# 0.68 (the two differ by rho = 0.001 over this catalog).
+_ERROR_ROWS = [
+    ('true_erh', 'ERH (km)'),
+    ('true_erz', 'ERZ (km)'),
+]
+
+_ERROR_PREDICTORS = [
+    ('RMS',  'RMS (s)',                'log'),
+    ('Gap',  'Azimuthal gap (°)',      'linear'),
+    ('Nphs', 'Phase count',            'linear'),
+    ('Psi',  r'$\Psi$',                'linear'),
+    ('C68',  r'$C_{68}$',              'linear'),
+]
+
+# Held fixed in the partial correlation of every _ERROR_PREDICTORS panel.
+_ERROR_CONTROL = 'Nphs'
+
 # Map panels. C68 is mapped as its null-normalized z-score and not as the raw
 # fraction: a cell median mixes events with different sample counts, and only
 # the z-score puts them on a common scale (see _add_null_columns).
@@ -734,6 +759,178 @@ def _generate_predictor_figure(data, run_name, output_path):
     plt.close(fig)
 
 
+def _partial_spearman(x, y, control):
+    """
+    Spearman rho between x and y with `control` held fixed.
+
+    Rank all three (ties averaged, as spearmanr does), regress the ranks of x
+    and of y on the ranks of the control, and correlate the residuals.
+
+    It exists because the marginal rho of RMS against ERH is +0.00 while the
+    Nphs-controlled one is +0.62: RMS grows with the phase count and ERH falls
+    with it, and over this catalog the two effects cancel almost exactly. A
+    panel reporting the marginal number alone would read as "RMS says nothing
+    about the location error", which is the opposite of what the data holds.
+    """
+    ranks = np.column_stack([rankdata(x), rankdata(y), rankdata(control)])
+    design = np.column_stack([np.ones(len(ranks)), ranks[:, 2]])
+    fitted = design @ np.linalg.lstsq(design, ranks[:, :2], rcond=None)[0]
+    return float(np.corrcoef(ranks[:, :2] - fitted, rowvar=False)[0, 1])
+
+
+def _error_ylim(values):
+    """Log y-range of one error row, clipped to the _CLIP_PCT tails.
+
+    Taken once over the whole column and shared by every panel of the row: the
+    point of the row is to compare indicators against each other, which per-panel
+    autoscaling would quietly defeat.
+    """
+    positive = values[np.isfinite(values) & (values > 0)]
+    low, high = np.nanpercentile(positive, _CLIP_PCT)
+    return float(low), float(high)
+
+
+def _plot_error_panel(ax, data, error_col, predictor, log_x, y_lim):
+    """
+    One published-error-vs-indicator panel: density + median curve + rho box.
+
+    Same grammar as _plot_panel — log-count hexbin, blue median with its IQR
+    band over equal-count bins of the predictor — with two differences: the
+    y-axis is logarithmic (ERH spans 0.05-64 km) and there is no red null
+    overlay, because a published error has no Gaussian null to be compared to.
+
+    The annotation carries the marginal rho *and* the Nphs-controlled one; see
+    _partial_spearman for why the marginal value alone can be actively
+    misleading. Both are exploratory screening — a monotone association, not
+    evidence that the two quantities agree.
+    """
+    # dict.fromkeys: on the Nphs panel the predictor IS the control, and selecting
+    # it twice gives a frame with duplicate labels that cannot be masked.
+    columns = list(dict.fromkeys([predictor, error_col, _ERROR_CONTROL]))
+    panel = data[columns].dropna(subset=[predictor, error_col])
+    panel = panel[panel[error_col] > 0]          # log y; the errors are positive anyway
+    if log_x:
+        panel = panel[panel[predictor] > 0]
+    if panel.empty:
+        ax.text(0.5, 0.5, 'no data', transform=ax.transAxes, ha='center', va='center')
+        return
+
+    x_lo, x_hi = np.nanpercentile(panel[predictor], _CLIP_PCT)
+    panel = panel[(panel[predictor] >= x_lo) & (panel[predictor] <= x_hi)]
+
+    x = panel[predictor].to_numpy(dtype=float)
+    y = panel[error_col].to_numpy(dtype=float)
+    y_lo, y_hi = y_lim
+    extent = (((np.log10(x_lo), np.log10(x_hi)) if log_x else (x_lo, x_hi))
+              + (np.log10(y_lo), np.log10(y_hi)))
+
+    ax.set_facecolor('white')       # sparse hexes are invisible on seaborn grey
+    ax.hexbin(x, y, gridsize=45, bins='log', cmap='Greys', mincnt=1,
+              xscale='log' if log_x else 'linear', yscale='log',
+              extent=extent, zorder=1)
+
+    bin_index, centres = _quantile_bins(x)
+    if bin_index is not None:
+        binned = pd.DataFrame({'bin': bin_index, 'error': y}).groupby('bin')['error']
+        centre = centres[binned.median().index.to_numpy()]
+        ax.fill_between(centre, binned.quantile(0.25), binned.quantile(0.75),
+                        color='tab:blue', alpha=0.25, lw=0, zorder=3)
+        ax.plot(centre, binned.median(), color='tab:blue', lw=2, zorder=4)
+
+    lines = [f'$\\rho$ = {spearmanr(x, y).statistic:+.2f}']
+    if predictor != _ERROR_CONTROL:     # a predictor cannot be controlled for itself
+        control = panel[_ERROR_CONTROL].to_numpy(dtype=float)
+        finite = np.isfinite(control)
+        if finite.sum() > 2:
+            rho_partial = _partial_spearman(x[finite], y[finite], control[finite])
+            lines.append(f'$\\rho\\,|\\,${_ERROR_CONTROL} = {rho_partial:+.2f}')
+    lines.append(f'N = {len(x):,}')
+    ax.text(0.97, 0.97, '\n'.join(lines), transform=ax.transAxes,
+            ha='right', va='top', fontsize=8,
+            bbox=dict(boxstyle='round,pad=0.25', facecolor='white', alpha=0.75, lw=0))
+
+    ax.set_xlim(x_lo, x_hi)
+    ax.set_ylim(y_lo, y_hi)
+
+
+def _plot_error_box_panel(ax, data, error_col, y_lim):
+    """
+    The dip column of the error figure: published error split by dip_reject.
+
+    dip_reject is binary and heavily unbalanced (661 rejected of 46 224), so a
+    hexbin would draw two vertical stripes and a rho would compress a large
+    median shift into a small number. Two boxes with their medians and counts
+    show the actual effect: ERH 0.58 -> 1.61 km, ERZ 1.04 -> 3.72 km.
+
+    Outliers are hidden — the whiskers already reach the row's clipped y-range,
+    and 46 k flier points would black out the panel.
+    """
+    panel = data[[error_col, 'dip_reject']].dropna(subset=[error_col])
+    panel = panel[panel[error_col] > 0]
+    rejected = panel['dip_reject'].astype(bool)
+    groups = [panel.loc[~rejected, error_col].to_numpy(dtype=float),
+              panel.loc[rejected, error_col].to_numpy(dtype=float)]
+
+    ax.set_facecolor('white')
+    if not all(len(group) for group in groups):
+        ax.text(0.5, 0.5, 'no data', transform=ax.transAxes, ha='center', va='center')
+        return
+
+    boxes = ax.boxplot(groups, positions=[0, 1], widths=0.5, showfliers=False,
+                       patch_artist=True, medianprops=dict(color='black', lw=1.5),
+                       zorder=3)
+    for patch, colour in zip(boxes['boxes'], ('tab:blue', 'crimson')):
+        patch.set_facecolor(colour)
+        patch.set_alpha(0.45)
+
+    for position, group in zip((0, 1), groups):
+        ax.text(position + 0.3, np.median(group), f'{np.median(group):.2f} km',
+                ha='left', va='center', fontsize=8)
+
+    ax.set_yscale('log')
+    ax.set_xticks([0, 1])
+    ax.set_xticklabels([f'kept\nN = {len(groups[0]):,}',
+                        f'rejected\nN = {len(groups[1]):,}'])
+    ax.set_xlim(-0.6, 1.6)
+    ax.set_ylim(*y_lim)
+
+
+def _generate_error_figure(data, run_name, output_path):
+    """2 published-error rows x (5 indicators + the dip-reject split), one PDF."""
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    sns.set_theme()
+    n_cols = len(_ERROR_PREDICTORS) + 1      # + the dip-reject box panel
+    fig, axes = plt.subplots(len(_ERROR_ROWS), n_cols,
+                             figsize=(4.2 * n_cols, 3.6 * len(_ERROR_ROWS)),
+                             layout='constrained', squeeze=False)
+
+    for row, (error_col, ylabel) in enumerate(_ERROR_ROWS):
+        last_row = row == len(_ERROR_ROWS) - 1
+        y_lim = _error_ylim(data[error_col].to_numpy(dtype=float))
+
+        for col, (predictor, xlabel, scale) in enumerate(_ERROR_PREDICTORS):
+            ax = axes[row][col]
+            _plot_error_panel(ax, data, error_col, predictor, scale == 'log', y_lim)
+            if last_row:
+                ax.set_xlabel(xlabel)
+            if col == 0:
+                ax.set_ylabel(ylabel)
+
+        _plot_error_box_panel(axes[row][-1], data, error_col, y_lim)
+        if last_row:
+            axes[row][-1].set_xlabel('Dip-validity test')
+
+    fig.suptitle(f'Published location error vs. quality indicators and PDF metrics — {run_name}\n'
+                 r'grey = event density (log counts) · blue = median + IQR over equal-count bins · '
+                 r'$\rho$ = Spearman, $\rho\,|\,$Nphs = the same with the phase count held fixed '
+                 '(log error axis, shared across each row)',
+                 fontweight='bold')
+    plt.savefig(output_path)
+    plt.close(fig)
+
+
 def _draw_map_panel(ax, edges, statistic, count, spec, vmax, events, title):
     """One lon/lat panel of a windowed statistic; returns the QuadMesh."""
     masked = np.ma.masked_where(count < _MAP_MIN_COUNT, statistic)
@@ -906,6 +1103,7 @@ def generate_figures(df, run_name, figure_dir=None):
 
     outputs = []
     for name, builder in (('metrics_vs_quality', _generate_predictor_figure),
+                          ('error_vs_quality',   _generate_error_figure),
                           ('gridmap',            _generate_gridmap_figure),
                           ('gridmap_depth',      _generate_depth_slice_figure)):
         path = os.path.join(figure_dir, f'{run_name}_{name}.pdf')
