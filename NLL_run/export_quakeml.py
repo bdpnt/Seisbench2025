@@ -19,13 +19,24 @@ An event is unusable when its location PDF cannot be trusted:
                       inside the nominal 68% ellipsoid falls short by more than
                       two null sigmas -> the reported ERH/ERZ are over-confident
   dip_bimodal         Hartigan's dip test rejects unimodality of the depth
-                      marginal -> two competing depths, no defensible scalar
+                      marginal AND the modal interval is wider than true_erz
+                      -> two competing depths, too far apart for the quoted
+                      error to cover, so no defensible scalar depth
   no_pdf_metrics      the event has no .scat cloud, so nothing can be said
 
 Psi (and its underlying negentropy J) is exported but deliberately never used to
 reject: it is directionless. A tight, curved, perfectly informative PDF scores as
 badly as a diffuse one, and 81% of this catalog exceeds its own Gaussian null on
 J -- gating on it would discard 85% of the events.
+
+Why dip_bimodal needs the separation term as well as the p-value: the dip is a
+vertical sup-distance on the ECDF and is invariant under affine rescaling of the
+depth axis, so it registers that a second mode exists but never how far away it
+sits. Rejecting on p alone therefore discards events whose bimodality is real but
+irrelevant -- both modes inside the quoted error, where depth +/- true_erz already
+covers them honestly. Over this catalog that is the common case: the median modal
+interval among p < 0.05 events is 0.59 x true_erz. Requiring the interval to
+exceed true_erz moves the count from 5329 to 661.
 
 Why C68 is compared to a simulated null rather than to 0.68 directly: the 68%
 ellipsoid is fitted to the very samples whose coverage is being measured, so even
@@ -446,6 +457,7 @@ def build_event(obs_event, row, verdict, epochs, unresolved):
         ('C68SigmaN',    _x_num(row['C68_sigma_n'])),
         ('dipStat',      _x_num(row['dip_stat'])),
         ('dipPval',      _x_num(row['dip_pval'])),
+        ('dipSeparationKm', _x_num(row['dip_sep_km'])),
         ('dipReject',    _x(str(bool(row['dip_reject'])).lower())),
     ])
 

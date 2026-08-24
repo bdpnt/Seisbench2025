@@ -298,7 +298,7 @@ Once all zones are complete, the final-iteration CSVs feed the same chain as the
 
 #### Location-PDF quality metrics — `NLL_run/pdf_metrics.py`
 
-Run automatically by `run_SSST.py` as its last step, once the merge and the rematch are done. It reads the per-event `.scat` scatter clouds of each zone's final SSST iteration, joins them to the merged catalog on `(source, publicId)`, rewrites `RESULT/SSST_result.csv` in place with ten extra columns, and saves the diagnostic figures described below. Runtime is ~65 s for ~46 000 events (~50 s for the metrics, ~15 s for the figures).
+Run automatically by `run_SSST.py` as its last step, once the merge and the rematch are done. It reads the per-event `.scat` scatter clouds of each zone's final SSST iteration, joins them to the merged catalog on `(source, publicId)`, rewrites `RESULT/SSST_result.csv` in place with eleven extra columns, and saves the diagnostic figures described below. Runtime is ~65 s for ~46 000 events (~50 s for the metrics, ~15 s for the figures).
 
 The step is deliberately **non-fatal**: at that point the campaign's results are already written, so a metrics failure prints a warning instead of making a multi-hour run look like it failed. It is also idempotent — re-running replaces the columns rather than duplicating them — so it can be repeated standalone at any time, on any campaign.
 
@@ -306,13 +306,13 @@ The metrics exist to decide **which events are trustworthy enough to keep**:
 
 - **Ψ** (`Psi`, with `J = −ln Ψ`) — how much of the PDF's shape the confidence ellipsoid actually captures. `Ψ = 1` is an exactly Gaussian PDF; smaller means the true PDF is curved, clustered or heavy-tailed and the ellipsoid is a poor stand-in for it. Published as a quality indicator only: it says the ellipsoid is *wrong*, not whether it is too big or too small, so it never rejects an event on its own.
 - **C_68** (`C68`) — the fraction of the PDF actually inside the nominal 68 % ellipsoid. This is the one metric that carries a direction, so it drives the keep/reject decision: `C_68 > 0.68` means the quoted `ERH`/`ERZ` are **conservative** (safe — the true region is tighter than stated), while `C_68 < 0.68` means they are **over-confident**, i.e. the location is less well constrained than the error bars claim.
-- **`dip_stat` / `dip_pval`** — Hartigan's dip test on the depth marginal. A rejection means the depth PDF has two competing solutions, so no single depth ± error is honest no matter how wide the error bar. Since depth is the target quantity of this catalog, this is the one unconditional reject.
+- **`dip_stat` / `dip_pval` / `dip_sep_km`** — Hartigan's dip test on the depth marginal, plus the width of its modal interval in km. A small p-value means the depth PDF has two competing solutions; `dip_sep_km` says how far apart they are. **Rejection requires both** — `dip_pval < 0.05` *and* `dip_sep_km > true_erz` — because the dip statistic is a vertical distance on the ECDF and is invariant under rescaling of the depth axis: modes 0.5 km apart and modes 50 km apart give the same statistic and the same p-value. Rejecting on the p-value alone therefore discards events whose bimodality is real but physically irrelevant, both modes sitting inside the quoted error where `depth ± true_erz` already covers them honestly. That is the common case here: among `p < 0.05` events the median modal interval is 0.59 × `true_erz`, and adding the separation term moves the reject count from 5 329 to 661. The threshold lives in `_DIP_SEP_ERZ_FACTOR`.
 
 `J` and `C_68` cannot be read on their own: the k-NN entropy estimator is biased in a sample-size-dependent way, and the `C_68` null spread is *not* binomial (μ and Σ are fitted on the very samples being tested, which suppresses the scatter — 0.013 simulated vs 0.021 binomial at n≈479). Each event therefore also carries `J_null_p95` and `C68_sigma_n`, simulated from Gaussian clouds of that event's own sample count, so a cut is a one-line comparison: `C68 < 0.68 − 3·C68_sigma_n` (over-confident) or `J > J_null_p95` (non-Gaussian).
 
 > All three measure whether the reported uncertainty is **self-consistent**, not whether the location is **accurate**. Velocity-model error is a bias none of them can see: an event can score perfectly and still be systematically mislocated. Thresholds are not established values.
 
-Observed over the current catalog: `C_68` is over-confident for only 0.1 % of events and conservative for 57 %, while the dip test rejects 11.5 %. Both degrade monotonically with azimuthal gap (median Ψ 0.90 at gap < 90° falling to 0.17 above 270°) and with falling phase count.
+Observed over the current catalog: `C_68` is over-confident for only 0.1 % of events and conservative for 57 %, while the two-condition dip rule rejects 1.43 % (661 events; the p-value alone would reject 11.5 %). Both degrade monotonically with azimuthal gap (median Ψ 0.90 at gap < 90° falling to 0.17 above 270°) and with falling phase count — and so does the dip reject rate, which is what one expects if the events with genuinely far-apart depth modes are the poorly-constrained ones.
 
 ##### Diagnostic figures
 
@@ -350,9 +350,9 @@ Every event is exported, each carrying a boolean **`pyr:usable`** flag plus the 
 usable = (C68 − 0.68) / C68_sigma_n ≥ −2   and   not dip_reject   and   metrics present
 ```
 
-Measured on the current catalog: **40 793 usable / 5 431 unusable** — 5 329 `dip_bimodal`, 155 `c68_overconfident`, 4 `no_pdf_metrics` (some events fail on two counts). The reason string is exported alongside the flag.
+Measured on the current catalog: **45 415 usable / 809 unusable** — 661 `dip_bimodal`, 155 `c68_overconfident`, 4 `no_pdf_metrics` (11 events fail on two counts). The reason string is exported alongside the flag.
 
-Two things that rule deliberately does *not* do. **Ψ never rejects**: it is directionless, and 81 % of this catalog exceeds its own Gaussian null on `J`, so gating on it would discard 85 % of the events — it is exported as an indicator only. And the `C_68` cut is taken **against the simulated null, not against 0.68**: with the median `C68_sigma_n ≈ 0.0124` the −2 σ cut sits at `C_68 < 0.655`, flagging 155 events where a raw `C_68 < 0.68` would flag 2 944 — the 2 789 in between are within sampling noise of perfect coverage.
+Three things that rule deliberately does *not* do. **Ψ never rejects**: it is directionless, and 81 % of this catalog exceeds its own Gaussian null on `J`, so gating on it would discard 85 % of the events — it is exported as an indicator only. And the `C_68` cut is taken **against the simulated null, not against 0.68**: with the median `C68_sigma_n ≈ 0.0124` the −2 σ cut sits at `C_68 < 0.655`, flagging 155 events where a raw `C_68 < 0.68` would flag 2 944 — the 2 789 in between are within sampling noise of perfect coverage. And **the dip p-value never rejects on its own**: it cannot see how far apart the modes are, so it is paired with `dip_sep_km > true_erz` (above), which is the difference between 661 events flagged and 5 329.
 
 Station codes are resolved back to real network/station names: the picks carry the project's unified code (`FR.0041`), which is matched against `alternate_code` in `GLOBAL_inventory.xml` and resolved by the pick's own date. 80 codes cover more than one station (near-duplicates merged within 20 m); 79 have disjoint epochs and resolve on the date alone. When several candidates cover the same date, the **`XX` network loses** — `XX` is the placeholder for uncalled or unknown networks, so a real network code is always the better label (this currently decides one code, `FR.0013` → `FR.MTHF`, 1 331 picks; it is logged).
 
@@ -370,7 +370,7 @@ Everything QuakeML has no element for goes into a custom namespace, `http://shal
 | event | `rejectReason` | `''`, or `dip_bimodal` / `c68_overconfident` / `no_pdf_metrics`, comma-joined |
 | event | `Psi`, `J`, `C68`, `C68Z` | the quality metrics; `C68Z` is the null-normalized z-score the cut uses |
 | event | `JNullP95`, `C68SigmaN`, `nScat` | the per-event Gaussian null and the sample count backing it |
-| event | `dipStat`, `dipPval`, `dipReject` | Hartigan's dip test on the depth marginal |
+| event | `dipStat`, `dipPval`, `dipSeparationKm`, `dipReject` | Hartigan's dip test on the depth marginal, the width of its modal interval in km, and the two-condition flag built from them |
 | event | `publicId`, `sourceZone` | the catalog's join key, and which NLL zone won the dedup |
 | origin | `pdfVolume`, `ellipsoidVolume` | the two volume measures, for direct comparison |
 | origin | `ellipsoidAz1` … `ellipsoidLen3` | the raw NLLoc ellipsoid columns, so the QuakeML conversion stays auditable |

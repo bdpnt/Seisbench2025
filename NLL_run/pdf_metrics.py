@@ -14,6 +14,14 @@ them can see.
   C68      fraction of posterior mass inside the nominal 68% ellipsoid; > 0.68
            means the reported errors are conservative, < 0.68 over-confident
   dip_stat Hartigan dip statistic on the depth marginal (multimodality)
+  dip_sep_km  width of Hartigan's modal interval, in km — how far apart the
+           competing depth solutions are
+
+`dip_stat` says only *whether* a second mode exists, never how far away it is:
+the dip is a vertical sup-distance on the ECDF and is invariant under affine
+rescaling of the depth axis, so modes 0.5 km apart and modes 50 km apart give
+the same statistic and the same p-value. `dip_sep_km` carries the physical scale
+the dip structurally cannot, which is why rejection needs both (see depth_dip).
 
 J and C68 are meaningless without an n-matched Gaussian null: the k-NN entropy
 estimator is biased in a sample-size-dependent way, and the C68 null spread is
@@ -70,13 +78,20 @@ logger = logging.getLogger('pdf_metrics')
 # recomputing, which is what keeps the CLI idempotent.
 METRIC_COLUMNS = [
     'ellipsoidVolume', 'n_scat', 'J', 'Psi', 'C68',
-    'J_null_p95', 'C68_sigma_n', 'dip_stat', 'dip_pval', 'dip_reject',
+    'J_null_p95', 'C68_sigma_n', 'dip_stat', 'dip_pval', 'dip_sep_km', 'dip_reject',
 ]
 
 _KNN_K        = 5      # k for the Kozachenko-Leonenko entropy estimator
 _NULL_SIMS    = 500    # Gaussian clouds simulated per distinct n
 _DIP_COMMON_N = 400    # common subsample size for the dip test (< observed min n)
 _DIP_ALPHA    = 0.05
+
+# The modal interval must be wider than this multiple of the depth error the
+# catalog publishes (true_erz) before multimodality is worth rejecting over.
+# At 1.0 a mode sits a full sigma from the reported depth, i.e. at the edge of
+# the quoted confidence. Raising it to 2.0 makes the criterion vacuous: the
+# width/true_erz ratio tops out near 2.24 over this catalog.
+_DIP_SEP_ERZ_FACTOR = 1.0
 
 _NOMINAL_COVERAGE = 0.68   # coverage the confidence ellipsoid is built for
 _CHI2_68_3DOF = chi2dist.ppf(_NOMINAL_COVERAGE, df=3)
@@ -302,9 +317,19 @@ def depth_dip(depths, public_id, common_n=_DIP_COMMON_N):
     """
     Hartigan's dip test on the depth marginal, at a catalog-wide common n.
 
-    A rejection means the depth PDF has two competing solutions, so no scalar
-    depth +/- error is honest — the one unconditional reject criterion, since
-    depth is the target quantity.
+    Returns (statistic, p-value, modal-interval width in km).
+
+    A small p-value means the depth PDF has more than one mode, but that alone
+    is not grounds for rejection: the dip is a vertical distance on the ECDF and
+    is invariant under affine rescaling of x, so it cannot tell modes 0.5 km
+    apart from modes 50 km apart. Where both modes sit inside the quoted depth
+    error, `depth +/- true_erz` already covers them and is an honest statement.
+
+    The third return value supplies the scale the statistic is blind to.
+    Hartigan's algorithm reports the interval over which the ECDF is being
+    flattened — the region carrying the departure from unimodality — and its
+    width is in the units of the input, i.e. km. `compute_metrics` combines the
+    two into the reject flag; neither one decides on its own.
 
     The dip test's power grows with n, so p-values from different sample sizes
     are not comparable. Every event is therefore subsampled to `common_n`
@@ -314,25 +339,39 @@ def depth_dip(depths, public_id, common_n=_DIP_COMMON_N):
     from diptest import diptest      # lazy: only this function needs seisbench_env
 
     if len(depths) < common_n:
-        return np.nan, np.nan
+        return np.nan, np.nan, np.nan
 
     rng = np.random.default_rng(zlib.crc32(public_id.encode()))
     subsample = depths[rng.choice(len(depths), size=common_n, replace=False)]
-    stat, pval = diptest(np.asarray(subsample, dtype=np.float64))
-    return float(stat), float(pval)
+    # `xl`/`xu` are the interval's values; `lo`/`hi` would be indices into
+    # diptest's own sorted copy of the input (sort_x defaults to True).
+    stat, pval, res = diptest(np.asarray(subsample, dtype=np.float64), full_output=True)
+    return float(stat), float(pval), float(res['xu'] - res['xl'])
+
+
+def _blank_metrics():
+    """All-NaN metrics for an event whose cloud could not be evaluated.
+
+    Excludes `ellipsoidVolume` (computed from the CSV, not the cloud) and
+    `dip_reject` (derived later, once true_erz is in reach).
+    """
+    return {col: np.nan for col in METRIC_COLUMNS
+            if col not in ('ellipsoidVolume', 'dip_reject')}
 
 
 def event_metrics(scat_path, public_id):
     """
     Compute every per-event metric for one .scat file.
 
-    On failure every metric is NaN except `dip_reject`, which stays False: it is a
-    reject flag, and an unreadable cloud is no evidence of multimodality. Keeping
-    it a pure boolean also stops the column degrading to object dtype — the NaN in
-    `dip_pval` is what marks the event as unevaluated.
+    `dip_reject` is deliberately not produced here: the rule needs `true_erz`,
+    which lives in the result CSV and not in the scatter cloud, so it is derived
+    in `compute_metrics` once the two are side by side. This keeps the function a
+    pure map from one .scat to its own metrics.
+
+    On failure every metric is NaN, and the NaN in `dip_pval` is what marks the
+    event as unevaluated downstream.
     """
-    blank = {col: np.nan for col in METRIC_COLUMNS if col != 'ellipsoidVolume'}
-    blank['dip_reject'] = False
+    blank = _blank_metrics()
 
     try:
         scat = read_scat(scat_path)
@@ -350,7 +389,7 @@ def event_metrics(scat_path, public_id):
     j_value = negentropy(white)
     c68 = coverage_68(white)
     j_null_p95, c68_sigma = gaussian_null(n_samples)
-    dip_stat, dip_pval = depth_dip(xyz[:, 2], public_id)
+    dip_stat, dip_pval, dip_sep = depth_dip(xyz[:, 2], public_id)
 
     return {
         'n_scat':      n_samples,
@@ -361,7 +400,7 @@ def event_metrics(scat_path, public_id):
         'C68_sigma_n': c68_sigma,
         'dip_stat':    dip_stat,
         'dip_pval':    dip_pval,
-        'dip_reject':  bool(dip_pval < _DIP_ALPHA) if np.isfinite(dip_pval) else False,
+        'dip_sep_km':  dip_sep,
     }
 
 
@@ -384,6 +423,7 @@ _VOXEL_WINDOW    = 1
 _VOXEL_MIN_COUNT = 5
 _N_CURVE_BINS    = 20            # equal-count bins behind each median curve
 _CLIP_PCT        = (0.5, 99.5)   # x-axis clip of the 1-D panels
+_REJECT_RATE_FLOOR = 5.0         # % — keeps a near-zero dip row from scaling up to noise
 
 
 def windowed_stat_grid(coords, values, ranges, bin_sizes,
@@ -492,7 +532,7 @@ _MAP_METRICS = [
      'cmap': 'RdBu', 'vmin': -10.0, 'vmax': 10.0,
      'plotly_cmap': 'RdBu', 'plotly_reverse': False},
     {'column': 'dip_reject', 'stat': np.mean,   'scale': 100.0,
-     'label': 'dip-test reject rate (%)',
+     'label': r'reject rate (%): bimodal & sep > $ERZ$',
      'cmap': 'magma_r', 'vmin': 0.0, 'vmax': None,
      'plotly_cmap': 'Magma', 'plotly_reverse': True},
 ]
@@ -537,6 +577,38 @@ def _quantile_bins(x, n_bins=_N_CURVE_BINS):
     return index, 0.5 * (edges[:-1] + edges[1:])
 
 
+def _reject_rate_ceiling(data):
+    """
+    Shared upper limit (%) for the reject-rate twin axis of the dip row.
+
+    One cap across the whole row, so the five panels stay comparable with each
+    other rather than each auto-scaling to its own range. Data-driven because
+    the rate follows the reject rule: it is ~1.4% catalog-wide under the
+    two-condition rule, which a fixed 0-100 axis would flatten onto the floor.
+
+    Mirrors the dropna/log/clip/bin sequence of _plot_panel so the cap really
+    bounds what gets drawn.
+    """
+    peak = 0.0
+    for predictor, _, scale in _PREDICTORS:
+        panel = data[[predictor, 'dip_stat', 'dip_reject']].dropna(
+            subset=[predictor, 'dip_stat'])
+        if scale == 'log':
+            panel = panel[panel[predictor] > 0]
+        if panel.empty:
+            continue
+        x = panel[predictor].to_numpy(dtype=float)
+        x_lo, x_hi = np.nanpercentile(x, _CLIP_PCT)
+        keep = (x >= x_lo) & (x <= x_hi)
+        bin_index, _ = _quantile_bins(x[keep])
+        if bin_index is None:
+            continue
+        rates = pd.Series(
+            panel['dip_reject'].to_numpy(dtype=float)[keep]).groupby(bin_index).mean()
+        peak = max(peak, 100 * float(rates.max()))
+    return max(_REJECT_RATE_FLOOR, 1.15 * peak)
+
+
 def _metric_ylim(metric, y):
     """y-axis limits for a 1-D panel: fixed for the bounded Psi, robust otherwise."""
     if metric == 'Psi':
@@ -546,7 +618,7 @@ def _metric_ylim(metric, y):
     return 0.0, float(np.nanpercentile(y, 99.5))
 
 
-def _plot_panel(ax, data, metric, predictor, log_x, twin_label):
+def _plot_panel(ax, data, metric, predictor, log_x, twin_label, reject_ylim=100.0):
     """
     One metric-vs-indicator panel: density + median curve + the event-wise null.
 
@@ -557,8 +629,9 @@ def _plot_panel(ax, data, metric, predictor, log_x, twin_label):
     the bin*, so it bends by itself if n_scat correlates with the predictor.
 
     The dip row has no null line (the dip test is already n-controlled by the
-    common subsample in depth_dip); it carries the per-bin reject rate on a
-    right-hand axis instead, which is the directional quantity there.
+    common subsample in depth_dip); it carries on a right-hand axis the per-bin
+    rate of the two-condition reject rule — bimodal *and* the modes further
+    apart than true_erz — scaled to `reject_ylim`, shared across the row.
     """
     columns = [predictor, metric, 'J_null_p95', 'C68_sigma_n', 'dip_reject']
     panel = data[columns].dropna(subset=[predictor, metric])
@@ -612,10 +685,10 @@ def _plot_panel(ax, data, metric, predictor, log_x, twin_label):
             twin = ax.twinx()
             twin.plot(centre, 100 * binned['reject'].mean(),
                       color='crimson', ls='--', lw=1.2, zorder=5)
-            twin.set_ylim(0, 100)
+            twin.set_ylim(0, reject_ylim)
             twin.grid(False)
             if twin_label:
-                twin.set_ylabel('dip-test reject rate (%)', color='crimson')
+                twin.set_ylabel(r'reject rate (%): bimodal & sep > $ERZ$', color='crimson')
             else:
                 twin.set_yticklabels([])
 
@@ -640,11 +713,14 @@ def _generate_predictor_figure(data, run_name, output_path):
                              figsize=(4.2 * len(_PREDICTORS), 3.4 * len(_METRIC_ROWS)),
                              layout='constrained', squeeze=False)
 
+    reject_ylim = _reject_rate_ceiling(data)
+
     for row, (metric, ylabel) in enumerate(_METRIC_ROWS):
         for col, (predictor, xlabel, scale) in enumerate(_PREDICTORS):
             ax = axes[row][col]
             _plot_panel(ax, data, metric, predictor, scale == 'log',
-                        twin_label=(col == len(_PREDICTORS) - 1))
+                        twin_label=(col == len(_PREDICTORS) - 1),
+                        reject_ylim=reject_ylim)
             if row == len(_METRIC_ROWS) - 1:
                 ax.set_xlabel(xlabel)
             if col == 0:
@@ -652,7 +728,7 @@ def _generate_predictor_figure(data, run_name, output_path):
 
     fig.suptitle(f'Location-PDF quality metrics vs. classical quality indicators — {run_name}\n'
                  r'grey = event density (log counts) · blue = median + IQR over equal-count bins · '
-                 'red = per-bin Gaussian null (dip row: reject rate, right axis)',
+                 'red = per-bin Gaussian null (dip row: bimodal & sep > ERZ reject rate, right axis)',
                  fontweight='bold')
     plt.savefig(output_path)
     plt.close(fig)
@@ -916,9 +992,7 @@ def compute_metrics(params):
         scat_path = index.get((source, public_id))
         if scat_path is None:
             missing.append(public_id)
-            blank = {col: np.nan for col in METRIC_COLUMNS if col != 'ellipsoidVolume'}
-            blank['dip_reject'] = False
-            records.append(blank)
+            records.append(_blank_metrics())
         else:
             records.append(event_metrics(scat_path, public_id))
         if position % 5000 == 0:
@@ -926,10 +1000,18 @@ def compute_metrics(params):
 
     metrics = pd.DataFrame.from_records(records, index=df.index)
     for column in METRIC_COLUMNS:
-        if column != 'ellipsoidVolume':
+        if column not in ('ellipsoidVolume', 'dip_reject'):
             df[column] = metrics[column]
     df['n_scat'] = df['n_scat'].astype('Int64')      # nullable: NaN where no .scat
-    df['dip_reject'] = df['dip_reject'].astype(bool)
+
+    # Reject only a multimodality that is both statistically real and wider than
+    # the depth error the catalog quotes — the dip statistic alone cannot see km.
+    # NaN (unevaluated cloud) compares False throughout, so an unreadable event is
+    # never rejected here; it is caught by the no-metrics test downstream instead.
+    df['dip_reject'] = (
+        (df['dip_pval'] < _DIP_ALPHA)
+        & (df['dip_sep_km'] > _DIP_SEP_ERZ_FACTOR * df['true_erz'])
+    ).fillna(False).astype(bool)
 
     output_path = params.output or params.result_csv
     parent = os.path.dirname(output_path)
