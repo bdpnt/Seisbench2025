@@ -11,6 +11,29 @@ Every event is exported. Each carries a boolean `pyr:usable` flag derived from
 the location-PDF quality metrics, plus the metrics themselves so the cut can be
 re-derived or re-tuned downstream without recomputing anything.
 
+Two origins per event
+---------------------
+The preferred origin is the location-PDF **expectation** (`pyr:locationEstimator
+= "expectation"`); the maximum-likelihood point rides along as a second origin
+(`.../maxlike`, `pyr:locationEstimator = "maximum_likelihood"`).
+
+The expectation is what NLLoc reports under `LOCHYPOUT ... SAVE_NLLOC_EXPECTATION`,
+and it is the estimate the published error actually describes: NLLoc's covariance,
+its confidence ellipsoid and this catalog's true_erh/true_erz are all second
+moments *about the expectation*, so attaching them to the mode quoted an ellipsoid
+that was not centred on the point it belonged to. The same mismatch ran through
+the QC — pdf_metrics computes C68 on samples centred on their own mean, so the
+metric gating `pyr:usable` was testing an ellipsoid around a point the catalog did
+not publish. It now tests the published one.
+
+`standard_error`, `azimuthal_gap` and `minimum_distance` on the preferred origin
+are NLLoc's own re-evaluation at the expectation — it re-reads every arrival's
+travel time from the time grids there and re-solves the origin time, RMS and
+residuals — not the maximum-likelihood values. The secondary origin therefore
+carries no quality, no uncertainty and no arrivals: those belong to the
+expectation, and repeating them under the mode would restore the very mismatch
+this arrangement removes.
+
 Usability rule
 --------------
 An event is unusable when its location PDF cannot be trusted:
@@ -177,6 +200,62 @@ def _x_num(value):
 def _extras(pairs):
     """Build an `extra` dict from (name, value) pairs, dropping the empty ones."""
     return {name: wrapped for name, wrapped in pairs if wrapped is not None}
+
+
+# ---------------------------------------------------------------------------
+# Maximum-likelihood origin
+# ---------------------------------------------------------------------------
+
+def _maxlike_time(expectation_time, ot_sec):
+    """
+    Rebuild the full ML origin time from its seconds-within-the-minute.
+
+    NLLoc writes only `OT <sec>` on the .hyp MAXIMUM_LIKELIHOOD line: it calls
+    hypotime2hrminsec before overwriting the origin time with the expectation's,
+    so the ML hour and minute never reach the file (GridLib.c:3513). The minute is
+    therefore taken from the expectation origin, and the result is snapped to the
+    nearest minute — the two solutions can straddle a minute boundary, and over a
+    500-event test run the raw seconds differed by up to 59 s for exactly that
+    reason.
+    """
+    minute_start = UTCDateTime(expectation_time.year, expectation_time.month,
+                               expectation_time.day, expectation_time.hour,
+                               expectation_time.minute)
+    candidate = minute_start + ot_sec
+    offset    = candidate - expectation_time
+    if offset > 30.0:
+        candidate -= 60.0
+    elif offset < -30.0:
+        candidate += 60.0
+    return candidate
+
+
+def _maxlike_origin(row, public_id, expectation_origin):
+    """
+    The maximum-likelihood hypocentre as a secondary Origin, or None if absent.
+
+    Deliberately carries no OriginQuality, OriginUncertainty or arrivals. Under
+    `LOCHYPOUT ... SAVE_NLLOC_EXPECTATION` every one of those is re-solved at the
+    expectation — RMS, Gap, Dist and the residuals belong to that point, and the
+    confidence ellipsoid is a second moment about it. Attaching them here would
+    recreate exactly the mode-with-someone-else's-error mismatch this stage exists
+    to remove.
+    """
+    if pd.isna(row.get('maxlike_latitude')):
+        return None
+
+    origin = Origin(
+        resource_id  = ResourceIdentifier(f'smi:pyrenees/origin/{public_id}/maxlike'),
+        time         = _maxlike_time(expectation_origin.time, float(row['maxlike_ot_sec'])),
+        latitude     = float(row['maxlike_latitude']),
+        longitude    = float(row['maxlike_longitude']),
+        # Metres positive down; negative values are events above sea level.
+        depth        = float(row['maxlike_depth']) * 1e3,
+        depth_type   = 'from location',
+        creation_info = CreationInfo(author='NonLinLoc SSST'),
+    )
+    origin.extra = _extras([('locationEstimator', _x('maximum_likelihood'))])
+    return origin
 
 
 # ---------------------------------------------------------------------------
@@ -508,6 +587,7 @@ def build_event(obs_event, row, verdict, epochs, unresolved):
     )
     origin.arrivals = arrivals
     origin.extra = _extras([
+        ('locationEstimator', _x('expectation')),
         ('pdfVolume',       _x_num(row['pdfVolume'])),
         ('ellipsoidVolume', _x_num(row['ellipsoidVolume'])),
         ('ellipsoidAz1',    _x_num(row['EllipsoidAz1'])),
@@ -519,7 +599,11 @@ def build_event(obs_event, row, verdict, epochs, unresolved):
         ('ellipsoidLen3',   _x_num(row['EllipsoidLen3'])),
     ])
 
-    event.origins             = [origin]
+    # The expectation origin is preferred; the maximum-likelihood one rides along
+    # so a consumer that wants the mode is not forced back to the NLLoc output.
+    maxlike = _maxlike_origin(row, public_id, origin)
+
+    event.origins             = [origin] if maxlike is None else [origin, maxlike]
     event.picks               = picks
     event.preferred_origin_id = origin.resource_id
 

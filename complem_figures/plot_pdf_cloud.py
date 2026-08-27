@@ -6,8 +6,14 @@ SSST iterations (loc_ssst_corr0 ... loc_ssst_corrN, the last being the final
 NLLoc-only pass), as an interactive 3D scene: one smooth confidence-ellipsoid
 surface per iteration, built directly from the mean/covariance NLLoc already
 computes and reports in each .hyp file's STATISTICS line (no re-estimation
-from the scattered samples), plus the raw sample cloud and the point-estimate
-convergence path. Click a legend entry to show/hide that iteration.
+from the scattered samples), plus the raw sample cloud and the path traced by
+the maximum-likelihood point. Click a legend entry to show/hide that iteration.
+
+Each ellipsoid is centred on the PDF expectation, which is also the hypocentre
+the catalog publishes (`LOCHYPOUT ... SAVE_NLLOC_EXPECTATION`). The diamond
+markers are the *maximum-likelihood* point of the same PDF, read from the .hyp
+MAXIMUM_LIKELIHOOD line — so the gap between a diamond and its ellipsoid centre
+is the mode-versus-mean distance for that iteration.
 
 Usage
 -----
@@ -63,6 +69,15 @@ _STATISTICS_RE = re.compile(
     r'STATISTICS\s+ExpectX\s+([-\d.eE+]+)\s+Y\s+([-\d.eE+]+)\s+Z\s+([-\d.eE+]+)\s+'
     r'CovXX\s+([-\d.eE+]+)\s+XY\s+([-\d.eE+]+)\s+XZ\s+([-\d.eE+]+)\s+'
     r'YY\s+([-\d.eE+]+)\s+YZ\s+([-\d.eE+]+)\s+ZZ\s+([-\d.eE+]+)'
+)
+
+# NLLoc writes this line only under `LOCHYPOUT ... SAVE_NLLOC_EXPECTATION`, where
+# the reported hypocenter is the PDF expectation and the maximum-likelihood point
+# would otherwise be lost. Without it the diamond marker below would sit exactly
+# on the ellipsoid centre, which says nothing.
+_MAXLIKE_RE = re.compile(
+    r'MAXIMUM_LIKELIHOOD\s+MaxLikeLat\s+([-\d.eE+]+)\s+Long\s+([-\d.eE+]+)\s+'
+    r'Depth\s+([-\d.eE+]+)'
 )
 
 
@@ -152,9 +167,20 @@ def _parse_statistics(hyp_path):
     return center, cov
 
 
+def _parse_maxlike(hyp_path, to_local):
+    """Parse the MAXIMUM_LIKELIHOOD line of a .hyp file into local km, or None if absent."""
+    with open(hyp_path) as f:
+        match = _MAXLIKE_RE.search(f.read())
+    if not match:
+        return None
+    lat, lon, depth = map(float, match.groups())
+    x, y = to_local.transform(lon, lat)
+    return x, y, depth
+
+
 def _load_iteration(iter_dir, step, event_id):
-    """Load one iteration's PDF cloud (x/y/z/pdf), covariance statistics, and point-estimate
-    hypocenter for one event.
+    """Load one iteration's PDF cloud (x/y/z/pdf), covariance statistics, and the
+    maximum-likelihood hypocenter for one event.
 
     x/y/z are kept in NLLoc's native local Lambert-projected km frame (as recorded in the .scat
     file) rather than converted to lon/lat degrees, matching the frame NLLoc's own STATISTICS
@@ -174,15 +200,18 @@ def _load_iteration(iter_dir, step, event_id):
     center, cov = _parse_statistics(hyp_path)
     to_local = _geographic_to_local_transformer(_read_lambert_params(hdr_path))
 
+    # The diamond marker is the maximum-likelihood point, read from the .hyp: the
+    # CSV's latitude/longitude/depth are the expectation, i.e. `center` above.
+    maxlike = _parse_maxlike(hyp_path, to_local)
+    hyp_x, hyp_y, hyp_z = maxlike if maxlike else (None, None, None)
+
     csv_matches = glob.glob(os.path.join(iter_dir, 'Pyrenees_*.sum.grid0.loc.csv'))
-    hyp_x = hyp_y = hyp_z = date_str = pdf_volume = ellipsoid_volume = None
+    date_str = pdf_volume = ellipsoid_volume = None
     if csv_matches:
         df = pd.read_csv(csv_matches[0], skipinitialspace=True)
         row = df.loc[df['publicId'] == event_id]
         if not row.empty:
             row = row.iloc[0]
-            hyp_x, hyp_y = to_local.transform(row['longitude'], row['latitude'])
-            hyp_z = row['depth']
             date_str = row['date-time']
             pdf_volume = row['pdfVolume']
             ellipsoid_volume = 4 / 3 * np.pi * row['EllipsoidLen1'] * row['EllipsoidLen2'] * row['EllipsoidLen3']
@@ -210,6 +239,10 @@ def _load_nll_reference(nll_result_csv, event_id, to_local):
     row's expectation point / hypocenter from lon/lat into the same local km frame the SSST
     iterations are plotted in.
 
+    latitude/longitude/depth in the merged CSV are the PDF expectation — the point the
+    ellipsoid is a second moment about, hence the ellipsoid centre. The maximum-likelihood
+    point is the separate maxlike_* triplet, drawn as the marker.
+
     Returns
     -------
     dict with keys: zone, center, cov, hyp_x, hyp_y, hyp_z, pdf_volume, ellipsoid_volume — or None
@@ -224,17 +257,23 @@ def _load_nll_reference(nll_result_csv, event_id, to_local):
     ell_args = (row['EllipsoidAz1'], row['EllipsoidDip1'], row['EllipsoidLen1'],
                 row['EllipsoidAz2'], row['EllipsoidDip2'], row['EllipsoidLen2'],
                 row['EllipsoidLen3'])
+    if 'maxlike_latitude' not in row:
+        raise KeyError(
+            f'{nll_result_csv} has no maxlike_* columns — it predates '
+            f'`LOCHYPOUT ... SAVE_NLLOC_EXPECTATION`. Rerun the NLL stage, or point '
+            f'--nll-result-csv at a merged CSV from a run that carries them.')
+
     cov = _build_covariance(*ell_args) / _S3_3DOF
     ellipsoid_volume = 4 / 3 * np.pi * row['EllipsoidLen1'] * row['EllipsoidLen2'] * row['EllipsoidLen3']
 
-    center_x, center_y = to_local.transform(row['expect_lon'], row['expect_lat'])
-    hyp_x, hyp_y = to_local.transform(row['longitude'], row['latitude'])
+    center_x, center_y = to_local.transform(row['longitude'], row['latitude'])
+    hyp_x, hyp_y = to_local.transform(row['maxlike_longitude'], row['maxlike_latitude'])
 
     return {
         'zone': row['source'].replace('GLOBAL_', ''),
-        'center': np.array([center_x, center_y, row['expect_z']]),
+        'center': np.array([center_x, center_y, row['depth']]),
         'cov': cov,
-        'hyp_x': hyp_x, 'hyp_y': hyp_y, 'hyp_z': row['depth'],
+        'hyp_x': hyp_x, 'hyp_y': hyp_y, 'hyp_z': row['maxlike_depth'],
         'pdf_volume': row['pdfVolume'], 'ellipsoid_volume': ellipsoid_volume,
     }
 
@@ -335,7 +374,7 @@ def _build_figure(iterations, confidence, event_id, zone, run_name, nll_ref=None
         traces.append(go.Scatter3d(
             x=hyp_xs, y=hyp_ys, z=hyp_zs,
             mode='lines', line=dict(color='black', width=3),
-            name='Convergence path', showlegend=True,
+            name='Max-likelihood path', showlegend=True,
         ))
 
     date_str = next((it['date'] for it in iterations if it['date']), 'unknown date')

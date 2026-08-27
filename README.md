@@ -258,6 +258,27 @@ Called automatically by `run_NLL.py` once all zones have completed both passes. 
 2. Rematches relocated events back to `obs/GLOBAL.obs` via the `publicId` field to recover metadata absent from NLL output (magnitude, pick details, etc.).
 3. Saves matched events → `obs/NLL_result.obs`
 
+#### Which hypocentre the catalog reports
+
+A NonLinLoc location is a probability density, not a point, and NLLoc offers two ways to collapse it: the **maximum-likelihood** point (the mode of the PDF) and the **expectation** (its mean). This catalog reports the expectation, at both the NLL and the SSST stage, via `LOCHYPOUT ... SAVE_NLLOC_EXPECTATION`.
+
+The reason is a consistency requirement rather than a preference. The uncertainty the catalog publishes — NLLoc's covariance, its confidence ellipsoid, and the `true_erh` / `true_erz` derived from them above — is a **second moment about the expectation**. Quoting it next to the mode therefore attached an error ellipsoid to a point that ellipsoid was not centred on. The same break ran through the quality control: `pdf_metrics.py` measures `C68` on samples whitened about their own mean, so the one metric that decides whether an event is usable was testing an ellipsoid around a location the catalog did not publish. It now tests the published one.
+
+`SAVE_NLLOC_EXPECTATION` is not a relabelling of coordinates. NLLoc re-solves the event at the expectation: it re-reads every arrival's travel time from the time grids at the new point and recomputes the **origin time, the RMS, the per-pick residuals**, then redoes the azimuthal gap and the station distances. That is what makes the fix possible at all — the origin time is analytically marginalised out of the spatial PDF, so no post-processing of the output files could have produced a matching one.
+
+How much it matters, measured over the previous maximum-likelihood catalog (46 224 events):
+
+| | median | p90 | max |
+|---|---|---|---|
+| horizontal mode→mean offset | 0.12 km | 1.72 km | 88.9 km |
+| depth offset | 0.26 km | 2.72 km | 31.0 km |
+
+Small for most events, and that is the point: where the PDF is close to Gaussian the two estimates agree and the choice is immaterial. They separate where it is not — `dh / true_erh` against `Ψ` gives Spearman ρ = **−0.59**, so the mode drifts furthest from the mean, relative to the quoted error, precisely on the events whose PDF is least Gaussian and whose mode therefore means least.
+
+The sharpest case is the top of the search grid, at −3 km. **789 events sat pinned exactly on that boundary**, and 3 116 fell in the −4..−2 km bin: an argmax over a truncated grid piles up against the edge, because the single highest cell can be the last one before the grid stops. No expectation is pinned there — the mean integrates over the whole density instead of picking its peak — and the bin drops to 816, with events placed above sea level falling from 14.1 % to 8.9 %. For a catalog built to study shallow seismicity, that spike was an artefact of the estimator, not a result.
+
+Nothing is discarded. The maximum-likelihood solution is written to each `.hyp` as a `MAXIMUM_LIKELIHOOD` line — verified bit-identical to what a maximum-likelihood run reports — and recovered into the merged CSV as `maxlike_latitude` / `maxlike_longitude` / `maxlike_depth` / `maxlike_ot_sec`, then published as a second origin in `FINAL.xml`. The scatter clouds are byte-identical either way, so every PDF metric is unaffected. The cost is ~25 % of NLLoc wall clock.
+
 ---
 
 ### 6. External Pick Ingestion (temp_picks)
@@ -296,6 +317,8 @@ Per zone:
 4. **Grid cleanup** — the zone's travel-time grids (the big disk consumers) are deleted automatically once the zone is done: every `ssst_corr<i>/` grid set except the last, which is kept with its symlinks materialized (the resume input of a partial campaign, the reusable final SSST model of a finished one). The initial grids (`run/ssst_time/Pyrenees_<N>/`) go too as soon as iteration 0 has run.
 
 Once all zones are complete, the final-iteration CSVs feed the same chain as the NLL stage: `merge_regional_results.merge_bulletins` → `RESULT/SSST_result.csv` (zone-overlap duplicates resolved by lowest `pdfVolume`), then `match_pre_post_relocation.save_bulletin` rematching against `obs/NLL_result_augmented.obs` → `obs/SSST_result.obs`.
+
+Every SSST iteration reports the expectation, not only the final relocation — see [Which hypocentre the catalog reports](#which-hypocentre-the-catalog-reports). Loc2ssst builds its corrections from the residuals in the `.hyp` files, so this keeps the residuals it consumes consistent with the hypocentre the catalog goes on to publish.
 
 #### Location-PDF quality metrics — `NLL_run/pdf_metrics.py`
 
@@ -363,6 +386,10 @@ Resolution is a judgement, so it is never destructive. Every pick keeps its unif
 
 Standard QuakeML carries the hypocentre, the `OriginQuality`, the `OriginUncertainty` with its full `ConfidenceEllipsoid`, the magnitude, and one `Pick` + `Arrival` per phase.
 
+Each event carries **two origins**, which QuakeML supports directly. The preferred one — the one `preferredOriginID` points at, and the only one most consumers will ever look at — is the PDF expectation, and it holds everything: the origin time, the quality, the uncertainty and the arrivals. The maximum-likelihood hypocentre is the second origin, at `smi:pyrenees/origin/<publicId>/maxlike`, carrying only its coordinates and its own origin time. The two are told apart by `pyr:locationEstimator`, `"expectation"` or `"maximum_likelihood"`.
+
+The second origin is deliberately bare. Under `SAVE_NLLOC_EXPECTATION` the RMS, the azimuthal gap, the station distances and the confidence ellipsoid are all evaluated at the expectation, and the ellipsoid is a moment about it; copying them onto the maximum-likelihood origin would recreate exactly the mismatch described in [Which hypocentre the catalog reports](#which-hypocentre-the-catalog-reports). A consumer who wants the mode gets the mode, and is not handed an error bar that belongs to a different point.
+
 Everything QuakeML has no element for goes into a custom namespace, `http://shallow-depth-dl-catalog/quakeml/1.0`, carried by the prefix **`pyr`** (for Pyrenees). This is not decoration: QuakeML 1.2's schema is closed, so a bare `<usable>` element inside the standard namespace would make the file invalid. Foreign namespaces are skipped under lax processing, which is how `FINAL.xml` validates against the QuakeML 1.2 schema while carrying fields the standard has never heard of. The prefix itself is cosmetic — consumers match on the URI — and the URI is an identifier, not a resolvable address.
 
 | Level | Field | Meaning |
@@ -373,6 +400,7 @@ Everything QuakeML has no element for goes into a custom namespace, `http://shal
 | event | `JNullP95`, `C68SigmaN`, `nScat` | the per-event Gaussian null and the sample count backing it |
 | event | `dipStat`, `dipPval`, `dipSeparationKm`, `dipReject` | Hartigan's dip test on the depth marginal, the width of its modal interval in km, and the two-condition flag built from them |
 | event | `publicId`, `sourceZone` | the catalog's join key, and which NLL zone won the dedup |
+| origin | `locationEstimator` | `expectation` (preferred origin) or `maximum_likelihood` (secondary) |
 | origin | `pdfVolume`, `ellipsoidVolume` | the two volume measures, for direct comparison |
 | origin | `ellipsoidAz1` … `ellipsoidLen3` | the raw NLLoc ellipsoid columns, so the QuakeML conversion stays auditable |
 | pick | `unifiedCode` | the project's internal station code, before resolution |
@@ -409,8 +437,9 @@ phases[0].picks[0].extra['alternateStations'].value
 
 For anything that does not need objects in memory, **stream instead**: `lxml.etree.iterparse` walks all 46 224 events of the full file in seconds at flat memory, and the `pyr:` fields are plain child elements of `<event>` and `<pick>` (namespace `{http://shallow-depth-dl-catalog/quakeml/1.0}`). That is how every verification of this file was run.
 
-Two caveats a reader of `FINAL.xml` needs:
+Three caveats a reader of `FINAL.xml` needs:
 
+- **The hypocentre is the PDF expectation, and the mode is right beside it.** The preferred origin is the mean of the location PDF; the second origin is its maximum-likelihood point, and for a non-Gaussian event the two can sit further apart than the quoted error. That is not an inconsistency in the file — it is the honest shape of the answer, and `Ψ`, `C_68` and the dip columns say which events it applies to. A reader who wants one number should take the preferred origin, which is the one the uncertainty and the quality actually describe. The reasoning, and what changed when the catalog switched, is in [Which hypocentre the catalog reports](#which-hypocentre-the-catalog-reports).
 - **The DOF scaling is mixed inside `OriginUncertainty`, by design.** The `ConfidenceEllipsoid` axes keep NLLoc's 3-DOF 68 % scaling, while `horizontalUncertainty` and the depth uncertainty carry the catalog's own `true_erh` (2-DOF) and `true_erz` (1-DOF). Those are the values the rest of the catalog uses, but neither is a projection of the other. NLLoc reports azimuth/dip for axes 1 and 2 only, so the major-axis orientation QuakeML requires is reconstructed from their cross product.
 - **`Mag 0.00` on 5 010 events is a placeholder, not a measurement**, and is written through unchanged because magnitudes are recomputed later. The raw OMP `.mag` files hold the literal string `0.0` for ~19 % of events; the neighbouring `0.1` bin holds 148, and the zero fraction falls from ~40 % to 0.3 % in 2013 when OMP began computing ML systematically. All 5 010 are `(ML, OMP)` — `LDG.py` and `RESIF.py` skip magnitude-less events instead of filling them. Do not fit that bin as data.
 

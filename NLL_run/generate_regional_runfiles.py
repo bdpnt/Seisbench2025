@@ -323,7 +323,13 @@ def generate_run(parameters, log_dir=None):
 
     lines.append('# Bulletin to read and write\n')
     lines.append(f'LOCFILES {parameters.fileBulletinIn} NLLOC_OBS  {parameters.fileTime}  {parameters.fileBulletinOut}\n')
-    lines.append('LOCHYPOUT SAVE_NLLOC_SUM\n')
+    # SAVE_NLLOC_EXPECTATION reports the PDF expectation as the hypocenter instead
+    # of the maximum-likelihood point, re-solving origin time, RMS, residuals, Gap
+    # and Dist there. The confidence ellipsoid is a second moment about the
+    # expectation, so this is what puts the published location and the published
+    # error on the same point. The ML solution survives on the .hyp
+    # MAXIMUM_LIKELIHOOD line.
+    lines.append('LOCHYPOUT SAVE_NLLOC_SUM  SAVE_NLLOC_EXPECTATION\n')
     lines.append('\n')
 
     lines.append('# Localization method\n')
