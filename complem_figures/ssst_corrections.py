@@ -37,7 +37,10 @@ Two products, from one reconstruction:
           stations of the total correction applied to its picks. A correction
           common to every station of an event trades off exactly against origin
           time and cannot move the hypocentre, so the across-station spread -
-          not the mean - is the part of the field that actually relocates.
+          not the mean - is the part of the field that CAN relocate. It is not
+          a map of where SSST actually did relocate: measured against the true
+          displacement, rho = +0.10 (+0.20 given Nphs). See
+          event_correction_spread for why.
 
 Extraction is cached as .npz per (zone, iteration) under
 run/ssst_corrections_cache/, so only the first run pays for parsing the ~276 k
@@ -159,6 +162,7 @@ class SsstCorrParams:
     min_picks:   int   = 100   # station/phase fields below this are not drawn
     depth:       float = _SLICE_DEPTH   # None = per-station median event depth
     map_spacing: float = _MAP_SPACING
+    extent:      tuple = None   # (lon0, lon1, lat0, lat1); None = per-station
     product:     str   = 'both'         # atlas | spread | both
 
 
@@ -181,10 +185,16 @@ def parse_hyp_file(path):
     for line in lines:
         if line.startswith('NLLOC '):
             parts = line.split('"')
-            ev = {'status': parts[3] if len(parts) > 3 else '?', 'arr': []}
+            ev = {'status': parts[3] if len(parts) > 3 else '?',
+                  'id': '', 'arr': []}
             in_phase = False
         elif ev is None:
             continue
+        elif line.startswith('PUBLIC_ID'):
+            # the pipeline's canonical event key; the only safe way to follow
+            # one event across iterations, since the per-iteration event sets
+            # differ slightly as locations flip between LOCATED and REJECTED
+            ev['id'] = line.split()[1]
         elif line.startswith('HYPOCENTER'):
             f_ = line.split()
             ev['x'], ev['y'], ev['z'] = float(f_[2]), float(f_[4]), float(f_[6])
@@ -251,7 +261,7 @@ def extract(params, zone, iteration):
         raise FileNotFoundError(f'no per-event .hyp files in {directory}')
 
     t0 = time.time()
-    ex, ey, ez, elat, elon = [], [], [], [], []
+    ex, ey, ez, elat, elon, eid = [], [], [], [], [], []
     erms, enphs, egap, elen3, eok = [], [], [], [], []
     ar_ev, ar_sta, ar_pha, ar_res = [], [], [], []
     sta_ids = {}
@@ -264,7 +274,7 @@ def extract(params, zone, iteration):
                 continue
             idx = len(ex)
             ex.append(ev['x']); ey.append(ev['y']); ez.append(ev['z'])
-            elat.append(ev['lat']); elon.append(ev['lon'])
+            elat.append(ev['lat']); elon.append(ev['lon']); eid.append(ev['id'])
             erms.append(ev['rms']); enphs.append(ev['nphs'])
             egap.append(ev['gap']); elen3.append(ev['len3'])
             eok.append(ev['rms'] <= _RMS_MAX and ev['nphs'] >= _NRDGS_MIN
@@ -286,6 +296,7 @@ def extract(params, zone, iteration):
         'ev_z':    np.array(ez, dtype=np.float32),
         'ev_lat':  np.array(elat, dtype=np.float64),
         'ev_lon':  np.array(elon, dtype=np.float64),
+        'ev_id':   np.array(eid),
         'ev_rms':  np.array(erms, dtype=np.float32),
         'ev_nphs': np.array(enphs, dtype=np.int32),
         'ev_gap':  np.array(egap, dtype=np.float32),
@@ -502,6 +513,26 @@ def filter_fields(fields_list, wanted):
 # Station coordinates
 # ---------------------------------------------------------------------------
 
+def read_lsgrid(zone):
+    """(x0, x1, y0, y1) km of the zone's Loc2ssst correction grid.
+
+    Read from the control file rather than hardcoded, so it cannot drift away
+    from what the campaign actually ran. Outside this box Loc2ssst never
+    evaluated a correction at all, which is what a shared map extent has to
+    respect: the field is not merely unsupported there, it does not exist.
+    """
+    path = os.path.join(_PROJECT_ROOT, 'run', 'ssst', f'run_{zone}_SSST.in')
+    with open(path) as f:
+        for line in f:
+            v = line.split()
+            if v and v[0] == 'LSGRID':
+                nx, ny = int(v[1]), int(v[2])
+                x0, y0 = float(v[4]), float(v[5])
+                dx, dy = float(v[7]), float(v[8])
+                return x0, x0 + (nx - 1) * dx, y0, y0 + (ny - 1) * dy
+    raise ValueError(f'no LSGRID statement in {path}')
+
+
 def read_station_latlon(zone):
     """{station code: (lat, lon)} from the zone's GTSRCE file."""
     path = os.path.join(_PROJECT_ROOT, 'stations', f'GTSRCE_SSST_{zone}.txt')
@@ -537,7 +568,8 @@ def _map_grid(src_list, spacing=_MAP_SPACING, pad=0.15):
     return lats, lons
 
 
-def station_fields(cache, zone, station, phase, depth=None, spacing=_MAP_SPACING):
+def station_fields(cache, zone, station, phase, depth=None, spacing=_MAP_SPACING,
+                   extent=None):
     """The five increments, their cumulative sum, and the map they live on.
 
     Every field is evaluated on ONE grid at ONE depth, so the panels are
@@ -550,6 +582,12 @@ def station_fields(cache, zone, station, phase, depth=None, spacing=_MAP_SPACING
     mass damps every contribution by exp(-dz^2/L^2): harmless at L = 15 km,
     but it empties the L = 1 km panel. Slicing where the events are is the only
     choice that shows the fine panels the support they really have.
+
+    `extent` (lon0, lon1, lat0, lat1) draws every page on one shared frame so
+    they can be compared side by side, instead of each page framing its own
+    station's events. It is clipped to the zone's LSGRID: outside that box
+    Loc2ssst computed nothing, and painting the station's static term across it
+    would present a constant as if it were a measurement.
     """
     per_iter = []
     for i in range(len(_CHAR_DISTS)):
@@ -561,7 +599,12 @@ def station_fields(cache, zone, station, phase, depth=None, spacing=_MAP_SPACING
               for data, ev, src, _ in per_iter if len(src)]
     if not latlon:
         return None
-    lats, lons = _map_grid(latlon, spacing=spacing)
+    if extent is None:
+        lats, lons = _map_grid(latlon, spacing=spacing)
+    else:
+        lon0, lon1, lat0, lat1 = extent
+        lats = np.arange(lat0, lat1 + spacing, spacing)
+        lons = np.arange(lon0, lon1 + spacing, spacing)
 
     if depth is None:
         depth = float(np.median(np.concatenate(
@@ -572,15 +615,20 @@ def station_fields(cache, zone, station, phase, depth=None, spacing=_MAP_SPACING
     gx, gy = project(coef, LAT.ravel(), LON.ravel())
     points = np.column_stack([gx, gy, np.full(gx.size, depth)])
 
+    x0, x1, y0, y1 = read_lsgrid(zone)
+    outside = ((gx < x0) | (gx > x1) | (gy < y0) | (gy > y1)).reshape(LAT.shape)
+
     increments, weights = [], []
     for (data, ev, src, res), char_dist in zip(per_iter, _CHAR_DISTS):
         value, weight = correction_field(points, src, res, char_dist,
                                          return_weight=True)
         increments.append(value.reshape(LAT.shape))
-        weights.append(weight.reshape(LAT.shape))
+        # nodes off the zone's correction grid are marked unsupported, which
+        # is what puts them in the grey the panels already use for "no data"
+        weights.append(np.where(outside, 0.0, weight.reshape(LAT.shape)))
 
     return {
-        'lats': lats, 'lons': lons, 'depth': depth,
+        'lats': lats, 'lons': lons, 'depth': depth, 'outside': outside,
         'increments': increments, 'weights': weights,
         'total': np.sum(increments, axis=0),
         'n_arrivals': [len(r) for _, _, _, r in per_iter],
@@ -612,7 +660,9 @@ def atlas_page(fig, fields, station, phase, zone, station_lat, station_lon):
     stack = np.concatenate([np.asarray(v)[~m].ravel()
                             for v, m in zip(increments, masks) if (~m).any()])
     vmax_inc = float(np.percentile(np.abs(stack), 98)) if stack.size else 1e-3
-    vmax_tot = float(np.percentile(np.abs(fields['total']), 98)) or 1e-3
+    inside_total = fields['total'][~fields['outside']]
+    vmax_tot = (float(np.percentile(np.abs(inside_total), 98))
+                if inside_total.size else 1e-3) or 1e-3
 
     axes = [fig.add_subplot(2, 3, k + 1) for k in range(6)]
     mesh_inc = None
@@ -628,8 +678,10 @@ def atlas_page(fig, fields, station, phase, zone, station_lat, station_lon):
         axes[k].set_title(f'{label}\niteration {k}, {fields["n_arrivals"][k]} arrivals'
                           f'   rms {rms * 1000:.0f} ms', fontsize=9)
 
+    # the cumulative panel is defined wherever the coarse terms are, i.e.
+    # everywhere on the zone's grid - but still nowhere off it
     mesh_tot = _draw_map(axes[5], lats, lons, fields['total'],
-                         np.zeros_like(fields['total'], dtype=bool),
+                         fields['outside'],
                          vmax_tot, 'RdBu_r', station_lat, station_lon)
     axes[5].set_title('CUMULATIVE  (sum of the five)\ncorrection in the final grids',
                       fontsize=9, fontweight='bold')
@@ -676,8 +728,8 @@ def make_atlas(params, cache, fields_list, path):
     drawn = 0
     with PdfPages(path) as pdf:
         for station, phase, zone, n in fields_list:
-            fields = station_fields(cache, zone, station, phase,
-                                    params.depth, params.map_spacing)
+            fields = station_fields(cache, zone, station, phase, params.depth,
+                                    params.map_spacing, params.extent)
             if fields is None:
                 continue
             lat, lon = station_coords[zone].get(station, (np.nan, np.nan))
@@ -697,7 +749,8 @@ def make_atlas(params, cache, fields_list, path):
 # Product 2: the catalog-wide across-station spread map
 # ---------------------------------------------------------------------------
 
-def event_correction_spread(cache, zone, min_picks_per_event=5):
+def event_correction_spread(cache, zone, min_picks_per_event=5,
+                            return_ids=False):
     """Per-event spread, across recording stations, of the total correction.
 
     The total correction carried by the final travel-time grids is the sum of
@@ -710,6 +763,22 @@ def event_correction_spread(cache, zone, min_picks_per_event=5):
 
     P phases only: S residuals are systematically larger, so mixing the two
     would report phase-dependent amplitude as if it were spatial variation.
+
+    NOT a map of where SSST had most impact, however tempting that reading is.
+    Measured against the pure SSST displacement (iteration 0 location vs final
+    location - same picks, only the grids differ) over 39 080 events:
+
+        rho(spread, displacement)         = +0.10
+        rho(spread, displacement | Nphs)  = +0.20
+        median displacement, bottom spread quintile -> top: 0.95 km -> 1.27 km
+
+    Disagreement is necessary for an event to move but nowhere near sufficient:
+    what actually displaces a hypocentre is the AZIMUTHAL PATTERN of the
+    differential correction, and a standard deviation discards all of that
+    geometry. Spread evenly around the azimuths largely cancels. (The marginal
+    rho understates even this much because Nphs suppresses it - well-recorded
+    events carry more spread, rho = +0.42, yet resist moving, rho = -0.18.)
+    To show impact, map the displacement itself.
     """
     final = cache[(zone, len(_CHAR_DISTS))]
     final_xyz = rect_coords(final)
@@ -740,7 +809,8 @@ def event_correction_spread(cache, zone, min_picks_per_event=5):
             spread.append(total[g].std())
 
     ev_idx = np.asarray(ev_idx, dtype=int)
-    return final['ev_lat'][ev_idx], final['ev_lon'][ev_idx], np.asarray(spread)
+    out = (final['ev_lat'][ev_idx], final['ev_lon'][ev_idx], np.asarray(spread))
+    return out + (final['ev_id'][ev_idx],) if return_ids else out
 
 
 def make_spread_map(params, cache, path):
@@ -788,8 +858,9 @@ def make_spread_map(params, cache, path):
     ax.set_xlabel('longitude (deg)')
     ax.set_ylabel('latitude (deg)')
     ax.set_title('SSST correction: across-station spread of the total applied '
-                 'correction\n(the component that actually moves a hypocentre; '
-                 'P phases)', fontsize=11, fontweight='bold')
+                 'correction\n(the component that CAN move a hypocentre - not a '
+                 'map of how far one did; P phases)',
+                 fontsize=11, fontweight='bold')
     cb = fig.colorbar(mesh, ax=ax, shrink=0.85, extend='both')
     cb.set_label('std across recording stations (s)')
     ax.text(0.0, -0.15,
@@ -828,6 +899,13 @@ def main():
     p.add_argument('--map-spacing', type=float, default=_MAP_SPACING,
                    help='atlas map node spacing in degrees (default %(default)s, '
                         '~2.2 km lat); lower it to resolve the L = 1 km panel')
+    p.add_argument('--extent', default=None,
+                   help='shared map frame for every atlas page, as '
+                        'lon0,lon1,lat0,lat1. Needs the = form when lon0 is '
+                        'negative: --extent=-2.25,3.5,41.75,43.75. '
+                        'Default frames each page on its own station\'s events; '
+                        'a shared frame makes pages comparable but is clipped '
+                        "to each zone's LSGRID, off which no correction exists")
     p.add_argument('--stations', default=None,
                    help="comma-separated 'STA' or 'STA:PHASE' to draw only those "
                         'fields, e.g. FR.0041:P,RD.0038 - use with a small '
@@ -845,8 +923,12 @@ def main():
         min_picks=args.min_picks,
         depth=args.depth,
         map_spacing=args.map_spacing,
+        extent=(tuple(float(v) for v in args.extent.split(','))
+                if args.extent else None),
         product=args.product,
     )
+    if params.extent is not None and len(params.extent) != 4:
+        p.error('--extent needs exactly four numbers: lon0,lon1,lat0,lat1')
 
     t0 = time.time()
     cache = load_all(params)

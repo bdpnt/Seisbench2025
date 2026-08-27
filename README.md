@@ -456,7 +456,7 @@ The distance is **event-to-grid-node** — the station's own position never ente
 Two products, from one reconstruction:
 
 - `<run>_station_atlas.pdf` — one page per station×phase field (all 300 with ≥ 100 usable arrivals, `--min-picks`): the five increments (`9999 → 50 → 15 → 5 → 1 km`) then their cumulative total, as depth-slice maps on a shared diverging scale. Nodes with no event inside the smoothing kernel are greyed — the field there is only the station static term. A station falling in two zones is drawn in the zone where it has the most arrivals, since the two zones ran separate `Loc2ssst` passes over different event sets and their fields are independent.
-- `<run>_spread_map.pdf` — one catalog-wide map: at each event, the spread **across its recording stations** of the total correction applied to its P picks. A correction common to every station of an event is absorbed exactly by the origin time and cannot move the hypocentre, so the across-station dispersion, not the mean, is the part of the field that relocates.
+- `<run>_spread_map.pdf` — one catalog-wide map: at each event, the spread **across its recording stations** of the total correction applied to its P picks. A correction common to every station of an event is absorbed exactly by the origin time and cannot move the hypocentre, so the across-station dispersion, not the mean, is the part of the field that *can* relocate. It is **not** a map of where SSST actually did relocate — see the caveat below.
 
 ```bash
 python complem_figures/ssst_corrections.py                   # both products, ~7 min
@@ -471,11 +471,23 @@ Parsing the ~276 k per-event `.hyp` files takes ~100 s and is cached as `.npz` p
 
 **How the maps are drawn.** Nothing is interpolated between map nodes: `pcolormesh` draws one flat cell per node, and every node is an independent evaluation of the formula above. The smoothness on the page *is* the Gaussian kernel — the field is intrinsically smooth at scale `L`. That makes the node spacing a real constraint: the `--map-spacing` default of 0.02° is ~2.2 km in latitude and ~1.6 km in longitude at 43°N, so the `L = 1 km` panel is **undersampled** and part of its speckle is aliasing. The full 300-page atlas keeps the coarse spacing deliberately (212 s); drop to `--map-spacing 0.005` with `--stations` for the pages that need to be publication-grade, which resolves the finest panel properly at ~55 s per page.
 
+**A shared map frame is optional.** By default each page is framed on its own station's events — tight, but not comparable from page to page. `--extent=lon0,lon1,lat0,lat1` (the `=` form is required when `lon0` is negative) puts every page on one frame, clipped to each zone's `LSGRID` as read from `run/ssst/run_<N>_SSST.in`. That clipping matters: zone 2's correction grid spans only lon −2.22 to 1.57, so a full-Pyrenees frame is largely territory where `Loc2ssst` computed nothing, and it is greyed rather than filled with the station's static term. On a `-2.25,3.5,41.75,43.75` frame each zone's grid covers ~68 % of the page.
+
 **The slice depth is data-driven, not fixed.** `--depth` defaults to each station's own median event depth (~6.9 km for `FR.0041`) rather than a round number. This matters because the kernel is 3-D: a slice `dz` off the event mass damps every contribution by `exp(−dz²/L²)`. That is harmless at `L = 15 km` but devastating at `L = 1 km` — an earlier fixed 10 km slice, against a catalog median depth of 6.6–7.3 km, cut `FR.0041`'s median summed weight in the finest panel from 5.7 to 2.0 and left it looking far emptier than the data warrants. Pass `--depth` only to compare stations on a common plane, accepting that cost.
 
 **Validated against the binary.** `Loc2ssst` was re-run for real on zone 6 (station `FR.0047`, P and S) at both ends of the schedule and compared node by node over all 303 × 313 × 40 nodes: max |diff| = 0.0000 ms at `L = 9999 km` (exact to float32) and 0.0736 ms at `L = 1 km`, against correction amplitudes of ±0.36 s. `Loc2ssst` independently reported "652 location files read, 163 accepted", matching the module's `LSPHSTAT` selection exactly. The check is cheap because `ihave_time_input_grids = flag_out_grid * flag_nlloc_outfile` (`Loc2ssst.c:590`): omitting `LOCFILES` from the control file makes `Loc2ssst` write the correction grid and skip the travel-time grids, so no `Grid2Time` rebuild is needed.
 
-Two properties worth knowing before reading the figures: the increments are **not** monotonically decreasing — they peak at `L = 15 km`, the scale at which the residual field carries genuine spatial structure — and the events feeding the corrections are a strict subset of the catalog, since `LSPHSTAT` (RMS ≤ 0.15 s, Nphs ≥ 6, gap ≤ 200°, Len3 ≤ 10 km) admits 23 727 events at iteration 0, rising to 34 674 by the final relocation as the locations improve.
+**The spread map is not an impact map.** Measured against the *pure* SSST displacement — each event's iteration-0 location versus its final location, same picks, only the grids differing — over 39 080 events:
+
+| | |
+|---|---|
+| `ρ(spread, displacement)` | **+0.10** |
+| `ρ(spread, displacement \| Nphs)` | **+0.20** |
+| median displacement, bottom → top spread quintile | 0.95 km → 1.27 km |
+
+Disagreement between stations is *necessary* for an event to move but nowhere near sufficient: what displaces a hypocentre is the **azimuthal pattern** of the differential correction, and a standard deviation discards all of that geometry — spread distributed evenly around the azimuths largely cancels. The marginal ρ understates even this, because `Nphs` suppresses it (well-recorded events carry more spread, ρ = +0.42, yet resist moving, ρ = −0.18), the same confound documented for RMS against ERH in `pdf_metrics.py`. For reference, the pure SSST displacement itself has median 1.09 km and p90 4.74 km. To show impact, map the displacement.
+
+Two further properties worth knowing before reading the figures: the increments are **not** monotonically decreasing — they peak at `L = 15 km`, the scale at which the residual field carries genuine spatial structure — and the events feeding the corrections are a strict subset of the catalog, since `LSPHSTAT` (RMS ≤ 0.15 s, Nphs ≥ 6, gap ≤ 200°, Len3 ≤ 10 km) admits 23 727 events at iteration 0, rising to 34 674 by the final relocation as the locations improve.
 
 Map modules apply a quality filter (erh ≤ 3 km, erv ≤ 3 km, gap ≤ 300°, rms ≤ 0.5 s) by default; use `--no-filter` for pre-relocation catalogs where errors are unavailable.
 
