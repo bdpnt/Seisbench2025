@@ -106,8 +106,12 @@ Scripts in `complem_figures/` for visualization and statistics:
   - `<run>_station_atlas.pdf` — one page per station×phase field (300 with ≥100 usable arrivals): five increments (9999→50→15→5→1 km) + cumulative total, depth-slice maps on a shared diverging scale, unsupported nodes greyed. A station in two zones is drawn in its better-sampled one — the zones ran separate Loc2ssst passes, so their fields are independent.
   - `<run>_spread_map.pdf` — catalog-wide map of the **across-station** spread of the total correction per event (P only). A correction common to all of an event's stations is absorbed by the origin time and cannot move the hypocentre, so the dispersion — not the mean — is the part that relocates.
 
+  **Nothing is interpolated between map nodes** — one flat `pcolormesh` cell per independently evaluated node; the smoothness on the page is the Gaussian kernel itself. So node spacing is a real constraint: the 0.02° default is ~2.2 km lat / ~1.6 km lon at 43°N, which **undersamples the L = 1 km panel**. The 300-page atlas keeps it coarse on purpose (213 s); use `--stations FR.0041:P --map-spacing 0.005` (~55 s/page, writes `*_station_atlas_selection.pdf`) for pages that go on a slide.
+
+  **`--depth` defaults to each station's own median event depth**, not a fixed value. The kernel is 3-D, so a slice `dz` off the event mass damps every event by `exp(−dz²/L²)` — negligible at L = 15 km, fatal at L = 1 km. A fixed 10 km slice against a catalog median of 6.6–7.3 km cut `FR.0041`'s median summed weight in the finest panel from 5.7 to 2.0. Pass `--depth` only to put several stations on a common plane.
+
   ```bash
-  python complem_figures/ssst_corrections.py                 # both, ~8 min
+  python complem_figures/ssst_corrections.py                 # both, ~7 min
   python complem_figures/ssst_corrections.py --extract-only  # fill the cache only
   ```
   Parsing the ~276 k per-event `.hyp` files takes ~100 s, cached as `.npz` per (zone, iteration) in `run/ssst_corrections_cache/` (33 MB). **Validated against the binary**: Loc2ssst re-run on zone 6 (`FR.0047`, P and S) agrees node-by-node over all 303×313×40 nodes to 0.0000 ms at L=9999 and 0.0736 ms at L=1, against ±0.36 s amplitudes; its own "163 accepted" matches the module's LSPHSTAT selection exactly. Omitting `LOCFILES` from the control file is what keeps that check cheap — `ihave_time_input_grids = flag_out_grid * flag_nlloc_outfile` (`Loc2ssst.c:590`), so Loc2ssst writes the correction grid and skips the travel-time grids, needing no Grid2Time rebuild.

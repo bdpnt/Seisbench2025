@@ -66,9 +66,21 @@ Environment: seisbench_env (numpy/scipy, matplotlib for the figures).
 Usage
 -----
     python complem_figures/ssst_corrections.py                 # both products
-    python complem_figures/ssst_corrections.py --product atlas
-    python complem_figures/ssst_corrections.py --min-picks 300 --depth 5
+    python complem_figures/ssst_corrections.py --product atlas --min-picks 300
     python complem_figures/ssst_corrections.py --extract-only  # fill the cache
+    # presentation-quality pages for chosen fields (~55 s each)
+    python complem_figures/ssst_corrections.py --product atlas \\
+        --stations FR.0041:P,RD.0038:P --map-spacing 0.005
+
+Drawing note
+------------
+Nothing is interpolated between map nodes: pcolormesh draws one flat cell per
+node and every node is an independent evaluation of the formula above. The
+smoothness on the page IS the Gaussian kernel. That makes node spacing a real
+constraint - the 0.02 deg default is ~2.2 km lat / ~1.6 km lon at 43N, so the
+L = 1 km panel is undersampled and part of its speckle is aliasing. The full
+atlas keeps the coarse spacing on purpose; --map-spacing 0.005 with --stations
+resolves the finest panel for the handful of pages that need it.
 """
 
 import argparse
@@ -118,8 +130,17 @@ _RES_MAX = {'P': _P_RES_MAX, 'S': _S_RES_MAX}
 # Figure constants
 # ---------------------------------------------------------------------------
 
-_MAP_SPACING  = 0.02    # degrees, atlas map node spacing
-_SLICE_DEPTH  = 10.0    # km, depth of the horizontal slice
+_MAP_SPACING  = 0.02    # degrees, atlas map node spacing (~2.2 km lat,
+                        # ~1.6 km lon at 43N). NOTE this is coarser than the
+                        # L = 1 km kernel, so the finest panel is undersampled;
+                        # --map-spacing renders a chosen station finer.
+_SLICE_DEPTH  = None    # km; None = each station's own median event depth.
+                        # A fixed slice is the wrong default: the kernel is 3-D,
+                        # so a slice sitting dz off the event mass attenuates
+                        # every event by exp(-dz^2/L^2). The catalog median is
+                        # ~6.6-7.3 km, and slicing at 10 km costs the L = 1 km
+                        # panel most of its support (median summed weight 5.7
+                        # -> 2.0 for FR.0041) for no reason at all.
 _MIN_EFF_N    = 1.0     # grey out nodes whose summed exponential weight is
                         # below this: no event close enough, so the value there
                         # is only the weight-floor static term
@@ -134,10 +155,11 @@ class SsstCorrParams:
     ssst_root: str   = _DEFAULT_SSST
     cache_dir: str   = _DEFAULT_CACHE
     fig_dir:   str   = _DEFAULT_FIG_DIR
-    zones:     list  = field(default_factory=lambda: list(_ZONES))
-    min_picks: int   = 100     # station/phase fields below this are not drawn
-    depth:     float = _SLICE_DEPTH
-    product:   str   = 'both'  # atlas | spread | both
+    zones:       list  = field(default_factory=lambda: list(_ZONES))
+    min_picks:   int   = 100   # station/phase fields below this are not drawn
+    depth:       float = _SLICE_DEPTH   # None = per-station median event depth
+    map_spacing: float = _MAP_SPACING
+    product:     str   = 'both'         # atlas | spread | both
 
 
 # ---------------------------------------------------------------------------
@@ -460,6 +482,22 @@ def best_zone_per_station(census, min_picks):
                   key=lambda t: -t[3])
 
 
+def filter_fields(fields_list, wanted):
+    """Restrict the atlas to named stations, as 'STA' or 'STA:PHASE'.
+
+    The full 300-page atlas is deliberately drawn at the coarse default
+    spacing; this is what lets a chosen station be re-rendered fine enough to
+    resolve the L = 1 km panel without paying for all 300.
+    """
+    if not wanted:
+        return fields_list
+    keys = set()
+    for item in wanted:
+        sta, _, phase = item.partition(':')
+        keys.update((sta, p) for p in ((phase,) if phase else ('P', 'S')))
+    return [f for f in fields_list if (f[0], f[1]) in keys]
+
+
 # ---------------------------------------------------------------------------
 # Station coordinates
 # ---------------------------------------------------------------------------
@@ -480,6 +518,14 @@ def read_station_latlon(zone):
 # Product 1: the per-station atlas
 # ---------------------------------------------------------------------------
 
+def _node_spacing_km(lats, lons):
+    """Map node spacing in km, to compare against the smoothing length."""
+    deg_lat = float(np.diff(lats).mean()) if len(lats) > 1 else 0.0
+    deg_lon = float(np.diff(lons).mean()) if len(lons) > 1 else 0.0
+    mid = np.deg2rad(float(np.mean(lats)))
+    return deg_lat * 111.32, deg_lon * 111.32 * np.cos(mid)
+
+
 def _map_grid(src_list, spacing=_MAP_SPACING, pad=0.15):
     """Regular lat/lon grid covering every source cloud of a station, padded."""
     lat = np.concatenate([s[0] for s in src_list])
@@ -491,13 +537,19 @@ def _map_grid(src_list, spacing=_MAP_SPACING, pad=0.15):
     return lats, lons
 
 
-def station_fields(cache, zone, station, phase, depth):
+def station_fields(cache, zone, station, phase, depth=None, spacing=_MAP_SPACING):
     """The five increments, their cumulative sum, and the map they live on.
 
-    Every field is evaluated on ONE grid at a fixed depth, so the panels are
+    Every field is evaluated on ONE grid at ONE depth, so the panels are
     directly comparable; each increment comes from its own iteration's
     locations and residuals, which is what makes them increments rather than
     five estimates of the same thing.
+
+    `depth` None slices at the median depth of the events that actually feed
+    this station's field. The kernel is 3-D, so a slice dz away from the event
+    mass damps every contribution by exp(-dz^2/L^2): harmless at L = 15 km,
+    but it empties the L = 1 km panel. Slicing where the events are is the only
+    choice that shows the fine panels the support they really have.
     """
     per_iter = []
     for i in range(len(_CHAR_DISTS)):
@@ -509,7 +561,11 @@ def station_fields(cache, zone, station, phase, depth):
               for data, ev, src, _ in per_iter if len(src)]
     if not latlon:
         return None
-    lats, lons = _map_grid(latlon)
+    lats, lons = _map_grid(latlon, spacing=spacing)
+
+    if depth is None:
+        depth = float(np.median(np.concatenate(
+            [src[:, 2] for _, _, src, _ in per_iter if len(src)])))
 
     LON, LAT = np.meshgrid(lons, lats)
     coef = fit_projection(cache[(zone, 0)])
@@ -524,7 +580,7 @@ def station_fields(cache, zone, station, phase, depth):
         weights.append(weight.reshape(LAT.shape))
 
     return {
-        'lats': lats, 'lons': lons,
+        'lats': lats, 'lons': lons, 'depth': depth,
         'increments': increments, 'weights': weights,
         'total': np.sum(increments, axis=0),
         'n_arrivals': [len(r) for _, _, _, r in per_iter],
@@ -547,7 +603,7 @@ def _draw_map(ax, lats, lons, values, mask, vmax, cmap, station_lat, station_lon
     return mesh
 
 
-def atlas_page(fig, fields, station, phase, zone, depth, station_lat, station_lon):
+def atlas_page(fig, fields, station, phase, zone, station_lat, station_lon):
     """One atlas page: five increments, then their cumulative total."""
     increments, weights = fields['increments'], fields['weights']
     lats, lons = fields['lats'], fields['lons']
@@ -579,7 +635,7 @@ def atlas_page(fig, fields, station, phase, zone, depth, station_lat, station_lo
                       fontsize=9, fontweight='bold')
 
     fig.suptitle(f'SSST travel-time correction   {station}  {phase}-phase   '
-                 f'zone {zone}   depth slice {depth:g} km',
+                 f'zone {zone}   depth slice {fields["depth"]:.1f} km',
                  fontsize=13, fontweight='bold')
     fig.subplots_adjust(left=0.05, right=0.98, top=0.86, bottom=0.17,
                         wspace=0.18, hspace=0.32)
@@ -596,12 +652,16 @@ def atlas_page(fig, fields, station, phase, zone, depth, station_lat, station_lo
         cb.ax.xaxis.set_label_position('top')
         cb.ax.tick_params(labelsize=7)
 
-    fig.text(0.08, 0.018,
+    lat_km, lon_km = _node_spacing_km(fields['lats'], fields['lons'])
+    fig.text(0.08, 0.010,
              'Axes are longitude / latitude (deg); the triangle is the station.  '
              'red = arrivals LATER than the 1-D model predicts (real path slower); '
              'blue = earlier.\n'
              'grey = no event within reach of the smoothing kernel - the field '
-             'there is only the station static term.',
+             'there is only the station static term.\n'
+             f'Nothing is interpolated: every cell is one independent evaluation, '
+             f'{lat_km:.1f} km x {lon_km:.1f} km apart - the smoothness is the '
+             f'kernel itself. Panels with L below that spacing are undersampled.',
              fontsize=7.5, color='0.30', linespacing=1.5)
 
 
@@ -616,13 +676,14 @@ def make_atlas(params, cache, fields_list, path):
     drawn = 0
     with PdfPages(path) as pdf:
         for station, phase, zone, n in fields_list:
-            fields = station_fields(cache, zone, station, phase, params.depth)
+            fields = station_fields(cache, zone, station, phase,
+                                    params.depth, params.map_spacing)
             if fields is None:
                 continue
             lat, lon = station_coords[zone].get(station, (np.nan, np.nan))
             fig = plt.figure(figsize=(15, 9))
             try:
-                atlas_page(fig, fields, station, phase, zone, params.depth, lat, lon)
+                atlas_page(fig, fields, station, phase, zone, lat, lon)
                 pdf.savefig(fig)
             finally:
                 plt.close(fig)
@@ -762,7 +823,15 @@ def main():
     p.add_argument('--min-picks', type=int, default=100,
                    help='skip station/phase fields with fewer usable arrivals')
     p.add_argument('--depth', type=float, default=_SLICE_DEPTH,
-                   help='depth (km) of the atlas horizontal slice')
+                   help='fixed depth (km) for the atlas slice; default is each '
+                        "station's own median event depth")
+    p.add_argument('--map-spacing', type=float, default=_MAP_SPACING,
+                   help='atlas map node spacing in degrees (default %(default)s, '
+                        '~2.2 km lat); lower it to resolve the L = 1 km panel')
+    p.add_argument('--stations', default=None,
+                   help="comma-separated 'STA' or 'STA:PHASE' to draw only those "
+                        'fields, e.g. FR.0041:P,RD.0038 - use with a small '
+                        '--map-spacing for presentation-quality pages')
     p.add_argument('--product', choices=('atlas', 'spread', 'both'),
                    default='both')
     p.add_argument('--extract-only', action='store_true',
@@ -775,6 +844,7 @@ def main():
         zones=[int(z) for z in args.zones.split(',')] if args.zones else list(_ZONES),
         min_picks=args.min_picks,
         depth=args.depth,
+        map_spacing=args.map_spacing,
         product=args.product,
     )
 
@@ -792,11 +862,14 @@ def main():
         fields = best_zone_per_station(census, params.min_picks)
         logger.info('atlas: %d station/phase fields with >= %d usable arrivals',
                     len(fields), params.min_picks)
+        wanted = [s for s in args.stations.split(',')] if args.stations else None
+        if wanted:
+            fields = filter_fields(fields, wanted)
+            logger.info('atlas: restricted to %d field(s)', len(fields))
+        name = (f'{params.run_name}_station_atlas'
+                + ('_selection' if wanted else '') + '.pdf')
         t = time.time()
-        make_atlas(params, cache,
-                   fields,
-                   os.path.join(params.fig_dir,
-                                f'{params.run_name}_station_atlas.pdf'))
+        make_atlas(params, cache, fields, os.path.join(params.fig_dir, name))
         logger.info('atlas done in %.1f s', time.time() - t)
 
     if params.product in ('spread', 'both'):
