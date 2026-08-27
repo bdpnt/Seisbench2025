@@ -112,8 +112,13 @@ Scripts in `complem_figures/` for visualization and statistics:
 
   **`--depth` defaults to each station's own median event depth**, not a fixed value. The kernel is 3-D, so a slice `dz` off the event mass damps every event by `exp(−dz²/L²)` — negligible at L = 15 km, fatal at L = 1 km. A fixed 10 km slice against a catalog median of 6.6–7.3 km cut `FR.0041`'s median summed weight in the finest panel from 5.7 to 2.0. Pass `--depth` only to put several stations on a common plane.
 
+  - `<run>_displacement_map.pdf` — **the impact map**: each event's iteration-0 hypocentre vs its final one (same picks, same parameters, only the corrected grids differ; matched by `publicId`), so the difference is the corrections alone. Median distance moved + arrows of the median horizontal displacement per 0.25° cell, and a signed median depth change (red = deeper). 53 754 events, median move 1.33 km, p90 6.85 km — ~1 km through the dense central network but **3–4 km at the western and eastern margins**.
+
+  Both catalog-wide maps share `windowed_median_map`: a **median** over a circular window (longitude scaled by `cos(lat)`), because displacement is heavy-tailed (max 99.5 km) and a mean lets single events paint neighbourhoods.
+
   ```bash
-  python complem_figures/ssst_corrections.py                 # both, ~7 min
+  python complem_figures/ssst_corrections.py                 # all three, ~7 min
+  python complem_figures/ssst_corrections.py --product displacement
   python complem_figures/ssst_corrections.py --extract-only  # fill the cache only
   ```
   Parsing the ~276 k per-event `.hyp` files takes ~100 s, cached as `.npz` per (zone, iteration) in `run/ssst_corrections_cache/` (33 MB). **Validated against the binary**: Loc2ssst re-run on zone 6 (`FR.0047`, P and S) agrees node-by-node over all 303×313×40 nodes to 0.0000 ms at L=9999 and 0.0736 ms at L=1, against ±0.36 s amplitudes; its own "163 accepted" matches the module's LSPHSTAT selection exactly. Omitting `LOCFILES` from the control file is what keeps that check cheap — `ihave_time_input_grids = flag_out_grid * flag_nlloc_outfile` (`Loc2ssst.c:590`), so Loc2ssst writes the correction grid and skips the travel-time grids, needing no Grid2Time rebuild.

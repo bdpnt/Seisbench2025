@@ -105,7 +105,8 @@ Shallow_Depth_DL_Catalog/
 │   ├── zone_map.py
 │   ├── event_ranking.py
 │   ├── plot_pdf_cloud.py
-│   └── ssst_evolution.py
+│   ├── ssst_evolution.py
+│   └── ssst_corrections.py
 │
 ├── zone_Arette/              # Focused analysis of the Arette seismic zone
 │
@@ -436,7 +437,7 @@ Each module can also be run standalone:
 | `event_ranking.py` | Ranks events by pdfVolume/ellipsoidVolume change (NLL → SSST); flags multi-zone and zone-changed events; carries the PDF-quality columns (Ψ, C_68, dip test) when present; optional whole-region gridmap PDF |
 | `plot_pdf_cloud.py` | Interactive 3D Plotly visualization of one event's NLLoc PDF scatter-cloud across SSST iterations |
 | `ssst_evolution.py` | Per-zone plot of pdfVolume/EllipsoidLen3/RMS evolution across SSST iterations (convergence QC) |
-| `ssst_corrections.py` | Reconstructs and maps the SSST travel-time corrections themselves, one field per station/phase and per iteration (see [below](#mapping-the-ssst-corrections--complem_figuresssst_correctionspy)) |
+| `ssst_corrections.py` | Reconstructs and maps the SSST travel-time corrections themselves — a per-station/phase atlas, the across-station spread, and the displacement SSST actually produced (see [below](#mapping-the-ssst-corrections--complem_figuresssst_correctionspy)) |
 
 `event_ranking.py`, `plot_pdf_cloud.py`, and `ssst_evolution.py` are standalone diagnostics for the SSST stage, run directly rather than wired into `generate_complem_figures.py` / `generate_complem_maps.py`; they read `RESULT/NLL_result.csv`, `RESULT/SSST_result.csv`, and the per-zone `run/nll_loc/` / `run/ssst_loc/<run-name>/` outputs directly. `event_ranking.py` picks up the PDF-quality columns (Ψ, C_68, dip test) automatically once `NLL_run/pdf_metrics.py` has annotated `SSST_result.csv`, and runs without them otherwise — they are post-SSST only, since `run/nll_loc/` holds no `.scat` clouds to compare against. It also shares that module's windowed-grid helper (`windowed_stat_grid`), so its gridmaps and the PDF-metric maps bin space identically.
 
@@ -459,7 +460,8 @@ Two products, from one reconstruction:
 - `<run>_spread_map.pdf` — one catalog-wide map: at each event, the spread **across its recording stations** of the total correction applied to its P picks. A correction common to every station of an event is absorbed exactly by the origin time and cannot move the hypocentre, so the across-station dispersion, not the mean, is the part of the field that *can* relocate. It is **not** a map of where SSST actually did relocate — see the caveat below.
 
 ```bash
-python complem_figures/ssst_corrections.py                   # both products, ~7 min
+python complem_figures/ssst_corrections.py                   # all three, ~7 min
+python complem_figures/ssst_corrections.py --product displacement   # the impact map, <1 s
 python complem_figures/ssst_corrections.py --product atlas --min-picks 300
 python complem_figures/ssst_corrections.py --extract-only    # fill the parse cache
 # presentation-quality pages for two chosen fields (~55 s each)
@@ -477,6 +479,8 @@ Parsing the ~276 k per-event `.hyp` files takes ~100 s and is cached as `.npz` p
 
 **Validated against the binary.** `Loc2ssst` was re-run for real on zone 6 (station `FR.0047`, P and S) at both ends of the schedule and compared node by node over all 303 × 313 × 40 nodes: max |diff| = 0.0000 ms at `L = 9999 km` (exact to float32) and 0.0736 ms at `L = 1 km`, against correction amplitudes of ±0.36 s. `Loc2ssst` independently reported "652 location files read, 163 accepted", matching the module's `LSPHSTAT` selection exactly. The check is cheap because `ihave_time_input_grids = flag_out_grid * flag_nlloc_outfile` (`Loc2ssst.c:590`): omitting `LOCFILES` from the control file makes `Loc2ssst` write the correction grid and skip the travel-time grids, so no `Grid2Time` rebuild is needed.
 
+- `<run>_displacement_map.pdf` — **the impact map**: where SSST actually moved events, and which way. Each event's iteration-0 hypocentre against its final one — same picks, same parameters, only the corrected grids differing — so the difference is the corrections and nothing else, matched by `publicId`. Top panel: median distance moved, with arrows for the median horizontal displacement per 0.25° cell. Bottom panel: median change in depth, signed (red = pushed deeper). Over 53 754 events the median move is **1.33 km**, p90 **6.85 km** — but it is ~1 km through the dense central network and **3–4 km at the western and eastern margins**, which is the headline: SSST moves poorly-constrained edge events most.
+
 **The spread map is not an impact map.** Measured against the *pure* SSST displacement — each event's iteration-0 location versus its final location, same picks, only the grids differing — over 39 080 events:
 
 | | |
@@ -485,7 +489,9 @@ Parsing the ~276 k per-event `.hyp` files takes ~100 s and is cached as `.npz` p
 | `ρ(spread, displacement \| Nphs)` | **+0.20** |
 | median displacement, bottom → top spread quintile | 0.95 km → 1.27 km |
 
-Disagreement between stations is *necessary* for an event to move but nowhere near sufficient: what displaces a hypocentre is the **azimuthal pattern** of the differential correction, and a standard deviation discards all of that geometry — spread distributed evenly around the azimuths largely cancels. The marginal ρ understates even this, because `Nphs` suppresses it (well-recorded events carry more spread, ρ = +0.42, yet resist moving, ρ = −0.18), the same confound documented for RMS against ERH in `pdf_metrics.py`. For reference, the pure SSST displacement itself has median 1.09 km and p90 4.74 km. To show impact, map the displacement.
+Disagreement between stations is *necessary* for an event to move but nowhere near sufficient: what displaces a hypocentre is the **azimuthal pattern** of the differential correction, and a standard deviation discards all of that geometry — spread distributed evenly around the azimuths largely cancels. The marginal ρ understates even this, because `Nphs` suppresses it (well-recorded events carry more spread, ρ = +0.42, yet resist moving, ρ = −0.18), the same confound documented for RMS against ERH in `pdf_metrics.py`. Use `--product displacement` for impact. (Those ρ figures are computed over the 39 080 events carrying a spread — ≥ 5 P picks — whose median displacement is 1.09 km; the displacement map itself uses all 53 754 matched events, median 1.33 km.)
+
+Both catalog-wide maps share `windowed_median_map`, so they bin space identically. It is a **median** over a circular window — longitude scaled by `cos(lat)` so the window is round in km — because displacement is heavy-tailed (one event moves 99.5 km) and a mean would let single events paint whole neighbourhoods.
 
 Two further properties worth knowing before reading the figures: the increments are **not** monotonically decreasing — they peak at `L = 15 km`, the scale at which the residual field carries genuine spatial structure — and the events feeding the corrections are a strict subset of the catalog, since `LSPHSTAT` (RMS ≤ 0.15 s, Nphs ≥ 6, gap ≤ 200°, Len3 ≤ 10 km) admits 23 727 events at iteration 0, rising to 34 674 by the final relocation as the locations improve.
 

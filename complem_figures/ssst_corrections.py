@@ -27,7 +27,7 @@ Each iteration's field is an INCREMENT on top of the grids of the previous one;
 the correction actually carried by the final travel-time grids is their sum,
 evaluated at the final hypocentre.
 
-Two products, from one reconstruction:
+Three products, from one reconstruction:
 
   atlas   Per station/phase: the five increments (9999 -> 50 -> 15 -> 5 -> 1 km)
           plus their cumulative total, as depth-slice maps. This is the SSST
@@ -41,6 +41,11 @@ Two products, from one reconstruction:
           a map of where SSST actually did relocate: measured against the true
           displacement, rho = +0.10 (+0.20 given Nphs). See
           event_correction_spread for why.
+  displac Where SSST actually moved events, and which way: each event's
+          iteration-0 hypocentre against its final one. Same picks, same
+          parameters, only the corrected grids differ, so the difference is
+          the corrections and nothing else. This is the impact map the spread
+          one is often mistaken for.
 
 Extraction is cached as .npz per (zone, iteration) under
 run/ssst_corrections_cache/, so only the first run pays for parsing the ~276 k
@@ -68,7 +73,8 @@ Environment: seisbench_env (numpy/scipy, matplotlib for the figures).
 
 Usage
 -----
-    python complem_figures/ssst_corrections.py                 # both products
+    python complem_figures/ssst_corrections.py                 # all three
+    python complem_figures/ssst_corrections.py --product displacement
     python complem_figures/ssst_corrections.py --product atlas --min-picks 300
     python complem_figures/ssst_corrections.py --extract-only  # fill the cache
     # presentation-quality pages for chosen fields (~55 s each)
@@ -163,7 +169,7 @@ class SsstCorrParams:
     depth:       float = _SLICE_DEPTH   # None = per-station median event depth
     map_spacing: float = _MAP_SPACING
     extent:      tuple = None   # (lon0, lon1, lat0, lat1); None = per-station
-    product:     str   = 'both'         # atlas | spread | both
+    product:     str   = 'all'   # atlas | spread | displacement | all
 
 
 # ---------------------------------------------------------------------------
@@ -813,6 +819,143 @@ def event_correction_spread(cache, zone, min_picks_per_event=5,
     return out + (final['ev_id'][ev_idx],) if return_ids else out
 
 
+def windowed_median_map(lat, lon, values, bin_size=_SPREAD_BIN,
+                        radius=_SPREAD_BIN * _SPREAD_WINDOW,
+                        min_count=_SPREAD_MIN_N):
+    """Windowed median of a per-event quantity, on a lat/lon grid.
+
+    A single cell holds a handful of events, so a raw per-cell statistic is
+    dominated by sampling noise and the map reads as speckle; averaging over a
+    window first is what separates real regional structure from that noise.
+
+    Median rather than mean, and a circular window rather than a square one:
+    displacement is heavy-tailed (one event moves 99.5 km), so a mean would let
+    single events paint whole neighbourhoods, and a degree-square window is
+    half as wide in km at this latitude as it is tall.
+    """
+    lat_bins = np.arange(lat.min(), lat.max() + bin_size, bin_size)
+    lon_bins = np.arange(lon.min(), lon.max() + bin_size, bin_size)
+    lat_c = lat_bins[:-1] + bin_size / 2
+    lon_c = lon_bins[:-1] + bin_size / 2
+
+    # scale longitude so the window is round in km, not in degrees
+    scale = np.cos(np.deg2rad(float(np.mean(lat))))
+    tree = cKDTree(np.column_stack([lat, lon * scale]))
+    LAT, LON = np.meshgrid(lat_c, lon_c, indexing='ij')
+    centres = np.column_stack([LAT.ravel(), LON.ravel() * scale])
+
+    grid = np.full(len(centres), np.nan)
+    for i, idx in enumerate(tree.query_ball_point(centres, radius)):
+        if len(idx) >= min_count:
+            grid[i] = np.median(values[idx])
+    return lat_bins, lon_bins, grid.reshape(LAT.shape)
+
+
+def event_displacement(cache, zone):
+    """How far, and which way, SSST actually moved each event.
+
+    Iteration 0 located with UNcorrected grids; the final iteration located
+    with the fully corrected ones. Same picks, same control parameters, same
+    everything else - so the difference between those two hypocentres is the
+    SSST corrections and nothing else. That is the honest impact measure, and
+    it is not what the spread map shows (see event_correction_spread).
+
+    Matching is by PUBLIC_ID: the per-iteration event sets differ slightly,
+    since locations flip between LOCATED and REJECTED as the grids improve.
+
+    dx/dy are the zone's rectangular axes. TRANS sets RotCW 0, so x is east and
+    y is north to within the convergence of the Lambert projection - fine for
+    drawing arrows, not for measuring an azimuth.
+    """
+    first, final = cache[(zone, 0)], cache[(zone, len(_CHAR_DISTS))]
+    ids, i0, i5 = np.intersect1d(first['ev_id'], final['ev_id'],
+                                 return_indices=True)
+    delta = rect_coords(final)[i5] - rect_coords(first)[i0]
+    return {
+        'lat': final['ev_lat'][i5], 'lon': final['ev_lon'][i5], 'ids': ids,
+        'dist3d': np.linalg.norm(delta, axis=1),
+        'dx': delta[:, 0], 'dy': delta[:, 1], 'dz': delta[:, 2],
+    }
+
+
+def make_displacement_map(params, cache, path):
+    """Two panels: how far SSST moved events, and which way in depth."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    parts = [event_displacement(cache, z) for z in params.zones]
+    for zone, d in zip(params.zones, parts):
+        logger.info('  zone %d: %d events matched across iterations, '
+                    'median move %.2f km', zone, len(d['ids']),
+                    float(np.median(d['dist3d'])))
+    lat = np.concatenate([d['lat'] for d in parts])
+    lon = np.concatenate([d['lon'] for d in parts])
+    dist = np.concatenate([d['dist3d'] for d in parts])
+    dz = np.concatenate([d['dz'] for d in parts])
+    dx = np.concatenate([d['dx'] for d in parts])
+    dy = np.concatenate([d['dy'] for d in parts])
+
+    lat_bins, lon_bins, g_dist = windowed_median_map(lat, lon, dist)
+    _, _, g_dz = windowed_median_map(lat, lon, dz)
+    # arrows on a coarser grid than the colour, or they overplot into a smear
+    q_lat, q_lon, g_dx = windowed_median_map(lat, lon, dx, bin_size=0.25,
+                                             radius=0.20, min_count=_SPREAD_MIN_N)
+    _, _, g_dy = windowed_median_map(lat, lon, dy, bin_size=0.25,
+                                     radius=0.20, min_count=_SPREAD_MIN_N)
+
+    fig, axes = plt.subplots(2, 1, figsize=(13, 12))
+    aspect = 1.0 / np.cos(np.deg2rad(float(np.mean(lat))))
+
+    vmax = float(np.nanpercentile(g_dist, 98))
+    mesh = axes[0].pcolormesh(lon_bins, lat_bins, np.ma.masked_invalid(g_dist),
+                              cmap='inferno_r', shading='flat',
+                              vmin=float(np.nanpercentile(g_dist, 2)), vmax=vmax,
+                              rasterized=True)
+    cb = fig.colorbar(mesh, ax=axes[0], shrink=0.9, extend='both')
+    cb.set_label('median distance moved (km)')
+    qy = q_lat[:-1] + 0.125
+    qx = q_lon[:-1] + 0.125
+    QX, QY = np.meshgrid(qx, qy)
+    ok = np.isfinite(g_dx) & np.isfinite(g_dy)
+    axes[0].quiver(QX[ok], QY[ok], g_dx[ok], g_dy[ok], color='#00d2ff',
+                   angles='xy', scale=12, width=0.0035,
+                   edgecolor='k', linewidth=0.4)
+    axes[0].set_title('How far SSST actually moved each event\n'
+                      '(iteration 0 vs final location - same picks, only the '
+                      'corrected grids differ)', fontsize=11, fontweight='bold')
+    axes[0].text(0.0, -0.115, 'arrows: median horizontal displacement per '
+                 '0.25 deg cell', transform=axes[0].transAxes,
+                 fontsize=8, color='0.30')
+
+    vz = float(np.nanpercentile(np.abs(g_dz), 98))
+    mesh = axes[1].pcolormesh(lon_bins, lat_bins, np.ma.masked_invalid(g_dz),
+                              cmap='RdBu_r', shading='flat', vmin=-vz, vmax=vz,
+                              rasterized=True)
+    cb = fig.colorbar(mesh, ax=axes[1], shrink=0.9, extend='both')
+    cb.set_label('median change in depth (km)')
+    axes[1].set_title('Which way in depth\n'
+                      'red = SSST pushed events DEEPER, blue = shallower',
+                      fontsize=11, fontweight='bold')
+    axes[1].text(0.0, -0.19,
+                 f'{len(dist)} events. Median move {np.median(dist):.2f} km, '
+                 f'p90 {np.percentile(dist, 90):.2f} km, max {dist.max():.1f} km.  '
+                 f'{_SPREAD_BIN:g} deg cells, windowed median over '
+                 f'{_SPREAD_BIN * _SPREAD_WINDOW:g} deg, blank below '
+                 f'{_SPREAD_MIN_N} events.',
+                 transform=axes[1].transAxes, fontsize=8, color='0.30')
+
+    for ax in axes:
+        ax.set_facecolor('0.92')
+        ax.set_aspect(aspect)
+        ax.set_ylabel('latitude (deg)')
+    axes[1].set_xlabel('longitude (deg)')   # top panel's would land on its note
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    logger.info('displacement map: %d events -> %s', len(dist), path)
+
+
 def make_spread_map(params, cache, path):
     import matplotlib
     matplotlib.use('Agg')
@@ -826,24 +969,8 @@ def make_spread_map(params, cache, path):
     lat = np.concatenate(lat); lon = np.concatenate(lon)
     spread = np.concatenate(spread)
 
-    from scipy.ndimage import uniform_filter
-
-    lat_bins = np.arange(lat.min(), lat.max() + _SPREAD_BIN, _SPREAD_BIN)
-    lon_bins = np.arange(lon.min(), lon.max() + _SPREAD_BIN, _SPREAD_BIN)
-    total, _, _ = np.histogram2d(lat, lon, bins=[lat_bins, lon_bins],
-                                 weights=spread)
-    count, _, _ = np.histogram2d(lat, lon, bins=[lat_bins, lon_bins])
-
-    # A single 0.05 deg cell holds a handful of events, so the raw per-cell mean
-    # is dominated by sampling noise and the map reads as speckle. Averaging
-    # over a window first is what separates real regional structure from that
-    # noise: whatever survives the smoothing is not a counting artefact.
-    size = 2 * _SPREAD_WINDOW + 1
-    total_w = uniform_filter(total, size=size, mode='constant') * size ** 2
-    count_w = uniform_filter(count, size=size, mode='constant') * size ** 2
-    with np.errstate(invalid='ignore', divide='ignore'):
-        mean = np.where((count_w >= _SPREAD_MIN_N) & (count > 0),
-                        total_w / count_w, np.nan)
+    # same helper as the displacement map, so the two bin space identically
+    lat_bins, lon_bins, mean = windowed_median_map(lat, lon, spread)
 
     # the spread never approaches zero (its median is ~0.1 s), so anchoring the
     # scale at 0 would spend the whole colormap on an empty range and flatten
@@ -865,11 +992,14 @@ def make_spread_map(params, cache, path):
     cb.set_label('std across recording stations (s)')
     ax.text(0.0, -0.15,
             f'{len(spread)} events, median spread {np.median(spread) * 1000:.0f} ms.  '
-            f'{_SPREAD_BIN:g} deg cells, smoothed over +-{_SPREAD_WINDOW} cells, '
-            f'blank below {_SPREAD_MIN_N} events in the window.  '
-            f'Colour clipped to the 2nd-98th percentile '
-            f'({vmin * 1000:.0f}-{vmax * 1000:.0f} ms).',
-            transform=ax.transAxes, fontsize=8, color='0.30')
+            f'{_SPREAD_BIN:g} deg cells, windowed median over '
+            f'{_SPREAD_BIN * _SPREAD_WINDOW:g} deg, blank below '
+            f'{_SPREAD_MIN_N} events.  Colour clipped to the 2nd-98th percentile '
+            f'({vmin * 1000:.0f}-{vmax * 1000:.0f} ms).\n'
+            f'This is what the corrections CAN do, not what they did: against '
+            f'the real displacement, rho = +0.10 (+0.20 given Nphs). '
+            f'See the displacement map.',
+            transform=ax.transAxes, fontsize=8, color='0.30', linespacing=1.6)
     fig.tight_layout()
     fig.savefig(path)
     plt.close(fig)
@@ -910,8 +1040,9 @@ def main():
                    help="comma-separated 'STA' or 'STA:PHASE' to draw only those "
                         'fields, e.g. FR.0041:P,RD.0038 - use with a small '
                         '--map-spacing for presentation-quality pages')
-    p.add_argument('--product', choices=('atlas', 'spread', 'both'),
-                   default='both')
+    p.add_argument('--product',
+                   choices=('atlas', 'spread', 'displacement', 'all'),
+                   default='all')
     p.add_argument('--extract-only', action='store_true',
                    help='fill the parse cache and stop')
     args = p.parse_args()
@@ -939,7 +1070,7 @@ def main():
 
     os.makedirs(params.fig_dir, exist_ok=True)
 
-    if params.product in ('atlas', 'both'):
+    if params.product in ('atlas', 'all'):
         census = station_census(cache, params.zones)
         fields = best_zone_per_station(census, params.min_picks)
         logger.info('atlas: %d station/phase fields with >= %d usable arrivals',
@@ -954,12 +1085,19 @@ def main():
         make_atlas(params, cache, fields, os.path.join(params.fig_dir, name))
         logger.info('atlas done in %.1f s', time.time() - t)
 
-    if params.product in ('spread', 'both'):
+    if params.product in ('spread', 'all'):
         t = time.time()
         make_spread_map(params, cache,
                         os.path.join(params.fig_dir,
                                      f'{params.run_name}_spread_map.pdf'))
         logger.info('spread map done in %.1f s', time.time() - t)
+
+    if params.product in ('displacement', 'all'):
+        t = time.time()
+        make_displacement_map(params, cache,
+                              os.path.join(params.fig_dir,
+                                           f'{params.run_name}_displacement_map.pdf'))
+        logger.info('displacement map done in %.1f s', time.time() - t)
 
 
 if __name__ == '__main__':
