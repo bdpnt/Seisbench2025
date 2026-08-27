@@ -436,10 +436,39 @@ Each module can also be run standalone:
 | `event_ranking.py` | Ranks events by pdfVolume/ellipsoidVolume change (NLL → SSST); flags multi-zone and zone-changed events; carries the PDF-quality columns (Ψ, C_68, dip test) when present; optional whole-region gridmap PDF |
 | `plot_pdf_cloud.py` | Interactive 3D Plotly visualization of one event's NLLoc PDF scatter-cloud across SSST iterations |
 | `ssst_evolution.py` | Per-zone plot of pdfVolume/EllipsoidLen3/RMS evolution across SSST iterations (convergence QC) |
+| `ssst_corrections.py` | Reconstructs and maps the SSST travel-time corrections themselves, one field per station/phase and per iteration (see [below](#mapping-the-ssst-corrections--complem_figuresssst_correctionspy)) |
 
 `event_ranking.py`, `plot_pdf_cloud.py`, and `ssst_evolution.py` are standalone diagnostics for the SSST stage, run directly rather than wired into `generate_complem_figures.py` / `generate_complem_maps.py`; they read `RESULT/NLL_result.csv`, `RESULT/SSST_result.csv`, and the per-zone `run/nll_loc/` / `run/ssst_loc/<run-name>/` outputs directly. `event_ranking.py` picks up the PDF-quality columns (Ψ, C_68, dip test) automatically once `NLL_run/pdf_metrics.py` has annotated `SSST_result.csv`, and runs without them otherwise — they are post-SSST only, since `run/nll_loc/` holds no `.scat` clouds to compare against. It also shares that module's windowed-grid helper (`windowed_stat_grid`), so its gridmaps and the PDF-metric maps bin space identically.
 
 One folder here has no script of its own: `complem_figures/pdf_metrics/` receives the figures written by `NLL_run/pdf_metrics.py` (see [above](#location-pdf-quality-metrics--nll_runpdf_metricspy)).
+
+### Mapping the SSST corrections — `complem_figures/ssst_corrections.py`
+
+Standalone diagnostic that answers "what did SSST actually correct, and where". `Loc2ssst` writes an explicit correction grid per station and phase (`ssst_corr<i>/*.ssst.*`), but `run_SSST.py` deletes those directories to reclaim disk, so nothing of the correction field survives a finished campaign. The module recomputes it from the per-event `.hyp` locations, which do survive, using the formula `Loc2ssst` itself uses (`Loc2ssst.c:1091-1102`):
+
+```
+corr_i(sta, pha, x,y,z) = SUM_e res_e * w_e / SUM_e w_e
+w_e                     = exp(-|x_e - x|² / L_i²) + weight_floor
+```
+
+The distance is **event-to-grid-node** — the station's own position never enters the weight, which is what makes the correction *source*-specific. `res = obs − pred` and the correction is **added** to the predicted travel time, so **red = arrivals later than the 1-D model predicts** (the real path is slower), blue = earlier. Each iteration's field is an **increment** on the previous grids; the correction the final grids carry is the sum of the five.
+
+Two products, from one reconstruction:
+
+- `<run>_station_atlas.pdf` — one page per station×phase field (all 300 with ≥ 100 usable arrivals, `--min-picks`): the five increments (`9999 → 50 → 15 → 5 → 1 km`) then their cumulative total, as depth-slice maps (`--depth`, default 10 km) on a shared diverging scale. Nodes with no event inside the smoothing kernel are greyed — the field there is only the station static term. A station falling in two zones is drawn in the zone where it has the most arrivals, since the two zones ran separate `Loc2ssst` passes over different event sets and their fields are independent.
+- `<run>_spread_map.pdf` — one catalog-wide map: at each event, the spread **across its recording stations** of the total correction applied to its P picks. A correction common to every station of an event is absorbed exactly by the origin time and cannot move the hypocentre, so the across-station dispersion, not the mean, is the part of the field that relocates.
+
+```bash
+python complem_figures/ssst_corrections.py                   # both products, ~8 min
+python complem_figures/ssst_corrections.py --product atlas --min-picks 300
+python complem_figures/ssst_corrections.py --extract-only    # fill the parse cache
+```
+
+Parsing the ~276 k per-event `.hyp` files takes ~100 s and is cached as `.npz` per (zone, iteration) in `run/ssst_corrections_cache/` (33 MB), so only the first run pays for it.
+
+**Validated against the binary.** `Loc2ssst` was re-run for real on zone 6 (station `FR.0047`, P and S) at both ends of the schedule and compared node by node over all 303 × 313 × 40 nodes: max |diff| = 0.0000 ms at `L = 9999 km` (exact to float32) and 0.0736 ms at `L = 1 km`, against correction amplitudes of ±0.36 s. `Loc2ssst` independently reported "652 location files read, 163 accepted", matching the module's `LSPHSTAT` selection exactly. The check is cheap because `ihave_time_input_grids = flag_out_grid * flag_nlloc_outfile` (`Loc2ssst.c:590`): omitting `LOCFILES` from the control file makes `Loc2ssst` write the correction grid and skip the travel-time grids, so no `Grid2Time` rebuild is needed.
+
+Two properties worth knowing before reading the figures: the increments are **not** monotonically decreasing — they peak at `L = 15 km`, the scale at which the residual field carries genuine spatial structure — and the events feeding the corrections are a strict subset of the catalog, since `LSPHSTAT` (RMS ≤ 0.15 s, Nphs ≥ 6, gap ≤ 200°, Len3 ≤ 10 km) admits 23 727 events at iteration 0, rising to 34 674 by the final relocation as the locations improve.
 
 Map modules apply a quality filter (erh ≤ 3 km, erv ≤ 3 km, gap ≤ 300°, rms ≤ 0.5 s) by default; use `--no-filter` for pre-relocation catalogs where errors are unavailable.
 
