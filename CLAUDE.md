@@ -96,7 +96,7 @@ Scripts in `complem_figures/` for visualization and statistics:
 - `depth_maps.py` — depth distribution
 - `depth_histogram.py` — histogram of event depths
 - `error_maps.py` — location uncertainty maps
-- `cross_section.py` — vertical cross-sections
+- `cross_section.py` — vertical cross-sections; `--format 6` reads `RESULT/SSST_result.csv` directly (`true_erh`/`true_erz` as the error filter), colours the section by `--use-err erh|erv|psi|c68z`, and `--usable` applies the same acceptance test as `pyr:usable` in the QuakeML export
 - `station_map.py` — map of seismic stations
 - `zone_map.py` — overview map of the 6 NLL zones
 - `event_ranking.py` — ranks events by pdfVolume/ellipsoidVolume change (NLL → SSST); flags multi-zone/zone-changed events; carries the PDF-quality columns (post-SSST only) when `pdf_metrics.py` has annotated the CSV, and runs without them otherwise; optional gridmap PDF
