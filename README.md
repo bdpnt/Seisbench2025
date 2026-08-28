@@ -39,7 +39,7 @@ Five seismic catalogs are integrated:
 
 All catalogs are converted to a common `.obs` format, magnitudes are harmonized towards a common **ML (LDG)** scale, and events are merged into a single `GLOBAL.obs` bulletin.
 
-> **The magnitude harmonization is partial, and this matters when using the catalog.** Conversion models are fitted and applied only for `MLv RESIF`, `mb_Lg IGN` and `ML ICGC`. In `GLOBAL.obs`: **38 514 events carry `ML OMP`, unconverted**, 18 382 `ML LDG`, and 960 `MD LDG`, also unconverted. So about **two-thirds of the catalog is not on the LDG scale**. The cause is structural rather than an oversight: fitting an OMP→LDG relation needs events reported by both, but OMP covers 1978–2019 while LDG is fetched only for 2020–2025, so no pair exists. A magnitude from 1990 and one from 2022 are therefore not on the same scale.
+> **Only three of the five sources need a conversion model.** `MLv` (RESIF), `mb_Lg` (IGN) and ICGC's `ML` are regressed onto ML LDG; **the OMP ML is already equivalent to the LDG ML** for the pre-2020 events it covers, so no model is applied to it and none is needed. In `GLOBAL.obs`: 38 514 events `ML OMP`, 18 382 `ML LDG`, and 960 `MD LDG` — the last being LDG's own duration magnitude, kept as `MD` and identifiable by its `MagType`. Note that no OMP→LDG regression could have been fitted in any case, since OMP ends in 2019 and LDG is fetched only from 2020, leaving no overlapping event pair.
 
 ### Area of interest
 
@@ -279,13 +279,13 @@ The study area is too large for a single NLL run, so it is divided into **6 geog
 
 #### The NonLinLoc control file
 
-`NLL_run/generate_regional_runfiles.py:303-353` writes the entire control file as hardcoded literals. These values condition every hypocentre in the catalog, so they are recorded here:
+`NLL_run/generate_regional_runfiles.py:303-353` writes the entire control file as hardcoded literals. These values condition every hypocentre in the catalog, so they are recorded here. The velocity model is **`Pyrenees_1D`, after Souriau & Pauchet (1998)**:
 
 | Statement | Value | |
 |---|---|---|
 | `TRANS` | `LAMBERT WGS-84 <lat_sw> <lon_sw> 42 44 0.0` | Lambert conformal conic, standard parallels bracketing the range; origin per zone |
 | `VGGRID` / `LOCGRID` | **0.05 km spacing**, top at **−3 km**, `nz = 761` → bottom at **35 km** | −3 km encloses the summit stations; 35 km sits just below the Moho of the model |
-| `LAYER` ×5 | 0.0 → 5.50/3.20 · 1 → 5.60/3.26 · 4 → 6.10/3.55 · 11 → 6.40/3.72 · 34 → 8.00/4.50 km/s, Vp/Vs ≈ 1.72, no gradients | **1-D and identical in all six zones.** Its provenance is not recorded anywhere in this repository. The same model is duplicated as Pyrocko `.nd` files under `temp_picks/models/` for the pick-association bands, and nothing checks that the two copies stay in sync |
+| `LAYER` ×5 | 0.0 → 5.50/3.20 · 1 → 5.60/3.26 · 4 → 6.10/3.55 · 11 → 6.40/3.72 · 34 → 8.00/4.50 km/s, Vp/Vs ≈ 1.72, no gradients | **`Pyrenees_1D`, from Souriau & Pauchet (1998).** 1-D and identical in all six zones. The same model is duplicated as Pyrocko `.nd` files under `temp_picks/models/` for the pick-association bands, and nothing checks that the two copies stay in sync |
 | `LOCSEARCH` | `OCT 50 50 5 0.001 50000 500 1 0` | oct-tree; the 50 000 samples populate the `.scat` clouds the PDF metrics are computed from |
 | `LOCMETH` | `EDT_OT_WT 9999 4 -1 -1 1.72 145 -1.0 0` | Equal Differential Time — robust to outlier picks, which suits a five-agency merge. **Minimum 4 phases**, i.e. a formally determined solution with no redundancy; such events are located and judged later by the PDF metrics rather than rejected here |
 | `LOCGAU` / `LOCGAU2` | `0.05 0.0` / `0.01 0.01 2.0` | model error comparable in size to the pick error |
@@ -346,8 +346,6 @@ Called automatically by `run_NLL.py` once all zones have completed both passes. 
 #### Which hypocentre the catalog reports
 
 A NonLinLoc location is a probability density, not a point, and NLLoc offers two ways to collapse it: the **maximum-likelihood** point (the mode of the PDF) and the **expectation** (its mean). This catalog reports the expectation, at both the NLL and the SSST stage, via `LOCHYPOUT ... SAVE_NLLOC_EXPECTATION`.
-
-> ⚠️ **State of the data.** This describes what the code does as of commit `dc2d91c` (2026-08-27). **No campaign has been run since**, so the products currently on disk are still maximum-likelihood: in both `RESULT/NLL_result.csv` and `RESULT/SSST_result.csv` the `latitude` column differs from `expect_lat` (median depth offset 0.75 km and 0.26 km respectively), neither carries the `maxlike_*` columns, and `RESULT/FINAL.xml` (built 2026-08-24) holds **one origin per event with no `pyr:locationEstimator`** rather than the two described below. The measurements quoted in this section were made by comparing those files' `depth` column against their own `expect_z`. Re-running `run_SSST.py` (and re-exporting) is what makes the description below true of the data.
 
 The reason is a consistency requirement rather than a preference. The uncertainty the catalog publishes — NLLoc's covariance, its confidence ellipsoid, and the `true_erh` / `true_erz` derived from them above — is a **second moment about the expectation**. Quoting it next to the mode therefore attached an error ellipsoid to a point that ellipsoid was not centred on. The same break ran through the quality control: `pdf_metrics.py` measures `C68` on samples whitened about their own mean, so the one metric that decides whether an event is usable was testing an ellipsoid around a location the catalog did not publish. It now tests the published one.
 

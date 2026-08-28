@@ -311,6 +311,9 @@ def generate_run(parameters, log_dir=None):
     lines.append('VGTYPE P\n')
     lines.append(f'VGGRID  2 {parameters.VGGRID[0]} {parameters.VGGRID[1]}  0.0 0.0 -3  0.05 0.05 0.05  SLOW_LEN\n')
     lines.append('\n')
+    # Velocity model: Pyrenees_1D, from Souriau & Pauchet (1998).
+    # Duplicated as Pyrocko .nd files in temp_picks/models/ for the pick-association
+    # travel-time bands — keep the two in sync if this model ever changes.
     lines.append('LAYER    0.0  5.5 0.0       3.2   0.00   2.72 0.0\n')
     lines.append('LAYER    1    5.6 0.0       3.26  0.00  2.7 0.0\n')
     lines.append('LAYER    4    6.1 0.0       3.55  0.00  2.8 0.0\n')
