@@ -53,6 +53,13 @@ Usage
         --stations   stations/GTSRCE_SSST_2.txt \\
         --output     cross_section/arette_ssst.pdf \\
         --use-err    c68z --usable
+
+    # cross-section panel alone, no map (--stations then not needed)
+    python complem_figures/cross_section.py \\
+        --catalog    RESULT/SSST_result.csv \\
+        --format     6 \\
+        --output     cross_section/arette_ssst_section.pdf \\
+        --use-err    erv --no-map
 """
 
 import argparse
@@ -88,10 +95,11 @@ _C68_Z_MIN        = -2.0
 class CrossSectionParams:
     fichier_seisme:  str
     save_file:       str
-    stations_file:   str
+    stations_file:   str   = ''     # only read when draw_map is True
     FORMAT_fichier:  int   = 1      # see the module docstring for the format/file mapping
     use_err:         str   = 'erh'  # 'erh', 'erv', or (SSST_result.csv only) 'psi', 'c68z'
     usable_only:     bool  = False  # SSST_result.csv only: keep only pyr:usable events
+    draw_map:        bool  = True   # False = cross-section panel alone, no planimetric map
     lon0:            float = -0.6275
     lat0:            float = 43.0
     azimut:          float = 0.0    # degrees from North
@@ -333,53 +341,55 @@ def generate_figure(parameters):
 
     # -- Planimetric map --
     fig = pygmt.Figure()
-    fig.basemap(region=Region, projection='M6i', frame='a')
-    fig.coast(shorelines=True, water='lightblue', land='lightgray', resolution='h')
 
-    grid = load_earth_relief('03s', region=Region)
-    fig.grdimage(grid=-grid, cmap='gray')
+    if parameters.draw_map:
+        fig.basemap(region=Region, projection='M6i', frame='a')
+        fig.coast(shorelines=True, water='lightblue', land='lightgray', resolution='h')
 
-    failles_dir = os.path.join(_PROJECT_ROOT, 'failles')
-    fig.plot(os.path.join(failles_dir, 'FNP.dat'),
-             pen='1.25p', style='f1c/0.25c', fill='black')
-    fig.plot(os.path.join(failles_dir, 'structures_lacan.dat'),
-             pen='1.25p', style='f1c/0.25c', fill='black')
-    fig.plot(os.path.join(failles_dir, 'lacan.thrust'),
-             pen='1.25p', style='f1c/0.25c', fill='blue')
-    fig.plot(os.path.join(failles_dir, 'lacan.other'),
-             pen='1.25p', style='f1c/0.25c', fill='blue')
+        grid = load_earth_relief('03s', region=Region)
+        fig.grdimage(grid=-grid, cmap='gray')
 
-    fig.plot(x=[lon1, lon2],   y=[lat1, lat2],   pen='2p,red')
-    fig.plot(x=[lon1a, lon2a], y=[lat1a, lat2a], pen='0.5p,red')
-    fig.plot(x=[lon1b, lon2b], y=[lat1b, lat2b], pen='0.5p,red')
+        failles_dir = os.path.join(_PROJECT_ROOT, 'failles')
+        fig.plot(os.path.join(failles_dir, 'FNP.dat'),
+                 pen='1.25p', style='f1c/0.25c', fill='black')
+        fig.plot(os.path.join(failles_dir, 'structures_lacan.dat'),
+                 pen='1.25p', style='f1c/0.25c', fill='black')
+        fig.plot(os.path.join(failles_dir, 'lacan.thrust'),
+                 pen='1.25p', style='f1c/0.25c', fill='blue')
+        fig.plot(os.path.join(failles_dir, 'lacan.other'),
+                 pen='1.25p', style='f1c/0.25c', fill='blue')
 
-    stations = []
-    with open(parameters.stations_file, 'r') as f:
-        for line in f:
-            if not line.strip():
-                continue
-            parts = line.split()
-            if len(parts) >= 7:
-                stations.append((parts[1], float(parts[3]), float(parts[4])))
+        fig.plot(x=[lon1, lon2],   y=[lat1, lat2],   pen='2p,red')
+        fig.plot(x=[lon1a, lon2a], y=[lat1a, lat2a], pen='0.5p,red')
+        fig.plot(x=[lon1b, lon2b], y=[lat1b, lat2b], pen='0.5p,red')
 
-    for stas, lats, lons in stations:
-        fig.plot(x=lons, y=lats, style='t0.5c', fill='red', pen='1p,black')
-        fig.text(x=lons + 0.01, y=lats + 0.005, text=stas,
-                 font='10p,Helvetica-Bold', justify='LM')
+        stations = []
+        with open(parameters.stations_file, 'r') as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                parts = line.split()
+                if len(parts) >= 7:
+                    stations.append((parts[1], float(parts[3]), float(parts[4])))
 
-    villes = {
-        'Arette':               (-0.717,    43.096),
-        'Sarrance':             (-0.6008333, 43.0522),
-        'Oloron-Sainte-Marie':  (-0.6056,   43.1947),
-    }
-    for name, (lon_v, lat_v) in villes.items():
-        fig.plot(x=lon_v, y=lat_v, style='s0.4c', fill='yellow', pen='1p,black')
-        fig.text(x=lon_v + 0.01, y=lat_v + 0.01, text=name,
-                 font='10p,Helvetica-Bold', justify='LM')
+        for stas, lats, lons in stations:
+            fig.plot(x=lons, y=lats, style='t0.5c', fill='red', pen='1p,black')
+            fig.text(x=lons + 0.01, y=lats + 0.005, text=stas,
+                     font='10p,Helvetica-Bold', justify='LM')
 
-    pygmt.makecpt(cmap='viridis', series=[parameters.prof_min, parameters.prof_max], reverse=True)
-    fig.plot(x=lon, y=lat, style='c0.3c', fill=depth, cmap=True, pen='black')
-    fig.colorbar(frame='af+lProfondeur (km)')
+        villes = {
+            'Arette':               (-0.717,    43.096),
+            'Sarrance':             (-0.6008333, 43.0522),
+            'Oloron-Sainte-Marie':  (-0.6056,   43.1947),
+        }
+        for name, (lon_v, lat_v) in villes.items():
+            fig.plot(x=lon_v, y=lat_v, style='s0.4c', fill='yellow', pen='1p,black')
+            fig.text(x=lon_v + 0.01, y=lat_v + 0.01, text=name,
+                     font='10p,Helvetica-Bold', justify='LM')
+
+        pygmt.makecpt(cmap='viridis', series=[parameters.prof_min, parameters.prof_max], reverse=True)
+        fig.plot(x=lon, y=lat, style='c0.3c', fill=depth, cmap=True, pen='black')
+        fig.colorbar(frame='af+lProfondeur (km)')
 
     # -- Cross-section --
     cross_dir  = os.path.dirname(parameters.save_file)
@@ -417,7 +427,8 @@ def generate_figure(parameters):
                 cval = data[:, 2]
 
     if plot_coupe:
-        fig.shift_origin(yshift='-10c')
+        if parameters.draw_map:
+            fig.shift_origin(yshift='-10c')   # drop below the map; alone, it starts at the origin
         fig.basemap(
             projection = 'X10/-7',
             region     = [0, parameters.longueur_coupe, -1, parameters.prof_coupe],
@@ -442,6 +453,10 @@ def generate_figure(parameters):
             fig.colorbar(frame=[f"af+l{style['label']}"],
                          position='JMR+w5c/0.5c+o0.5c/0c')
 
+    if not plot_coupe and not parameters.draw_map:
+        raise RuntimeError('Nothing to draw: no event projected onto the cross-section '
+                           'and --no-map suppresses the only other panel.')
+
     fig.savefig(parameters.save_file)
     print(f'Figure saved @ {parameters.save_file}')
     return {'output': parameters.save_file}
@@ -463,8 +478,8 @@ def main():
                              '6=RESULT/NLL_result.csv or RESULT/SSST_result.csv. '
                              'Only 1 and 6 carry per-event errors; see the module '
                              'docstring for the full mapping (default: 1)')
-    parser.add_argument('--stations',  required=True,
-                        help='GTSRCE station file')
+    parser.add_argument('--stations',
+                        help='GTSRCE station file; required unless --no-map')
     parser.add_argument('--output',    required=True,
                         help='Output figure path (PDF or PNG)')
     parser.add_argument('--use-err',   default='erh',
@@ -489,12 +504,18 @@ def main():
                         help='Maximum horizontal uncertainty filter in km (default: 1.5)')
     parser.add_argument('--uncert-v',  type=float, default=1.5,
                         help='Maximum vertical uncertainty filter in km (default: 1.5)')
+    parser.add_argument('--no-map',    dest='draw_map', action='store_false',
+                        help='Output the cross-section panel alone, without the '
+                             'planimetric map (--stations then unused)')
     args = parser.parse_args()
+
+    if args.draw_map and not args.stations:
+        parser.error('--stations is required when the map is drawn; pass --no-map to omit it')
 
     generate_figure(CrossSectionParams(
         fichier_seisme = args.catalog,
         save_file      = args.output,
-        stations_file  = args.stations,
+        stations_file  = args.stations or '',
         FORMAT_fichier = args.format,
         use_err        = args.use_err,
         usable_only    = args.usable,
@@ -506,6 +527,7 @@ def main():
         prof_coupe     = args.depth_max,
         UNCERT_max_H   = args.uncert_h,
         UNCERT_max_V   = args.uncert_v,
+        draw_map       = args.draw_map,
     ))
 
 
