@@ -7,6 +7,31 @@ Plots seismic events coloured by depth on a PyGMT basemap with fault traces
 and station positions, then projects events onto a user-defined cross-section
 line and plots the depth profile below the map.
 
+Catalogue formats
+-----------------
+`--format` selects the reader, and only some of them carry per-event errors.
+`--use-err` and the `--uncert-h` / `--uncert-v` filter are meaningful only where
+the "errors" column below says so; elsewhere the reader substitutes dummies and
+both are silently inert.
+
+    --format  file                                          errors available
+    -------------------------------------------------------------------------
+    1         parse_nll_output.py output (legacy, zone_Arette/)  erh, erv
+    2         RENASS bulletin                                    none
+    3         RENASS-like, no gap/phase columns                  none
+    4         obs/*.obs (GLOBAL, NLL_result, SSST_result)        none read (*)
+    5         Chevrot CSV (#YEAR MONTH ... LAT LON DEPTH MAG)    none
+    6         RESULT/NLL_result.csv                              erh, erv
+    6         RESULT/SSST_result.csv                             erh, erv, psi, c68z
+
+    (*) obs/NLL_result.obs and obs/SSST_result.obs do carry true_erh/true_erz in
+        header columns 13/14, but this reader does not parse them and the
+        cross-section is drawn in a flat colour. Use --format 6 on the matching
+        RESULT/*.csv instead — same events, full precision.
+
+    psi, c68z and --usable need the location-PDF columns that NLL_run/pdf_metrics.py
+    adds, and it annotates SSST_result.csv only.
+
 Usage
 -----
     python complem_figures/cross_section.py \\
@@ -14,6 +39,13 @@ Usage
         --format     1 \\
         --stations   stations/GTSRCE_W.txt \\
         --output     cross_section/arette_after_erV.pdf
+
+    python complem_figures/cross_section.py \\
+        --catalog    RESULT/NLL_result.csv \\
+        --format     6 \\
+        --stations   stations/GTSRCE_2.txt \\
+        --output     cross_section/arette_nll.pdf \\
+        --use-err    erv --uncert-h 0.5 --uncert-v 0.5
 
     python complem_figures/cross_section.py \\
         --catalog    RESULT/SSST_result.csv \\
@@ -57,9 +89,9 @@ class CrossSectionParams:
     fichier_seisme:  str
     save_file:       str
     stations_file:   str
-    FORMAT_fichier:  int   = 1      # 1 = NLL output, 2 = RENASS bulletin, 4 = .obs, 5 = CSV (Chevrot), 6 = SSST_result.csv
-    use_err:         str   = 'erh'  # 'erh', 'erv', or (format 6 only) 'psi', 'c68z'
-    usable_only:     bool  = False  # format 6 only: keep only pyr:usable events
+    FORMAT_fichier:  int   = 1      # see the module docstring for the format/file mapping
+    use_err:         str   = 'erh'  # 'erh', 'erv', or (SSST_result.csv only) 'psi', 'c68z'
+    usable_only:     bool  = False  # SSST_result.csv only: keep only pyr:usable events
     lon0:            float = -0.6275
     lat0:            float = 43.0
     azimut:          float = 0.0    # degrees from North
@@ -222,7 +254,7 @@ def generate_figure(parameters):
         hour    = data[:, 3]
         minu    = data[:, 4]
 
-    elif parameters.FORMAT_fichier == 6:  # RESULT/SSST_result.csv, annotated by pdf_metrics.py
+    elif parameters.FORMAT_fichier == 6:  # RESULT/NLL_result.csv or RESULT/SSST_result.csv
         df      = pd.read_csv(parameters.fichier_seisme)
         lon     = df['longitude'].to_numpy()
         lat     = df['latitude'].to_numpy()
@@ -233,14 +265,23 @@ def generate_figure(parameters):
         gap     = df['Gap'].to_numpy()
         nbphase = df['Nphs'].to_numpy()
 
-        c68_z          = ((df['C68'] - _NOMINAL_COVERAGE) / df['C68_sigma_n']).to_numpy()
-        quality['psi']  = df['Psi'].to_numpy()
-        quality['c68z'] = c68_z
+        # The location-PDF columns are written by NLL_run/pdf_metrics.py, which
+        # annotates SSST_result.csv only. NLL_result.csv stops at true_erz, so
+        # psi/c68z/--usable are unavailable there while erh/erv still are.
+        if 'C68' in df.columns:
+            c68_z           = ((df['C68'] - _NOMINAL_COVERAGE) / df['C68_sigma_n']).to_numpy()
+            quality['psi']  = df['Psi'].to_numpy()
+            quality['c68z'] = c68_z
 
-        if parameters.usable_only:
-            usable_mask = (df['n_scat'].notna().to_numpy()
-                           & (c68_z >= _C68_Z_MIN)
-                           & ~df['dip_reject'].to_numpy(dtype=bool))
+            if parameters.usable_only:
+                usable_mask = (df['n_scat'].notna().to_numpy()
+                               & (c68_z >= _C68_Z_MIN)
+                               & ~df['dip_reject'].to_numpy(dtype=bool))
+
+        elif parameters.usable_only:
+            raise ValueError(f"--usable needs the location-PDF columns; "
+                             f"{parameters.fichier_seisme} has none. Run "
+                             f"NLL_run/pdf_metrics.py on it, or drop --usable.")
 
     else:  # FORMAT_fichier == 4 (.obs)
         with open(parameters.fichier_seisme, 'r') as f:
@@ -417,8 +458,11 @@ def main():
     parser.add_argument('--catalog',   required=True,
                         help='Seismicity catalogue file')
     parser.add_argument('--format',    type=int, default=1,
-                        help='Catalogue format: 1=NLL, 2=RENASS, 4=obs, 5=CSV, '
-                             '6=SSST_result.csv (default: 1)')
+                        help='Catalogue format: 1=parse_nll_output output (legacy), '
+                             '2/3=RENASS, 4=obs/*.obs, 5=Chevrot CSV, '
+                             '6=RESULT/NLL_result.csv or RESULT/SSST_result.csv. '
+                             'Only 1 and 6 carry per-event errors; see the module '
+                             'docstring for the full mapping (default: 1)')
     parser.add_argument('--stations',  required=True,
                         help='GTSRCE station file')
     parser.add_argument('--output',    required=True,
@@ -426,10 +470,12 @@ def main():
     parser.add_argument('--use-err',   default='erh',
                         choices=['erh', 'erv', 'psi', 'c68z'],
                         help='Metric colouring the cross-section; psi and c68z '
-                             'require --format 6 (default: erh)')
+                             'require a CSV annotated by pdf_metrics.py, i.e. '
+                             '--format 6 on SSST_result.csv (default: erh)')
     parser.add_argument('--usable',    action='store_true',
-                        help='Format 6 only: keep only events flagged pyr:usable '
-                             '(C68 z-score >= -2, not dip_reject, metrics present)')
+                        help='SSST_result.csv only: keep only events flagged '
+                             'pyr:usable (C68 z-score >= -2, not dip_reject, '
+                             'metrics present)')
     parser.add_argument('--lon0',      type=float, default=-0.6275)
     parser.add_argument('--lat0',      type=float, default=43.0)
     parser.add_argument('--azimut',    type=float, default=0.0)
