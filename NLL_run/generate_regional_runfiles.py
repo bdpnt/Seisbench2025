@@ -158,8 +158,9 @@ def _find_station_info(inventory, alternate_code_map, alternate_code):
         for network in inventory.select(network=network_code, station=station_code):
             candidates.extend((network.code, station) for station in network)
 
-    _, station = min(candidates, key=lambda c: (station_priority(c[0], c[1].elevation),
-                                                c[1].start_date or UTCDateTime(datetime.max)))
+    _, station = min(candidates,
+                     key=lambda c: (station_priority(c[0], c[1].elevation, alternate_code),
+                                    c[1].start_date or UTCDateTime(datetime.max)))
     elev_km = (station.elevation / 1000
                if hasattr(station, 'elevation') and station.elevation is not None
                else 0.0)

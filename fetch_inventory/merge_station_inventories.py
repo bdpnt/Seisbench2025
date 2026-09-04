@@ -120,7 +120,7 @@ def haversine(lat1, lon1, lat2, lon2):
 # Merge priority
 # ---------------------------------------------------------------------------
 
-def station_priority(net_code, elevation):
+def station_priority(net_code, elevation, alternate_code=None):
     """
     Rank a station as the representative of a group of co-located stations.
 
@@ -129,20 +129,33 @@ def station_priority(net_code, elevation):
     left at 0, and the XX placeholder loses last. Callers append their own final
     tie-break term (in practice the oldest start_date).
 
+    `alternate_code` adds a last term preferring the member whose network matches the
+    code's own prefix, and should be passed by everything that re-derives the
+    representative *after* the merge. The merge itself must not pass it: it is what
+    assigns the codes, and the term would be circular.
+
+    The term exists because the in-group elevation fill erases the very criterion that
+    chose the representative — once a member has inherited the winner's elevation, the
+    third term goes neutral and the date tie-break can hand the group to someone else.
+    The code's prefix is the durable record of who won, so re-deriving from it
+    reproduces the merge's own decision instead of guessing at it again.
+
     Parameters
     ----------
-    net_code  : str            — network code of the station
-    elevation : float or None  — station elevation in metres; 0 and None both count
-                                 as missing, as everywhere else in this module
+    net_code       : str            — network code of the station
+    elevation      : float or None  — station elevation in metres; 0 and None both
+                                      count as missing, as everywhere else here
+    alternate_code : str, optional  — the group's code, e.g. 'AM.0043'
 
     Returns
     -------
-    tuple[bool, bool, bool, bool]
+    tuple[bool, bool, bool, bool, bool]
     """
     return (net_code not in PERMANENT_NETWORKS,
             net_code not in RESIF_NETWORKS,
             not elevation,
-            net_code == UNKNOWN_NETWORK)
+            net_code == UNKNOWN_NETWORK,
+            alternate_code is not None and net_code != alternate_code.split('.')[0])
 
 
 # ---------------------------------------------------------------------------
@@ -310,7 +323,8 @@ def _create_alternate_code_mapping(inventory, parameters):
                 'station_code': f'{network.code}.{station.code}',
                 'start_date':   station.start_date,
                 'end_date':     station.end_date,
-                'sort_key':     (station_priority(network.code, station.elevation),
+                'sort_key':     (station_priority(network.code, station.elevation,
+                                                  station.alternate_code),
                                  station.start_date or UTCDateTime(datetime.datetime.max)),
             })
 

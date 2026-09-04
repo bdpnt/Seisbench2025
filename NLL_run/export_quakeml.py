@@ -292,8 +292,9 @@ def load_station_epochs(path):
                     (network.code, station.code, station.start_date, station.end_date,
                      station.elevation)
                 )
-    return {code: sorted(entries, key=lambda entry: (station_priority(entry[0], entry[4]),
-                                                     entry[2] or UTCDateTime(datetime.max)))
+    return {code: sorted(entries,
+                         key=lambda entry: (station_priority(entry[0], entry[4], code),
+                                            entry[2] or UTCDateTime(datetime.max)))
             for code, entries in epochs.items()}
 
 
