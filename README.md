@@ -116,7 +116,8 @@ Shallow_Depth_DL_Catalog/
 │   ├── event_ranking.py
 │   ├── plot_pdf_cloud.py
 │   ├── ssst_evolution.py
-│   └── ssst_corrections.py
+│   ├── ssst_corrections.py
+│   └── station_colocation.py
 │
 ├── zone_Arette/              # Focused analysis of the Arette seismic zone
 │
@@ -176,9 +177,13 @@ build_global_inventory.py → fetch_all_bulletins.py → build_global_bulletin.p
 **Script:** `build_global_inventory.py`  
 **Module:** `fetch_inventory/merge_station_inventories.py` → `merge_inventory()`
 
-Merges all station XML inventories into a single unified inventory: 4 FDSN sources (RESIF 346 stations, ICGC 262, ORFEUS 103, GFZ 12) and 12 OMP/temporary deployments (1 691 stations). Each station receives a unique code of the form `NET.NNNN`; stations within 20 m of each other share a code, inheriting that of the **oldest** in the group. 2 414 stations in → 2 151 retained across 46 networks, grouped into 1 997 unique codes.
+Merges all station XML inventories into a single unified inventory: 4 FDSN sources (RESIF 346 stations, ICGC 262, ORFEUS 103, GFZ 12) and 12 OMP/temporary deployments (1 691 stations). Each station receives a unique code of the form `NET.NNNN`; stations within 20 m of each other share a code, inheriting that of the group's **best-ranked** member. 2 414 stations in → 2 151 retained across 46 networks, grouped into 1 997 unique codes.
 
-OMP CSV data is pre-processed with `_remove_fdsn_duplicates.py`, `_fill_missing_elevations.py`, and `_convert_csv_to_stationxml.py`. These three are **standalone tools run by hand** per deployment — `build_global_inventory.py` imports none of them. They assign the placeholder network code `XX` to OMP stations, which is what the `XX`-loses tie-break in [§8](#8-final-bulletin-export) later has to resolve.
+The ranking is `station_priority()` in `merge_station_inventories.py`, and it is the **single rule** used everywhere a group of co-located stations has to yield one representative — the code it lends the group, the coordinates and elevation written into the NonLinLoc `GTSRCE` lines ([§4](#4-earthquake-relocation-nonlinloc)), and the station name resolved in the QuakeML export ([§8](#8-final-bulletin-export)). Lowest wins: **permanent network** (`FR RA RD ES CA LC AM`, the `perm` rows of `stations/all_networks.xlsx`) before temporary; **RESIF/RENASS** (`FR RA RD`) among the permanent ones; a station carrying a **real elevation** before one left at 0; the `XX` placeholder last; oldest `start_date` breaking ties. Before this rule the three stages each picked a different member of the same group.
+
+Stations left without an elevation inherit one from their co-located group, then from the Open-Elevation API — 156 of 2 151 carried none, whole nodal deployments (`XI` 99, `24` 31, `X7` 15) whose StationXML never populated the field, and a station's elevation enters the travel-time computation directly. This is the **only step of the pipeline that reaches the network**; `--no-fill-elevations` skips it.
+
+OMP CSV data is pre-processed with `_remove_fdsn_duplicates.py` and `_convert_csv_to_stationxml.py`. These two are **standalone tools run by hand** per deployment — `build_global_inventory.py` imports neither. They assign the placeholder network code `XX` to OMP stations, which is what the `XX`-last term of the ranking resolves. The third, `_fill_missing_elevations.py`, is still run by hand on the CSVs, but its `_get_elevation()` is now imported by `merge_station_inventories` for the fill above.
 
 > ⚠️ **This stage is interactive and cannot run unattended.** `merge_inventory` calls `check_inventory()` unconditionally, which prompts at the terminal for every station code appearing in more than one network and asks which network(s) to remove. There is no flag and no non-interactive path. The operator's answers are **not logged, saved, or committed**, so `stations/GLOBAL_inventory.xml` is not reproducible from the code and the inputs alone — re-running the stage means re-making every one of those judgements. It is the only step of the pipeline that is not reproducible; the relocation itself is deterministic (fixed NonLinLoc seed).
 
@@ -486,7 +491,7 @@ Measured on the current catalog: **45 415 usable / 809 unusable** — 661 `dip_b
 
 Three things that rule deliberately does *not* do. **Ψ never rejects**: it is directionless, and 81 % of this catalog exceeds its own Gaussian null on `J`, so gating on it would discard 85 % of the events — it is exported as an indicator only. And the `C_68` cut is taken **against the simulated null, not against 0.68**: with the median `C68_sigma_n ≈ 0.0124` the −2 σ cut sits at `C_68 < 0.655`, flagging 155 events where a raw `C_68 < 0.68` would flag 2 944 — the 2 789 in between are within sampling noise of perfect coverage. And **the dip p-value never rejects on its own**: it cannot see how far apart the modes are, so it is paired with `dip_sep_km > true_erz` (above), which is the difference between 661 events flagged and 5 329.
 
-Station codes are resolved back to real network/station names: the picks carry the project's unified code (`FR.0041`), which is matched against `alternate_code` in `GLOBAL_inventory.xml` and resolved by the pick's own date. 80 codes cover more than one station (near-duplicates merged within 20 m); 79 have disjoint epochs and resolve on the date alone. When several candidates cover the same date, the **`XX` network loses** — `XX` is the placeholder for uncalled or unknown networks, so a real network code is always the better label (this currently decides one code, `FR.0013` → `FR.MTHF`, 1 331 picks; it is logged).
+Station codes are resolved back to real network/station names: the picks carry the project's unified code (`FR.0041`), which is matched against `alternate_code` in `GLOBAL_inventory.xml` and resolved by the pick's own date. 80 codes cover more than one station (near-duplicates merged within 20 m); 79 have disjoint epochs and resolve on the date alone. When several candidates cover the same date, the winner is the one the merge itself would keep — `station_priority()` from [§1](#1-station-inventory-fusion), so the permanent network wins and the **`XX` placeholder loses last** (this currently decides one code, `FR.0013` → `FR.MTHF`, 1 331 picks; it is logged). Using the merge's own rule here is what makes the exported station name, the code it was given and the coordinates NonLinLoc was fed all point at the same station.
 
 Resolution is a judgement, so it is never destructive. Every pick keeps its unified code in `pyr:unifiedCode`, and whenever the code covers more than one station the **stations that were not chosen are exported too**, in `pyr:alternateStations` — including those whose epoch does not cover the pick, since an epoch that excludes a real pick is itself a sign the metadata may be wrong. The stations behind one unified code sit within 20 m of each other, so if the resolved label turns out to be wrong, those are exactly the places to fetch waveforms from instead. This affects ~15 % of picks (150 395 on multi-station codes).
 
@@ -575,8 +580,16 @@ Each module can also be run standalone:
 | `plot_pdf_cloud.py` | Interactive 3D Plotly visualization of one event's NLLoc PDF scatter-cloud across SSST iterations |
 | `ssst_evolution.py` | Per-zone plot of pdfVolume/EllipsoidLen3/RMS evolution across SSST iterations (convergence QC) |
 | `ssst_corrections.py` | Reconstructs and maps the SSST travel-time corrections themselves — a per-station/phase atlas, the across-station spread, and the displacement SSST actually produced (see [below](#mapping-the-ssst-corrections--complem_figuresssst_correctionspy)) |
+| `station_colocation.py` | Diagnostic for the 20 m co-location radius of [§1](#1-station-inventory-fusion): the observed distribution of station separations against what the merge actually merged |
 
 `event_ranking.py`, `plot_pdf_cloud.py`, and `ssst_evolution.py` are standalone diagnostics for the SSST stage, run directly rather than wired into `generate_complem_figures.py` / `generate_complem_maps.py`; they read `RESULT/NLL_result.csv`, `RESULT/SSST_result.csv`, and the per-zone `run/nll_loc/` / `run/ssst_loc/<run-name>/` outputs directly. `event_ranking.py` picks up the PDF-quality columns (Ψ, C_68, dip test) automatically once `NLL_run/pdf_metrics.py` has annotated `SSST_result.csv`, and runs without them otherwise — they are post-SSST only, since `run/nll_loc/` holds no `.scat` clouds to compare against. It also shares that module's windowed-grid helper (`windowed_stat_grid`), so its gridmaps and the PDF-metric maps bin space identically.
+
+`station_colocation.py` is the one diagnostic that looks at stage 1 rather than at the relocation. It reads the 2 414 pre-merge stations from `stations/*/*.xml` and the groups recorded in `GLOBAL_inventory.xml`, and asks whether 20 m is the right radius. The separations are bimodal with a real trough between 20 m and 200 m, so the threshold does sit in a gap — but it is not a free choice: 651 pairs fall within 20 m, 811 within 30 m, and the extra ones are inside the dense nodal arrays (`AM`, `8M`, `XI`), where genuinely distinct nodes would start collapsing into one code. Crucially it reads "merged" from the **outcome** rather than from the distance, which is what exposes the 423 pairs that merged from *beyond* the radius through the single-linkage chaining of `_combine_close_stations` and the 38 inside it that did not, because `check_inventory` removed one of them by hand.
+
+```bash
+python complem_figures/station_colocation.py             # → complem_figures/station_colocation/
+python complem_figures/station_colocation.py --threshold 30
+```
 
 One folder here has no script of its own: `complem_figures/pdf_metrics/` receives the figures written by `NLL_run/pdf_metrics.py` (see [above](#location-pdf-quality-metrics--nll_runpdf_metricspy)).
 
