@@ -109,6 +109,7 @@ sys.path.insert(0, _PROJECT_ROOT)
 
 from NLL_run.merge_regional_results import _ellipsoid_axis_to_xyz
 from temp_picks.match_picks         import load_bulletin
+from fetch_inventory.merge_station_inventories import station_priority
 
 logger = logging.getLogger('export_quakeml')
 
@@ -126,7 +127,6 @@ _CHUNK_SIZE       = 5000    # events serialized per pass (bounds peak memory)
 _SPLIT_YEARS      = 5       # calendar length of each split part
 
 _KM_PER_DEGREE    = 111.195 # NLL reports Dist in km, QuakeML wants degrees
-_UNKNOWN_NETWORK  = 'XX'    # placeholder network; a real code always wins over it
 
 # The .obs event header fields, counted after stripping the leading '# '.
 _H_MAG        = 9
@@ -271,15 +271,17 @@ def load_station_epochs(path):
     more than one real station (near-duplicates merged within 20 m), so each maps
     to a list of epochs rather than a single station.
 
-    Candidates are ordered with the XX network last, since XX is the placeholder
-    for uncalled or unknown networks: whenever a real network code is available
-    for the same pick, it is the better label. This only decides cases where
-    several candidates match the same date -- disjoint epochs still resolve on
-    the date alone.
+    Candidates are ordered by the merge priority -- permanent network first, then
+    RESIF/RENASS, then a station carrying a real elevation, the XX placeholder for
+    uncalled or unknown networks last -- with the oldest start_date breaking ties.
+    That is the same rule that decides which station lends the code its label and
+    which one NonLinLoc is given the coordinates of, so all three agree. It only
+    decides cases where several candidates match the same date -- disjoint epochs
+    still resolve on the date alone.
 
     Returns
     -------
-    dict[str, list[(network_code, station_code, start_date, end_date)]]
+    dict[str, list[(network_code, station_code, start_date, end_date, elevation)]]
     """
     inventory = read_inventory(path)
     epochs    = defaultdict(list)
@@ -287,9 +289,11 @@ def load_station_epochs(path):
         for station in network:
             if station.alternate_code:
                 epochs[station.alternate_code].append(
-                    (network.code, station.code, station.start_date, station.end_date)
+                    (network.code, station.code, station.start_date, station.end_date,
+                     station.elevation)
                 )
-    return {code: sorted(entries, key=lambda entry: entry[0] == _UNKNOWN_NETWORK)
+    return {code: sorted(entries, key=lambda entry: (station_priority(entry[0], entry[4]),
+                                                     entry[2] or UTCDateTime(datetime.max)))
             for code, entries in epochs.items()}
 
 
@@ -299,8 +303,9 @@ def resolve_station(epochs, unified_code, when):
 
     Picks the first candidate whose epoch contains `when`, and falls back to the
     first candidate when none matches (open-ended entries have start_date and
-    end_date None). Candidates arrive XX-last from load_station_epochs(), so a
-    real network code wins whenever both cover the pick.
+    end_date None). Candidates arrive in merge-priority order from
+    load_station_epochs(), so the permanent network -- and never the XX placeholder
+    -- wins whenever several cover the pick.
 
     The stations that were *not* picked are returned alongside, including those
     whose epoch does not cover the pick. They are exported with the pick so that
@@ -318,9 +323,9 @@ def resolve_station(epochs, unified_code, when):
     if not candidates:
         return None
 
-    names = [(network_code, station_code) for network_code, station_code, _, _ in candidates]
+    names = [(network_code, station_code) for network_code, station_code, _, _, _ in candidates]
 
-    for index, (_, _, start, end) in enumerate(candidates):
+    for index, (_, _, start, end, _) in enumerate(candidates):
         if (start is None or when >= start) and (end is None or when <= end):
             return names[index], names[:index] + names[index + 1:]
 
@@ -333,11 +338,11 @@ def _ambiguous_codes(epochs):
 
     Most codes covering several stations have disjoint epochs and resolve
     cleanly; a few list entries that all span all time, so the ordering decides
-    (XX last, then inventory order). The stations behind one code sit within
-    20 m of each other, so this only picks between near-identical names.
+    (the merge priority, then inventory order). The stations behind one code sit
+    within 20 m of each other, so this only picks between near-identical names.
     """
     def spans_all(epoch):
-        _, _, start, end = epoch
+        _, _, start, end, _ = epoch
         return (start is None or start.year <= 1900) and (end is None or end.year >= 2500)
 
     return [code for code, entries in epochs.items()
